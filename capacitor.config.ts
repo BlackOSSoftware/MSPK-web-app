@@ -1,7 +1,7 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.mspk.trading.solutions',
+  appId: 'com.mspktrade.solution',
   appName: 'MSPK Trading Solutions',
   webDir: 'build',
   server: {

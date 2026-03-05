@@ -34,6 +34,7 @@ import { ThemeSync } from "@/components/theme-sync";
 import { QueryProvider } from "@/components/providers/query-provider";
 import { ClickSoundProvider } from "@/components/click-sound-provider";
 import { FcmListener } from "@/components/fcm-listener";
+import { CapacitorPushInit } from "@/components/capacitor-push-init";
 import { NotificationsWatcher } from "@/components/notifications-watcher";
 
 export default function RootLayout({
@@ -62,6 +63,7 @@ export default function RootLayout({
             <ClickSoundProvider>
               {children}
               <FcmListener />
+              <CapacitorPushInit />
               <NotificationsWatcher />
               <Toaster position="top-center" richColors />
             </ClickSoundProvider>
