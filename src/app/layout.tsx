@@ -1,0 +1,73 @@
+import type { Metadata } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
+import "@fontsource/outfit";
+import "@fontsource/jetbrains-mono";
+import "./globals.css";
+
+const geistSans = Geist({
+  variable: "--font-geist-sans",
+  subsets: ["latin"],
+});
+
+const geistMono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
+
+import { Toaster } from 'sonner';
+
+export const metadata: Metadata = {
+  title: {
+    default: "MSPK Trade Solutions",
+    template: "%s | MSPK Trade Solutions",
+  },
+  description: "Institutional-grade trading signals with disciplined risk and premium execution clarity.",
+  icons: {
+    icon: "/logo.jpg",
+    shortcut: "/logo.jpg",
+    apple: "/logo.jpg",
+  },
+};
+
+import { ThemeProvider } from "@/components/theme-provider";
+import { ThemeSync } from "@/components/theme-sync";
+import { QueryProvider } from "@/components/providers/query-provider";
+import { ClickSoundProvider } from "@/components/click-sound-provider";
+import { FcmListener } from "@/components/fcm-listener";
+import { NotificationsWatcher } from "@/components/notifications-watcher";
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Lato:wght@300;400;700&family=Montserrat:wght@400;500;600;700&family=Oswald:wght@200;300;400;500;600;700&family=Outfit:wght@300;400;500;600;700&family=Playfair+Display:wght@400;500;600;700&family=Poppins:wght@300;400;500;600;700&family=Roboto:wght@300;400;500;700&family=Space+Grotesk:wght@300;400;500;600;700&family=Ubuntu:wght@300;400;500;700&display=swap" rel="stylesheet" />
+      </head>
+      <body
+        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+      >
+        <ThemeSync />
+        <QueryProvider>
+          <ThemeProvider
+            attribute="class"
+            defaultTheme="light"
+            enableSystem={false}
+            disableTransitionOnChange
+          >
+            <ClickSoundProvider>
+              {children}
+              <FcmListener />
+              <NotificationsWatcher />
+              <Toaster position="top-center" richColors />
+            </ClickSoundProvider>
+          </ThemeProvider>
+        </QueryProvider>
+      </body>
+    </html>
+  );
+}

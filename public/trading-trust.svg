@@ -1,0 +1,49 @@
+<svg width="1040" height="640" viewBox="0 0 1040 640" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0F172A"/>
+      <stop offset="55%" stop-color="#0B1324"/>
+      <stop offset="100%" stop-color="#0A0F1C"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#38BDF8"/>
+      <stop offset="55%" stop-color="#3B82F6"/>
+      <stop offset="100%" stop-color="#6366F1"/>
+    </linearGradient>
+    <linearGradient id="chart" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#22C55E"/>
+      <stop offset="100%" stop-color="#10B981"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="0" y="0" width="1040" height="640" rx="36" fill="url(#bg)"/>
+  <rect x="40" y="40" width="960" height="560" rx="28" fill="#0B1220" stroke="#1E293B" stroke-width="2"/>
+
+  <circle cx="160" cy="170" r="120" fill="url(#accent)" opacity="0.2"/>
+  <circle cx="880" cy="520" r="140" fill="url(#accent)" opacity="0.18"/>
+
+  <rect x="120" y="120" width="800" height="360" rx="20" fill="#0F172A" stroke="#1F2937"/>
+  <path d="M140 420 L220 360 L300 390 L380 310 L460 340 L540 250 L620 280 L700 210 L820 250" stroke="url(#chart)" stroke-width="6" fill="none"/>
+  <path d="M140 420 L220 360 L300 390 L380 310 L460 340 L540 250 L620 280 L700 210 L820 250" stroke="#22C55E" stroke-opacity="0.25" stroke-width="14" fill="none"/>
+
+  <g>
+    <rect x="120" y="500" width="260" height="80" rx="14" fill="#0B1628" stroke="#1F2A3A"/>
+    <rect x="144" y="528" width="56" height="24" rx="6" fill="#0F766E"/>
+    <rect x="212" y="528" width="140" height="12" rx="6" fill="#334155"/>
+    <rect x="212" y="548" width="110" height="12" rx="6" fill="#1E293B"/>
+  </g>
+
+  <g>
+    <rect x="700" y="90" width="210" height="120" rx="18" fill="#0B1628" stroke="#1F2A3A"/>
+    <path d="M805 118 L842 132 L842 160 C842 188 822 210 805 220 C788 210 768 188 768 160 L768 132 L805 118Z" fill="url(#accent)"/>
+    <rect x="740" y="220" width="130" height="10" rx="5" fill="#1E293B"/>
+  </g>
+
+  <g opacity="0.5">
+    <path d="M180 210 C260 150 340 150 420 210" stroke="#1E293B" stroke-width="2"/>
+    <path d="M620 420 C690 370 760 370 830 420" stroke="#1E293B" stroke-width="2"/>
+  </g>
+
+  <rect x="120" y="120" width="800" height="360" rx="20" stroke="#38BDF8" stroke-opacity="0.18"/>
+  <rect x="60" y="60" width="920" height="520" rx="30" stroke="#38BDF8" stroke-opacity="0.08"/>
+</svg>
