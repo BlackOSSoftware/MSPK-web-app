@@ -35,7 +35,10 @@ export async function register(payload: RegisterPayload): Promise<RegisterApiRes
         new Set(
           payload.segments
             .map((segment) => (typeof segment === "string" ? normalizeSegment(segment) : null))
-            .filter((segment): segment is string => Boolean(segment))
+            .filter(
+              (segment): segment is Exclude<ReturnType<typeof normalizeSegment>, null> =>
+                segment !== null
+            )
         )
       )
     : [];

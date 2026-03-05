@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { Suspense, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
@@ -11,7 +11,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 
-export default function TrialPage() {
+function TrialPageContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const selectedPlanId = searchParams.get('planId');
@@ -452,5 +452,13 @@ export default function TrialPage() {
                 </div>
             </div>
         </div>
+    );
+}
+
+export default function TrialPage() {
+    return (
+        <Suspense fallback={<div className="min-h-screen bg-white dark:bg-black" />}>
+            <TrialPageContent />
+        </Suspense>
     );
 }
