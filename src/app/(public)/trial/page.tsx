@@ -141,8 +141,12 @@ export default function TrialPage() {
                 <div className="absolute right-0 bottom-0 h-[400px] w-[400px] bg-primary/5 opacity-30 blur-[100px]"></div>
             </div>
 
-            <div className="w-full max-w-7xl mx-auto mt-3 md:mt-8 px-3 sm:px-6 py-5 sm:py-10 md:py-16 relative z-10">
-                <div className="flex flex-col lg:flex-row items-center lg:items-start justify-between gap-8 sm:gap-10 lg:gap-8">
+            <div className="w-full max-w-7xl mx-auto mt-2 sm:mt-6 md:mt-8 px-3 sm:px-6 py-4 sm:py-8 md:py-14 relative z-10">
+                <div className="sm:hidden mb-4 text-center">
+                    <p className="text-[11px] uppercase tracking-[0.32em] text-slate-500 dark:text-slate-400">MSPK Trading Solution</p>
+                    <h1 className="mt-1 text-xl font-heading font-bold text-slate-900 dark:text-white">Start Your Premium Trial</h1>
+                </div>
+                <div className="flex flex-col lg:flex-row items-center lg:items-start justify-between gap-6 sm:gap-8 lg:gap-8">
 
                     {/* Left Content: Value Props */}
                     <div className="hidden lg:block w-full lg:max-w-xl space-y-6 text-center lg:text-left animate-in fade-in slide-in-from-bottom-8 duration-700 order-2 lg:order-1">
@@ -203,7 +207,7 @@ export default function TrialPage() {
                     <div className="w-full lg:max-w-md animate-in fade-in slide-in-from-right-8 duration-700 delay-150 order-1 lg:order-2">
                         <Card className="border-0 shadow-2xl shadow-primary/5 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-xl ring-1 ring-slate-200 dark:ring-white/10 rounded-[2rem] overflow-hidden">
                             {step === 'success' || success ? (
-                                <div className="p-12 text-center space-y-6">
+                                <div className="p-6 sm:p-12 text-center space-y-5 sm:space-y-6">
                                     <div className="w-20 h-20 bg-green-500/10 text-green-500 rounded-full flex items-center justify-center mx-auto mb-6">
                                         <Check className="w-10 h-10 stroke-[3]" />
                                     </div>
@@ -211,25 +215,25 @@ export default function TrialPage() {
                                     <p className="text-muted-foreground leading-relaxed">
                                         Your request is confirmed. Our onboarding team will contact you shortly to activate premium access.
                                     </p>
-                                    <Button onClick={() => setSuccess(false)} variant="outline" className="w-full h-12 rounded-xl mt-4">
+                                    <Button onClick={() => setSuccess(false)} variant="outline" className="w-full h-10 sm:h-12 rounded-xl mt-2 sm:mt-4">
                                         Request Another
                                     </Button>
                                     <Link href="/market" className="block w-full">
-                                        <Button variant="ghost" className="w-full h-12 rounded-xl text-primary hover:text-primary hover:bg-primary/5">
+                                        <Button variant="ghost" className="w-full h-10 sm:h-12 rounded-xl text-primary hover:text-primary hover:bg-primary/5">
                                             Return to Market <ArrowRight className="w-4 h-4 ml-2" />
                                         </Button>
                                     </Link>
                                 </div>
                             ) : step === 'otp' ? (
-                                <CardContent className="p-6 sm:p-8">
-                                    <div className="mb-8">
-                                        <h2 className="text-2xl font-bold mb-2">Verify Your Email</h2>
-                                        <p className="text-sm text-muted-foreground">
+                                <CardContent className="p-4 sm:p-8">
+                                    <div className="mb-4 sm:mb-8">
+                                        <h2 className="text-xl sm:text-2xl font-bold mb-1 sm:mb-2">Verify Your Email</h2>
+                                        <p className="text-xs sm:text-sm text-muted-foreground">
                                             OTP sent on your email: {registeredEmail}.
                                         </p>
                                     </div>
 
-                                    <form onSubmit={onVerifyOtp} className="space-y-4 sm:space-y-6">
+                                    <form onSubmit={onVerifyOtp} className="space-y-3 sm:space-y-6">
                                         <div className="space-y-2">
                                             <Label htmlFor="otp" className="text-xs font-bold uppercase tracking-wider text-muted-foreground ml-1">OTP Code</Label>
                                             <Input
@@ -239,7 +243,7 @@ export default function TrialPage() {
                                                 onChange={(e) => setOtp(e.target.value)}
                                                 required
                                                 placeholder="Enter 6-digit code"
-                                                className="h-12 rounded-xl bg-slate-50 dark:bg-black/40 border-slate-200 dark:border-white/10 focus:ring-primary/20 focus:border-primary px-4"
+                                                className="h-10 sm:h-12 rounded-xl bg-slate-50 dark:bg-black/40 border-slate-200 dark:border-white/10 focus:ring-primary/20 focus:border-primary px-4"
                                             />
                                         </div>
 
@@ -251,7 +255,7 @@ export default function TrialPage() {
 
                                         <Button
                                             type="submit"
-                                            className="w-full h-14 rounded-xl text-base font-bold bg-primary text-black hover:bg-primary/90 shadow-lg shadow-primary/20 hover:scale-[1.02] transition-all duration-200 mt-2"
+                                            className="w-full h-11 sm:h-14 rounded-xl text-sm sm:text-base font-bold bg-primary text-black hover:bg-primary/90 shadow-lg shadow-primary/20 hover:scale-[1.02] transition-all duration-200 mt-1"
                                             disabled={loading}
                                         >
                                             {loading ? (
@@ -264,19 +268,35 @@ export default function TrialPage() {
                                         <Button
                                             type="button"
                                             variant="ghost"
-                                            className="w-full h-12 rounded-xl text-primary hover:text-primary hover:bg-primary/5"
+                                            className="w-full h-10 sm:h-12 rounded-xl text-primary hover:text-primary hover:bg-primary/5"
                                             onClick={onResendOtp}
                                             disabled={loading}
                                         >
                                             Resend OTP
                                         </Button>
+                                        <p className="text-[11px] text-center text-muted-foreground">
+                                            Already have an account?{' '}
+                                            <Link href="/login" className="font-semibold text-primary hover:underline underline-offset-4">
+                                                Login
+                                            </Link>
+                                        </p>
                                     </form>
                                 </CardContent>
                             ) : (
                                 <CardContent className="p-4 sm:p-6">
-                                    <div className="mb-5">
-                                        <h2 className="text-xl sm:text-2xl font-bold mb-1">Create Your Account</h2>
-                                        <p className="text-sm text-muted-foreground">Share your details to register and verify your email.</p>
+                                    <div className="mb-3 sm:mb-5">
+                                        <h2 className="text-lg sm:text-2xl font-bold mb-1">Create Your Account</h2>
+                                        <p className="text-xs sm:text-sm text-muted-foreground">Share your details to register and verify your email.</p>
+                                    </div>
+                                    <div className="mb-4 rounded-2xl border border-slate-200/70 dark:border-white/10 bg-slate-50/80 dark:bg-white/5 px-4 py-3">
+                                        <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">
+                                            <Sparkles className="h-3.5 w-3.5" /> Premium Access
+                                        </div>
+                                        <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-600 dark:text-slate-300">
+                                            <span className="rounded-full border border-slate-200 dark:border-white/10 px-2 py-1">Instant OTP Verify</span>
+                                            <span className="rounded-full border border-slate-200 dark:border-white/10 px-2 py-1">Priority Onboarding</span>
+                                            <span className="rounded-full border border-slate-200 dark:border-white/10 px-2 py-1">Live Signals</span>
+                                        </div>
                                     </div>
 
                                     <form onSubmit={onSubmit} className="space-y-3 sm:space-y-5">
@@ -285,7 +305,7 @@ export default function TrialPage() {
                                                 {formError}
                                             </div>
                                         ) : null}
-                                        <div className="grid gap-3 sm:gap-4 md:grid-cols-2">
+                                        <div className="grid gap-2.5 sm:gap-4 md:grid-cols-2">
                                             <div className="space-y-2 md:col-span-2">
                                                 <Label htmlFor="name" className="text-xs font-bold uppercase tracking-wider text-muted-foreground ml-1">Full Name</Label>
                                                 <Input
@@ -389,7 +409,7 @@ export default function TrialPage() {
                                                                         : [...prev, segment.id]
                                                                 )
                                                             }
-                                                            className={`h-9 rounded-full px-3 text-xs font-semibold transition-all border ${
+                                                            className={`h-8 sm:h-9 rounded-full px-3 text-[11px] sm:text-xs font-semibold transition-all border ${
                                                                 active
                                                                     ? "bg-primary text-black border-primary shadow-[0_10px_30px_-18px_rgba(59,130,246,0.7)]"
                                                                     : "bg-white/70 dark:bg-white/5 border-slate-200 dark:border-white/10 text-muted-foreground hover:text-foreground"
@@ -404,7 +424,7 @@ export default function TrialPage() {
 
                                         <Button
                                             type="submit"
-                                            className="w-full h-11 sm:h-12 rounded-xl text-sm sm:text-base font-bold bg-primary text-black hover:bg-primary/90 shadow-lg shadow-primary/20 hover:scale-[1.02] transition-all duration-200 mt-1.5"
+                                            className="w-full h-10 sm:h-12 rounded-xl text-sm sm:text-base font-bold bg-primary text-black hover:bg-primary/90 shadow-lg shadow-primary/20 hover:scale-[1.02] transition-all duration-200 mt-1"
                                             disabled={loading}
                                         >
                                             {loading ? (
@@ -414,8 +434,14 @@ export default function TrialPage() {
                                             )}
                                         </Button>
 
-                                        <p className="text-[11px] text-center text-muted-foreground mt-4">
+                                        <p className="text-[11px] text-center text-muted-foreground mt-3">
                                             By continuing, you agree to our Terms of Service and Privacy Policy.
+                                        </p>
+                                        <p className="text-[11px] text-center text-muted-foreground">
+                                            Already have an account?{' '}
+                                            <Link href="/login" className="font-semibold text-primary hover:underline underline-offset-4">
+                                                Login
+                                            </Link>
                                         </p>
                                     </form>
                                 </CardContent>

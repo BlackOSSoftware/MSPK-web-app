@@ -88,11 +88,26 @@ export function Sidebar({
     const logoutMutation = useLogoutMutation();
 
     const handleLogout = async () => {
-        try {
-            await logoutMutation.mutateAsync();
-        } finally {
-            router.replace("/login");
+        const action = async () => {
+            try {
+                await logoutMutation.mutateAsync();
+            } finally {
+                router.replace("/login");
+            }
+        };
+
+        const requestLeave =
+            typeof window !== "undefined"
+                ? (window as { __requestDashboardLeave?: (request: { href?: string; action?: () => Promise<void> | void }) => void })
+                    .__requestDashboardLeave
+                : undefined;
+
+        if (requestLeave) {
+            requestLeave({ href: "/login", action });
+            return;
         }
+
+        await action();
     };
 
     return (

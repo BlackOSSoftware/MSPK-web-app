@@ -813,7 +813,78 @@ export default function WatchlistPage() {
 
       <section className="overflow-hidden rounded-2xl border border-slate-300/70 bg-white/90 shadow-[0_18px_55px_-36px_rgba(2,132,199,0.75)] dark:border-slate-700/60 dark:bg-slate-950/50">
         {viewMode === "table" ? (
-          <Table className="min-w-[980px]">
+          <>
+            <div className="md:hidden">
+              {showLoading ? (
+                <div className="py-8 text-center text-sm text-slate-500 dark:text-slate-400">Loading watchlist...</div>
+              ) : filteredRows.length === 0 ? (
+                <div className="py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+                  {allRows.length === 0
+                    ? "Watchlist empty. Add your first symbol above."
+                    : "No rows match current filters."}
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-200/80 dark:divide-slate-800/80">
+                  {filteredRows.map((row) => {
+                    const digits = getPriceDigits(row, getReferencePrice(row));
+                    const isUp =
+                      typeof row.changePercent === "number"
+                        ? row.changePercent >= 0
+                        : typeof row.points === "number"
+                          ? row.points >= 0
+                          : false;
+                    const changeClass = isUp ? "text-emerald-500" : "text-rose-500";
+                    const priceClass = "text-sky-600 dark:text-sky-300";
+                    const highClass = "text-emerald-600 dark:text-emerald-300";
+                    const lowClass = "text-rose-600 dark:text-rose-300";
+                    const bidClass = "text-emerald-600 dark:text-emerald-300";
+                    const askClass = "text-rose-600 dark:text-rose-300";
+
+                    return (
+                      <button
+                        key={row.symbol}
+                        type="button"
+                        onClick={() => setSelectedSymbol(row.symbol)}
+                        className="w-full px-3 py-2 text-left transition-colors hover:bg-slate-100/70 dark:hover:bg-slate-900/60"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-700 dark:text-slate-200">
+                              {row.symbol}
+                            </p>
+                            <p className="mt-0.5 text-[10px] text-slate-500 dark:text-slate-400">
+                              {row.name}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className={cn("text-[15px] font-bold", priceClass)}>
+                              {formatNumber(row.currentPrice, digits)}
+                            </p>
+                            <p className="mt-0.5 text-[10px] text-slate-500 dark:text-slate-400">
+                              <span className={highClass}>H {formatNumber(row.high, digits)}</span>
+                              {" / "}
+                              <span className={lowClass}>L {formatNumber(row.low, digits)}</span>
+                            </p>
+                          </div>
+                        </div>
+                        <div className="mt-1 flex items-center justify-between gap-3 text-[11px]">
+                          <p className={cn("font-semibold", changeClass)}>
+                            {formatPoints(row.points, digits)} ({formatPercent(row.changePercent)})
+                          </p>
+                          <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                            <span className={bidClass}>Bid {formatNumber(row.bid, digits)}</span>
+                            {" / "}
+                            <span className={askClass}>Ask {formatNumber(row.ask, digits)}</span>
+                          </p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            <div className="hidden md:block">
+              <Table className="min-w-[980px]">
           <TableHeader>
             <TableRow className="bg-slate-100/80 dark:bg-slate-900/80">
               <TableHead>Symbol</TableHead>
@@ -1132,7 +1203,9 @@ export default function WatchlistPage() {
               })
             )}
           </TableBody>
-          </Table>
+              </Table>
+            </div>
+          </>
         ) : (
           <div className="relative overflow-hidden bg-[radial-gradient(circle_at_0%_0%,rgba(56,189,248,0.16),transparent_45%),radial-gradient(circle_at_100%_100%,rgba(16,185,129,0.14),transparent_44%),linear-gradient(140deg,rgba(255,255,255,0.96),rgba(240,249,255,0.92))] p-2.5 dark:bg-[radial-gradient(circle_at_0%_0%,rgba(56,189,248,0.14),transparent_45%),radial-gradient(circle_at_100%_100%,rgba(16,185,129,0.12),transparent_44%),linear-gradient(140deg,rgba(5,11,19,0.98),rgba(5,12,21,0.96))] sm:p-3">
             {showLoading ? (

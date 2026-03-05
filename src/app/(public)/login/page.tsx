@@ -128,8 +128,12 @@ export default function LoginPage() {
                 <div className="absolute top-0 left-0 right-0 h-[500px] w-full bg-gradient-to-b from-primary/5 via-transparent to-transparent blur-3xl opacity-40"></div>
             </div>
 
-            <div className="w-full max-w-7xl mx-auto mt-6 md:mt-10 px-4 sm:px-6 py-8 sm:py-12 md:py-24 relative z-10">
-                <div className="flex flex-col lg:flex-row items-center lg:items-start justify-between gap-10 sm:gap-16 lg:gap-8">
+            <div className="w-full max-w-7xl mx-auto mt-2 sm:mt-6 md:mt-10 px-4 sm:px-6 py-4 sm:py-8 md:py-16 relative z-10">
+                <div className="sm:hidden mb-4 text-center">
+                    <p className="text-[11px] uppercase tracking-[0.32em] text-slate-500 dark:text-slate-400">MSPK Trading Solution</p>
+                    <h1 className="mt-1 text-xl font-heading font-bold text-slate-900 dark:text-white">Secure Client Login</h1>
+                </div>
+                <div className="flex flex-col lg:flex-row items-center lg:items-start justify-between gap-6 sm:gap-10 lg:gap-8">
                     <div className="hidden lg:block w-full lg:max-w-xl space-y-8 text-center lg:text-left pt-8 animate-in fade-in slide-in-from-bottom-8 duration-700 order-2 lg:order-1">
                         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-semibold uppercase tracking-wider">
                             <Lock className="w-3 h-3 fill-current animate-pulse" /> Secure Access
@@ -147,14 +151,14 @@ export default function LoginPage() {
 
                     <div className="w-full lg:max-w-md animate-in fade-in slide-in-from-right-8 duration-700 delay-150 order-1 lg:order-2">
                         <Card className="border-0 shadow-2xl shadow-primary/5 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-xl ring-1 ring-slate-200 dark:ring-white/10 rounded-[2rem] overflow-hidden">
-                            <CardContent className="p-6 sm:p-8">
-                                <div className="mb-8">
-                                    <h2 className="text-2xl font-bold mb-2">Sign In</h2>
-                                    <p className="text-sm text-muted-foreground">Enter your credentials to continue securely.</p>
+                            <CardContent className="p-4 sm:p-8">
+                                <div className="mb-4 sm:mb-8">
+                                    <h2 className="text-xl sm:text-2xl font-bold mb-1 sm:mb-2">Sign In</h2>
+                                    <p className="text-xs sm:text-sm text-muted-foreground">Enter your credentials to continue securely.</p>
                                 </div>
 
                                 {!showVerify ? (
-                                    <form onSubmit={onSubmit} className="space-y-4 sm:space-y-5">
+                                    <form onSubmit={onSubmit} className="space-y-3 sm:space-y-5">
                                         <div className="space-y-2">
                                             <Label htmlFor="email" className="text-xs font-bold uppercase tracking-wider text-muted-foreground ml-1">Email</Label>
                                             <div className="relative">
@@ -167,7 +171,7 @@ export default function LoginPage() {
                                                     placeholder="trader@mspk.com"
                                                     value={email}
                                                     onChange={(e) => setEmail(e.target.value)}
-                                                    className="h-12 rounded-xl pl-11 bg-slate-50 dark:bg-black/40 border-slate-200 dark:border-white/10 focus:ring-primary/20 focus:border-primary"
+                                                    className="h-10 sm:h-12 rounded-xl pl-11 bg-slate-50 dark:bg-black/40 border-slate-200 dark:border-white/10 focus:ring-primary/20 focus:border-primary"
                                                 />
                                             </div>
                                         </div>
@@ -187,7 +191,7 @@ export default function LoginPage() {
                                                     placeholder="********"
                                                     value={password}
                                                     onChange={(e) => setPassword(e.target.value)}
-                                                    className="h-12 rounded-xl pl-11 pr-11 bg-slate-50 dark:bg-black/40 border-slate-200 dark:border-white/10 focus:ring-primary/20 focus:border-primary"
+                                                    className="h-10 sm:h-12 rounded-xl pl-11 pr-11 bg-slate-50 dark:bg-black/40 border-slate-200 dark:border-white/10 focus:ring-primary/20 focus:border-primary"
                                                 />
                                                 <button
                                                     type="button"
@@ -202,7 +206,7 @@ export default function LoginPage() {
 
                                         <Button
                                             type="submit"
-                                            className="w-full h-12 rounded-xl text-base font-bold bg-primary text-black hover:bg-primary/90 shadow-lg shadow-primary/20 transition-all duration-200 mt-2"
+                                            className="w-full h-10 sm:h-12 rounded-xl text-sm sm:text-base font-bold bg-primary text-black hover:bg-primary/90 shadow-lg shadow-primary/20 transition-all duration-200 mt-1"
                                             disabled={loading}
                                         >
                                             {loading ? (
@@ -243,14 +247,14 @@ export default function LoginPage() {
                                         <Button
                                             type="button"
                                             variant="outline"
-                                            className="w-full h-12 rounded-xl text-base font-bold border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-white/5 transition-all duration-200"
+                                            className="w-full h-10 sm:h-12 rounded-xl text-sm sm:text-base font-bold border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-white/5 transition-all duration-200"
                                             onClick={() => router.push('/dashboard')}
                                         >
                                             <LayoutDashboard className="w-4 h-4 mr-2" /> Demo Login
                                         </Button>
                                     </form>
                                 ) : (
-                                    <div className="space-y-4">
+                                    <div className="space-y-3 sm:space-y-4">
                                         <div className="rounded-2xl border border-slate-200/70 dark:border-white/10 bg-slate-50/70 dark:bg-white/5 p-4 space-y-3">
                                             <div className="text-xs text-muted-foreground">
                                                 {otpNotice || `Enter OTP sent to ${email || 'your email'}.`}
@@ -263,7 +267,7 @@ export default function LoginPage() {
                                                     onChange={(e) => setOtp(e.target.value)}
                                                     required
                                                     placeholder="Enter OTP"
-                                                    className="h-11 rounded-xl bg-white/80 dark:bg-black/40 border-slate-200 dark:border-white/10 focus:ring-primary/20 focus:border-primary px-4"
+                                                    className="h-10 sm:h-11 rounded-xl bg-white/80 dark:bg-black/40 border-slate-200 dark:border-white/10 focus:ring-primary/20 focus:border-primary px-4"
                                                 />
                                                 {otpError ? (
                                                     <div className="rounded-xl border border-rose-400/40 bg-rose-500/10 px-4 py-2 text-xs text-rose-700 dark:text-rose-100">
@@ -271,10 +275,10 @@ export default function LoginPage() {
                                                     </div>
                                                 ) : null}
                                                 <div className="flex gap-2">
-                                                    <Button type="button" onClick={onVerifyOtp} className="h-11 rounded-xl flex-1" disabled={loading}>
+                                                    <Button type="button" onClick={onVerifyOtp} className="h-10 sm:h-11 rounded-xl flex-1" disabled={loading}>
                                                         Verify OTP
                                                     </Button>
-                                                    <Button type="button" variant="outline" className="h-11 rounded-xl" onClick={onSendOtp} disabled={loading}>
+                                                    <Button type="button" variant="outline" className="h-10 sm:h-11 rounded-xl" onClick={onSendOtp} disabled={loading}>
                                                         Resend
                                                     </Button>
                                                 </div>
@@ -283,7 +287,7 @@ export default function LoginPage() {
                                         <Button
                                             type="button"
                                             variant="ghost"
-                                            className="w-full h-11 rounded-xl text-primary hover:text-primary hover:bg-primary/5"
+                                            className="w-full h-10 sm:h-11 rounded-xl text-primary hover:text-primary hover:bg-primary/5"
                                             onClick={() => setShowVerify(false)}
                                         >
                                             Back to Login
@@ -292,8 +296,8 @@ export default function LoginPage() {
                                 )}
 
                             </CardContent>
-                            <div className="p-6 bg-slate-50/50 dark:bg-white/5 border-t border-slate-200 dark:border-white/5 text-center">
-                                <p className="text-sm text-muted-foreground">
+                            <div className="p-4 sm:p-6 bg-slate-50/50 dark:bg-white/5 border-t border-slate-200 dark:border-white/5 text-center">
+                                <p className="text-xs sm:text-sm text-muted-foreground">
                                     Don&apos;t have an account?{' '}
                                     <Link href="/trial" className="font-bold text-primary hover:underline underline-offset-4">
                                         Start Premium Trial

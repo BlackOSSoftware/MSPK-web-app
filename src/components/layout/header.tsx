@@ -1,17 +1,20 @@
 "use client";
 import React from "react";
-import { Bell, Menu, Moon, Sun, Volume2, VolumeX } from "lucide-react";
+import { ArrowLeft, Bell, Menu, Moon, Sun, Volume2, VolumeX } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useMeQuery } from "@/hooks/use-auth";
 import Link from "next/link";
 import { useNotificationsQuery } from "@/services/notifications/notification.hooks";
 import { useClickSound } from "@/components/click-sound-provider";
+import { usePathname, useRouter } from "next/navigation";
 
 interface HeaderProps {
     onMenuClick?: () => void;
 }
 
 export function Header({ onMenuClick }: HeaderProps) {
+    const router = useRouter();
+    const pathname = usePathname();
     const { resolvedTheme, setTheme } = useTheme();
     const { enabled: soundEnabled, toggle: toggleSound } = useClickSound();
     const { data } = useNotificationsQuery();
@@ -45,7 +48,16 @@ export function Header({ onMenuClick }: HeaderProps) {
             <div className="absolute inset-0 pointer-events-none hidden dark:block bg-[radial-gradient(circle_at_left,hsl(var(--primary)/0.16),transparent_55%),radial-gradient(circle_at_right,hsl(var(--accent)/0.14),transparent_45%)]" />
 
             <div className="relative h-full flex items-center justify-between gap-2 sm:gap-4">
-                <div className="flex items-center gap-3 shrink-0">
+                <div className="flex items-center gap-2 shrink-0">
+                    {pathname !== "/dashboard" ? (
+                        <button
+                            onClick={() => router.push("/dashboard")}
+                            className="md:hidden text-muted-foreground hover:text-foreground p-1.5 rounded-lg hover:bg-background/30 transition-colors"
+                            aria-label="Back to dashboard"
+                        >
+                            <ArrowLeft size={18} />
+                        </button>
+                    ) : null}
                     <button
                         onClick={onMenuClick}
                         className="md:hidden text-muted-foreground hover:text-foreground p-1.5 rounded-lg hover:bg-background/30 transition-colors"
