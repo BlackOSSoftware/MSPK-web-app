@@ -1,11 +1,11 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.alstrades.portal',
-  appName: 'Trade Portal',
+  appId: 'com.mspk.trading.solutions',
+  appName: 'MSPK Trading Solutions',
   webDir: 'build',
   server: {
-    url: 'https://user.alstrades.com',
+    url: 'https://mspk-web-app.vercel.app/',
     cleartext: false
   },
   plugins: {
