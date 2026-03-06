@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import { useLoginMutation, useSendOtpMutation, useVerifyOtpMutation } from '@/hooks/use-auth';
 import { useRegisterFcmTokenMutation } from '@/services/notifications/notification.hooks';
 import { getFcmToken } from '@/lib/fcm';
+import { PrivacyPolicyModal } from '@/components/legal/privacy-policy-modal';
 
 export default function LoginPage() {
     const router = useRouter();
@@ -27,6 +28,7 @@ export default function LoginPage() {
     const [otpError, setOtpError] = useState('');
     const [otpNotice, setOtpNotice] = useState('');
     const [showVerify, setShowVerify] = useState(false);
+    const [isPolicyOpen, setIsPolicyOpen] = useState(false);
     const loading = loginMutation.isPending;
 
     async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -306,18 +308,26 @@ export default function LoginPage() {
                                 )}
 
                             </CardContent>
-                            <div className="p-4 sm:p-6 bg-slate-50/50 dark:bg-white/5 border-t border-slate-200 dark:border-white/5 text-center">
+                            <div className="p-4 sm:p-6 bg-slate-50/50 dark:bg-white/5 border-t border-slate-200 dark:border-white/5 text-center space-y-2">
                                 <p className="text-xs sm:text-sm text-muted-foreground">
                                     Don&apos;t have an account?{' '}
                                     <Link href="/trial" className="font-bold text-primary hover:underline underline-offset-4">
                                         Start Premium Trial
                                     </Link>
                                 </p>
+                                <button
+                                    type="button"
+                                    className="text-xs text-slate-500 hover:text-primary transition-colors"
+                                    onClick={() => setIsPolicyOpen(true)}
+                                >
+                                    Privacy Policy
+                                </button>
                             </div>
                         </Card>
                     </div>
                 </div>
             </div>
+            <PrivacyPolicyModal open={isPolicyOpen} onOpenChange={setIsPolicyOpen} />
         </div>
     );
 }

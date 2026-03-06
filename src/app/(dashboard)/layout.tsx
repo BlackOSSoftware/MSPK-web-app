@@ -4,7 +4,7 @@ import { Header } from "@/components/layout/header";
 import { Sidebar } from "@/components/layout/sidebar";
 import { MobileBottomNav } from "@/components/layout/mobile-bottom-nav";
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,7 @@ export default function DashboardLayout({
     children: React.ReactNode;
 }) {
     const router = useRouter();
+    const pathname = usePathname();
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     const [collapsed, setCollapsed] = useState(false);
     const [isLeaveDialogOpen, setIsLeaveDialogOpen] = useState(false);
@@ -98,6 +99,16 @@ export default function DashboardLayout({
         return () => document.removeEventListener("click", handleClick, true);
     }, []);
 
+    const prevPathRef = useRef(pathname);
+
+    useEffect(() => {
+        const prevPath = prevPathRef.current;
+        if (pathname !== prevPath && isMobileMenuOpen) {
+            setIsMobileMenuOpen(false);
+        }
+        prevPathRef.current = pathname;
+    }, [pathname, isMobileMenuOpen]);
+
     const handleLeaveConfirm = async () => {
         setIsLeaveDialogOpen(false);
         const action = pendingActionRef.current;
@@ -151,7 +162,12 @@ export default function DashboardLayout({
                     <SheetHeader className="sr-only">
                         <SheetTitle>Mobile Navigation</SheetTitle>
                     </SheetHeader>
-                    <Sidebar collapsed={false} setCollapsed={() => { }} showCollapseToggle={false} />
+                    <Sidebar
+                        collapsed={false}
+                        setCollapsed={() => { }}
+                        showCollapseToggle={false}
+                        onNavigate={() => setIsMobileMenuOpen(false)}
+                    />
                 </SheetContent>
             </Sheet>
 

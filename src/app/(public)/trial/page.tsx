@@ -10,6 +10,7 @@ import { useRegisterMutation, useSendOtpMutation, useVerifyOtpMutation } from '@
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Image from 'next/image';
+import { PrivacyPolicyModal } from '@/components/legal/privacy-policy-modal';
 
 function TrialPageContent() {
     const router = useRouter();
@@ -22,6 +23,8 @@ function TrialPageContent() {
     const [registeredEmail, setRegisteredEmail] = useState('');
     const [formError, setFormError] = useState('');
     const [otpError, setOtpError] = useState('');
+    const [acceptedPolicy, setAcceptedPolicy] = useState(false);
+    const [isPolicyOpen, setIsPolicyOpen] = useState(false);
     const [formValues, setFormValues] = useState({
         name: '',
         email: '',
@@ -71,6 +74,11 @@ function TrialPageContent() {
         const referralCode = formValues.referralCode.trim();
 
         try {
+            if (!acceptedPolicy) {
+                setFormError('Please accept the Privacy Policy to continue.');
+                setLoading(false);
+                return;
+            }
             await registerMutation.mutateAsync({
                 name,
                 email,
@@ -434,8 +442,27 @@ function TrialPageContent() {
                                             )}
                                         </Button>
 
-                                        <p className="text-[11px] text-center text-muted-foreground mt-3">
-                                            By continuing, you agree to our Terms of Service and Privacy Policy.
+                                        <label className="mt-2 flex items-start gap-2 text-[11px] text-muted-foreground">
+                                            <input
+                                                type="checkbox"
+                                                className="mt-0.5 h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary/40"
+                                                checked={acceptedPolicy}
+                                                onChange={(e) => setAcceptedPolicy(e.target.checked)}
+                                            />
+                                            <span>
+                                                I agree to the{' '}
+                                                <button
+                                                    type="button"
+                                                    className="font-semibold text-primary hover:underline underline-offset-4"
+                                                    onClick={() => setIsPolicyOpen(true)}
+                                                >
+                                                    Privacy Policy
+                                                </button>
+                                                .
+                                            </span>
+                                        </label>
+                                        <p className="text-[11px] text-center text-muted-foreground">
+                                            By continuing, you agree to our Terms of Service.
                                         </p>
                                         <p className="text-[11px] text-center text-muted-foreground">
                                             Already have an account?{' '}
@@ -451,6 +478,7 @@ function TrialPageContent() {
 
                 </div>
             </div>
+            <PrivacyPolicyModal open={isPolicyOpen} onOpenChange={setIsPolicyOpen} />
         </div>
     );
 }

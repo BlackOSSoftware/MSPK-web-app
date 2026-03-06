@@ -39,6 +39,15 @@ export function CapacitorPushInit() {
       const permission = await PushNotifications.requestPermissions();
       if (permission.receive !== "granted") return;
 
+      await LocalNotifications.createChannel({
+        id: "mspk-alerts",
+        name: "MSPK Alerts",
+        description: "Trading alerts and system notifications",
+        importance: 5,
+        visibility: 1,
+        sound: "default",
+      });
+
       await PushNotifications.register();
 
       const registrationListener = await PushNotifications.addListener(
@@ -72,6 +81,7 @@ export function CapacitorPushInit() {
               id: Date.now(),
               title: notification.title ?? "MSPK Trading Solutions",
               body: notification.body ?? "",
+              channelId: "mspk-alerts",
               schedule: { at: new Date(Date.now() + 100) },
             },
           ],

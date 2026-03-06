@@ -11,6 +11,7 @@ import {
     Radio,
     Eye,
     CalendarDays,
+    FileText,
     ChevronLeft,
     ChevronRight,
     LogOut,
@@ -34,9 +35,18 @@ const navigation: SidebarNavItem[] = [
     { name: "Plans & Billing", path: "/dashboard/plans", icon: CreditCard },
     { name: "Calendar", path: "/dashboard/economic-calendar", icon: CalendarDays },
     { name: "Support", path: "/dashboard/support", icon: LifeBuoy },
+    { name: "Privacy Policy", path: "/dashboard/privacy-policy", icon: FileText },
 ];
 
-const SidebarItem = ({ item, collapsed }: { item: SidebarNavItem; collapsed: boolean }) => {
+const SidebarItem = ({
+    item,
+    collapsed,
+    onNavigate,
+}: {
+    item: SidebarNavItem;
+    collapsed: boolean;
+    onNavigate?: () => void;
+}) => {
     const pathname = usePathname();
     const isActive =
         item.path === "/dashboard"
@@ -48,6 +58,9 @@ const SidebarItem = ({ item, collapsed }: { item: SidebarNavItem; collapsed: boo
         <Link
             href={item.path}
             title={collapsed ? item.name : undefined}
+            onClick={() => {
+                onNavigate?.();
+            }}
             className={cn(
                 "group relative flex items-center rounded-xl transition-all duration-300",
                 collapsed ? "justify-center px-2 py-2.5" : "px-3 py-2.5",
@@ -78,11 +91,13 @@ export function Sidebar({
     collapsed,
     setCollapsed,
     showCollapseToggle = true,
+    onNavigate,
 }: {
     className?: string;
     collapsed: boolean;
     setCollapsed: (val: boolean) => void;
     showCollapseToggle?: boolean;
+    onNavigate?: () => void;
 }) {
     const router = useRouter();
     const logoutMutation = useLogoutMutation();
@@ -157,7 +172,7 @@ export function Sidebar({
 
                 <nav className={cn("flex-1 space-y-1.5 overflow-y-auto", collapsed ? "px-1.5 py-3" : "px-2.5 sm:px-3 py-2.5")}>
                     {navigation.map((item) => (
-                        <SidebarItem key={item.name} item={item} collapsed={collapsed} />
+                        <SidebarItem key={item.name} item={item} collapsed={collapsed} onNavigate={onNavigate} />
                     ))}
                 </nav>
 
