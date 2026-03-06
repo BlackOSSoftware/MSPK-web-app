@@ -59,9 +59,12 @@ const PLAN_CARD_THEMES = [
     },
 ] as const;
 
-function formatPriceLabel(price?: number, isDemo?: boolean) {
+function formatPriceLabel(price?: number, isDemo?: boolean, name?: string) {
     const numericPrice = typeof price === "number" ? price : Number(price);
-    if (!numericPrice || numericPrice <= 0 || isDemo) return "Free";
+    if (isDemo) return "";
+    if (!numericPrice || numericPrice <= 0) {
+        return name && name.toLowerCase().includes("custom") ? "Custom" : "";
+    }
     return `INR ${new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(numericPrice)}`;
 }
 
@@ -78,16 +81,8 @@ export default function PlansPage() {
     const { data: segments = [] } = useSegmentsQuery();
     const { data: subscriptionStatus } = useSubscriptionStatusQuery();
     const visiblePlans = useMemo(() => {
-        if (!currentPlan) return plans;
-        const currentPrice = typeof currentPlan.price === "number" ? currentPlan.price : Number(currentPlan.price);
-        if (!Number.isFinite(currentPrice)) return plans;
-        return plans.filter((plan) => {
-            if (plan._id === currentPlan._id) return true;
-            const price = typeof plan.price === "number" ? plan.price : Number(plan.price);
-            if (!Number.isFinite(price)) return true;
-            return price >= currentPrice;
-        });
-    }, [currentPlan, plans]);
+        return plans.filter((plan) => !plan.isDemo);
+    }, [plans]);
 
     const loopedPlans = useMemo(
         () =>
@@ -165,7 +160,7 @@ export default function PlansPage() {
         const userPhone = me?.phone?.trim() || "N/A";
         const selectedPlanId = plan?._id || "N/A";
         const selectedPlanName = plan?.name || "N/A";
-        const selectedPlanPrice = formatPriceLabel(plan?.price, plan?.isDemo);
+        const selectedPlanPrice = formatPriceLabel(plan?.price, plan?.isDemo, plan?.name);
         const selectedPlanDuration = formatDurationLabel(plan?.durationDays);
         const selectedPlanSegment = plan?.segment || "N/A";
 
@@ -261,7 +256,7 @@ export default function PlansPage() {
                                 </span>
                                 <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-100/70 px-3 py-1 text-xs text-slate-900 dark:border-foreground/10 dark:bg-foreground/5 dark:text-foreground">
                                     <Wallet className="h-3.5 w-3.5 text-emerald-500" />
-                                    {formatPriceLabel(currentPlan.price, currentPlan.isDemo)}
+                                    {formatPriceLabel(currentPlan.price, currentPlan.isDemo, currentPlan.name)}
                                 </span>
                                 <span className="inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-500">
                                     <ShieldCheck className="h-3.5 w-3.5" />
@@ -275,7 +270,7 @@ export default function PlansPage() {
                             </div>
                             <div className="rounded-2xl border border-slate-200 bg-slate-100/70 px-4 py-3 text-sm text-slate-900 dark:border-foreground/10 dark:bg-foreground/5 dark:text-foreground w-full md:w-auto">
                                 <div className="text-[11px] uppercase tracking-wider text-slate-500 dark:text-muted-foreground">Plan Price</div>
-                                <div className="mt-1 text-lg font-semibold">{formatPriceLabel(currentPlan.price, currentPlan.isDemo)}</div>
+                                <div className="mt-1 text-lg font-semibold">{formatPriceLabel(currentPlan.price, currentPlan.isDemo, currentPlan.name)}</div>
                             </div>
                             <div className="rounded-2xl border border-slate-200 bg-slate-100/70 px-4 py-3 text-sm text-slate-900 dark:border-foreground/10 dark:bg-foreground/5 dark:text-foreground w-full md:w-auto">
                                 <div className="text-[11px] uppercase tracking-wider text-slate-500 dark:text-muted-foreground">Duration</div>
@@ -376,7 +371,7 @@ export default function PlansPage() {
                                             Plan Price
                                         </div>
                                         <div className="mt-1 flex items-end gap-1.5">
-                                            <span className="text-3xl font-bold tracking-tight text-foreground">{formatPriceLabel(plan.price, plan.isDemo)}</span>
+                                            <span className="text-3xl font-bold tracking-tight text-foreground">{formatPriceLabel(plan.price, plan.isDemo, plan.name)}</span>
                                             <span className="pb-1 text-xs text-muted-foreground">/ {formatDurationLabel(plan.durationDays)}</span>
                                         </div>
                                     </div>
