@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   useDeleteNotificationMutation,
   useMarkAllNotificationsReadMutation,
@@ -15,7 +15,12 @@ import { NotificationsDebugPanel } from "@/components/notifications-debug-panel"
 
 export default function NotificationsPage() {
   const { data, isLoading } = useNotificationsQuery();
-  const showDebug = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("debug") === "1";
+  const [showDebug, setShowDebug] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setShowDebug(new URLSearchParams(window.location.search).get("debug") === "1");
+  }, []);
   const notifications = Array.isArray(data) ? data : data?.results ?? [];
   const unreadCount = Array.isArray(data)
     ? notifications.filter((item) => !item.isRead).length

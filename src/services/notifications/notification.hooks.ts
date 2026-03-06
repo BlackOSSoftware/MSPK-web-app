@@ -7,7 +7,7 @@ import {
   markNotificationRead,
   registerFcmToken,
 } from "./notification.service";
-import type { RegisterFcmTokenPayload } from "./notification.types";
+import type { RegisterFcmTokenRequest } from "./notification.types";
 
 export const NOTIFICATIONS_QUERY_KEY = ["notifications"] as const;
 
@@ -59,6 +59,6 @@ export function useDeleteNotificationMutation() {
 
 export function useRegisterFcmTokenMutation() {
   return useMutation({
-    mutationFn: (payload: RegisterFcmTokenPayload) => registerFcmToken(payload),
+    mutationFn: (payload: RegisterFcmTokenRequest) => registerFcmToken(payload),
   });
 }

@@ -18,11 +18,21 @@ export function FcmListener() {
         };
 
         if (Notification.permission === 'granted') {
-          const popup = new Notification(title, options);
-          popup.onclick = () => {
-            window.focus();
-            window.location.href = '/dashboard/notifications';
-          };
+          // Prefer service worker notifications for consistency with background pushes
+          navigator.serviceWorker.getRegistration().then((registration) => {
+            if (registration) {
+              registration.showNotification(title, {
+                ...options,
+                data: { url: '/dashboard/notifications' },
+              });
+              return;
+            }
+            const popup = new Notification(title, options);
+            popup.onclick = () => {
+              window.focus();
+              window.location.href = '/dashboard/notifications';
+            };
+          });
         } else {
           console.log('FCM message (foreground):', payload);
         }

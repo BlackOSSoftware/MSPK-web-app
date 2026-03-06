@@ -15,6 +15,10 @@ export type RegisterFcmTokenPayload = {
   platform?: "web" | "android" | "ios";
 };
 
+export type RegisterFcmTokenRequest = RegisterFcmTokenPayload & {
+  authToken?: string;
+};
+
 export type NotificationListResponse = {
   results?: NotificationItem[];
   unreadCount?: number;

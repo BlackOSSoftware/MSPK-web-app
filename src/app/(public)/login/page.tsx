@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import { useLoginMutation, useSendOtpMutation, useVerifyOtpMutation } from '@/hooks/use-auth';
 import { useRegisterFcmTokenMutation } from '@/services/notifications/notification.hooks';
 import { getFcmToken } from '@/lib/fcm';
+import { resolveTokenAndExpiry, getAuthToken } from '@/lib/auth/session';
 import { PrivacyPolicyModal } from '@/components/legal/privacy-policy-modal';
 
 export default function LoginPage() {
@@ -40,18 +41,24 @@ export default function LoginPage() {
         setShowVerify(false);
 
         try {
-            await loginMutation.mutateAsync({ email, password });
+            const loginResponse = await loginMutation.mutateAsync({ email, password });
             if (typeof window !== 'undefined') {
                 void (async () => {
                     try {
+                        let authToken: string | null = null;
+                        try {
+                            authToken = resolveTokenAndExpiry(loginResponse).token;
+                        } catch {
+                            authToken = getAuthToken();
+                        }
                         const storedToken =
                             window.localStorage.getItem('fcm_token') || window.localStorage.getItem('fcmToken');
                         const token = await getFcmToken();
                         if (token && token !== storedToken) {
                             window.localStorage.setItem('fcm_token', token);
                         }
-                        if (token) {
-                            await registerFcmTokenMutation.mutateAsync({ token, platform: 'web' });
+                        if (token && authToken) {
+                            await registerFcmTokenMutation.mutateAsync({ token, platform: 'web', authToken });
                         }
                     } catch {
                         // ignore FCM registration issues during login
@@ -102,18 +109,24 @@ export default function LoginPage() {
     async function onVerifyOtp() {
         setOtpError('');
         try {
-            await verifyOtpMutation.mutateAsync({ type: 'email', identifier: email.trim(), otp: otp.trim() });
+            const verifyResponse = await verifyOtpMutation.mutateAsync({ type: 'email', identifier: email.trim(), otp: otp.trim() });
             if (typeof window !== 'undefined') {
                 void (async () => {
                     try {
+                        let authToken: string | null = null;
+                        try {
+                            authToken = resolveTokenAndExpiry(verifyResponse).token;
+                        } catch {
+                            authToken = getAuthToken();
+                        }
                         const storedToken =
                             window.localStorage.getItem('fcm_token') || window.localStorage.getItem('fcmToken');
                         const token = await getFcmToken();
                         if (token && token !== storedToken) {
                             window.localStorage.setItem('fcm_token', token);
                         }
-                        if (token) {
-                            await registerFcmTokenMutation.mutateAsync({ token, platform: 'web' });
+                        if (token && authToken) {
+                            await registerFcmTokenMutation.mutateAsync({ token, platform: 'web', authToken });
                         }
                     } catch {
                         // ignore FCM registration issues during OTP verification

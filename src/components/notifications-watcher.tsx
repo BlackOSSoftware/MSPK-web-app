@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { getNotifications } from '@/services/notifications/notification.service';
+import { NOTIFICATIONS_QUERY_KEY } from '@/services/notifications/notification.hooks';
 import type { NotificationItem, NotificationListResponse } from '@/services/notifications/notification.types';
 import { getAuthExpiresAt, getAuthToken } from '@/lib/auth/session';
 
@@ -63,10 +64,11 @@ export function NotificationsWatcher() {
   const hasValidSession = Boolean(token && expiresAt && expiresAt > Date.now());
 
   const { data } = useQuery({
-    queryKey: ['notifications', 'watcher'],
+    queryKey: NOTIFICATIONS_QUERY_KEY,
     queryFn: getNotifications,
-    refetchInterval: false,
-    refetchIntervalInBackground: false,
+    // Fallback for cases where push delivery fails (keeps UI near real-time).
+    refetchInterval: 15000,
+    refetchIntervalInBackground: true,
     refetchOnWindowFocus: true,
     refetchOnMount: false,
     refetchOnReconnect: true,

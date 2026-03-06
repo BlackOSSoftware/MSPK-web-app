@@ -1,5 +1,5 @@
 import { apiClient } from "@/services/http/client";
-import type { NotificationItem, NotificationListResponse, RegisterFcmTokenPayload } from "./notification.types";
+import type { NotificationItem, NotificationListResponse, RegisterFcmTokenRequest } from "./notification.types";
 
 export async function getNotifications(): Promise<NotificationListResponse | NotificationItem[]> {
   const response = await apiClient.get<NotificationListResponse | NotificationItem[]>("/notifications");
@@ -23,6 +23,9 @@ export async function deleteNotification(notificationId: string): Promise<void> 
   await apiClient.delete(`/notifications/${notificationId}`);
 }
 
-export async function registerFcmToken(payload: RegisterFcmTokenPayload): Promise<void> {
-  await apiClient.post("/notifications/fcm-token", payload);
+export async function registerFcmToken(payload: RegisterFcmTokenRequest): Promise<void> {
+  const { authToken, ...body } = payload;
+  await apiClient.post("/notifications/fcm-token", body, authToken
+    ? { headers: { Authorization: `Bearer ${authToken}` } }
+    : undefined);
 }

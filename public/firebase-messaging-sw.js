@@ -46,6 +46,29 @@ self.addEventListener("push", (event) => {
   event.waitUntil(
     (async () => {
       await initMessaging();
+
+      // Fallback for data-only payloads (avoid missing notifications on first push)
+      let payload = null;
+      try {
+        payload = event.data ? event.data.json() : null;
+      } catch {
+        payload = null;
+      }
+
+      const notificationPayload = payload?.notification;
+      const dataPayload = payload?.data || payload;
+
+      // Show only if it's data-only (no notification block)
+      if (!notificationPayload && dataPayload) {
+        const title = dataPayload.title || "New Notification";
+        const options = {
+          body: dataPayload.body,
+          icon: dataPayload.icon || "/logo.jpg",
+          badge: "/logo.jpg",
+          data: dataPayload || {},
+        };
+        self.registration.showNotification(title, options);
+      }
     })()
   );
 });

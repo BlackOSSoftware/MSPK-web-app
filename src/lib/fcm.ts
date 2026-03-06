@@ -1,5 +1,12 @@
 import { getApps, initializeApp } from 'firebase/app';
-import { getMessaging, getToken, isSupported, onMessage, type MessagePayload } from 'firebase/messaging';
+import {
+  deleteToken,
+  getMessaging,
+  getToken,
+  isSupported,
+  onMessage,
+  type MessagePayload,
+} from 'firebase/messaging';
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -14,7 +21,7 @@ function hasFirebaseConfig() {
   return Object.values(firebaseConfig).every((value) => Boolean(value));
 }
 
-export async function getFcmToken() {
+export async function getFcmToken(options?: { forceRefresh?: boolean }) {
   if (typeof window === 'undefined') return null;
   if (!('serviceWorker' in navigator)) return null;
   if (!('Notification' in window)) return null;
@@ -42,6 +49,13 @@ export async function getFcmToken() {
 
   const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
   const messaging = getMessaging();
+  if (options?.forceRefresh) {
+    try {
+      await deleteToken(messaging);
+    } catch {
+      // ignore delete token errors and try to re-issue a token
+    }
+  }
   const token = await getToken(messaging, {
     vapidKey,
     serviceWorkerRegistration: registration,
