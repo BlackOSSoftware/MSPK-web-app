@@ -16,9 +16,9 @@ async function initMessaging() {
 
   const messaging = firebase.messaging();
   messaging.onBackgroundMessage((payload) => {
-    const title = payload?.notification?.title || "New Notification";
+    const title = payload?.notification?.title || payload?.data?.title || "New Notification";
     const options = {
-      body: payload?.notification?.body,
+      body: payload?.notification?.body || payload?.data?.body,
       icon: payload?.notification?.icon || "/logo.jpg",
       badge: "/logo.jpg",
       data: payload?.data || {},

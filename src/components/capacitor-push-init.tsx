@@ -18,7 +18,7 @@ export function CapacitorPushInit() {
     if (!Capacitor.isNativePlatform()) return;
 
     const TOKEN_KEY = "native_fcm_token";
-    const REGISTERED_KEY = "native_fcm_registered_token";
+    const REGISTERED_KEY = "native_fcm_registered_token_v2";
     const LAST_NOTIFICATION_KEY = "native_last_notification";
     const LAST_ERROR_KEY = "native_push_error";
 

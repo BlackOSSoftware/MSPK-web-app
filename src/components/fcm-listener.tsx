@@ -10,9 +10,10 @@ export function FcmListener() {
     (async () => {
       unsubscribe = await listenForForegroundMessages((payload) => {
         const notification = payload?.notification as { title?: string; body?: string; icon?: string } | undefined;
-        const title = notification?.title || 'New Notification';
+        const data = payload?.data as { title?: string; body?: string } | undefined;
+        const title = notification?.title || data?.title || 'New Notification';
         const options = {
-          body: notification?.body,
+          body: notification?.body || data?.body,
           icon: notification?.icon || '/logo.jpg',
         };
 

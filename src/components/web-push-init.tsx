@@ -7,7 +7,7 @@ import { useRegisterFcmTokenMutation } from "@/services/notifications/notificati
 import { getAuthToken } from "@/lib/auth/session";
 
 const TOKEN_KEY = "web_fcm_token";
-const REGISTERED_KEY = "web_fcm_registered_token";
+const REGISTERED_KEY = "web_fcm_registered_token_v2";
 
 export function WebPushInit() {
   const registerTokenMutation = useRegisterFcmTokenMutation();
