@@ -28,7 +28,7 @@ export function CapacitorPushInit() {
       if (!getAuthToken()) return;
 
       try {
-        await registerTokenMutation.mutateAsync({ token });
+        await registerTokenMutation.mutateAsync({ token, platform: "android" });
         window.localStorage.setItem(REGISTERED_KEY, token);
       } catch {
         // ignore registration errors

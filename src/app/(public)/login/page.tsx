@@ -51,7 +51,7 @@ export default function LoginPage() {
                             window.localStorage.setItem('fcm_token', token);
                         }
                         if (token) {
-                            await registerFcmTokenMutation.mutateAsync({ token });
+                            await registerFcmTokenMutation.mutateAsync({ token, platform: 'web' });
                         }
                     } catch {
                         // ignore FCM registration issues during login
@@ -113,7 +113,7 @@ export default function LoginPage() {
                             window.localStorage.setItem('fcm_token', token);
                         }
                         if (token) {
-                            await registerFcmTokenMutation.mutateAsync({ token });
+                            await registerFcmTokenMutation.mutateAsync({ token, platform: 'web' });
                         }
                     } catch {
                         // ignore FCM registration issues during OTP verification

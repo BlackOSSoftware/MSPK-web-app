@@ -12,6 +12,7 @@ export type NotificationItem = {
 
 export type RegisterFcmTokenPayload = {
   token: string;
+  platform?: "web" | "android" | "ios";
 };
 
 export type NotificationListResponse = {

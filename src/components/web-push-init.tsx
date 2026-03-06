@@ -29,7 +29,7 @@ export function WebPushInit() {
       if (stored === fcmToken) return;
 
       try {
-        await registerTokenMutation.mutateAsync({ token: fcmToken });
+        await registerTokenMutation.mutateAsync({ token: fcmToken, platform: "web" });
         window.localStorage.setItem(REGISTERED_KEY, fcmToken);
       } catch {
         // ignore token registration errors

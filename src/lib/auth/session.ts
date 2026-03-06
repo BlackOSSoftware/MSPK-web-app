@@ -117,9 +117,10 @@ export function resolveTokenAndExpiry(payload: unknown): { token: string; expire
   ].find((value): value is number => typeof value === "number" && value > 0);
 
   const jwtExp = decodeJwtExpMs(token);
+  const fallbackMs = 10 * 24 * 60 * 60 * 1000;
   const expiresAt = expiresInSeconds
     ? Date.now() + expiresInSeconds * 1000
-    : jwtExp ?? Date.now() + 24 * 60 * 60 * 1000;
+    : jwtExp ?? Date.now() + fallbackMs;
 
   return { token, expiresAt };
 }
