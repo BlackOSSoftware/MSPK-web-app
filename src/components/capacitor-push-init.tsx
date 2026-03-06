@@ -19,6 +19,8 @@ export function CapacitorPushInit() {
 
     const TOKEN_KEY = "native_fcm_token";
     const REGISTERED_KEY = "native_fcm_registered_token";
+    const LAST_NOTIFICATION_KEY = "native_last_notification";
+    const LAST_ERROR_KEY = "native_push_error";
 
     const tryRegisterToken = async () => {
       const token = window.localStorage.getItem(TOKEN_KEY);
@@ -61,6 +63,7 @@ export function CapacitorPushInit() {
             }
             if (token.value) {
               window.localStorage.setItem(TOKEN_KEY, token.value);
+              window.localStorage.removeItem(LAST_ERROR_KEY);
               await tryRegisterToken();
             }
           } catch {
@@ -69,11 +72,20 @@ export function CapacitorPushInit() {
         }
       );
 
-      const registrationErrorListener = await PushNotifications.addListener("registrationError", () => {
-        // ignore registration errors
+      const registrationErrorListener = await PushNotifications.addListener("registrationError", (error) => {
+        try {
+          window.localStorage.setItem(LAST_ERROR_KEY, JSON.stringify(error ?? {}));
+        } catch {
+          // ignore storage errors
+        }
       });
 
       const receivedListener = await PushNotifications.addListener("pushNotificationReceived", async (notification) => {
+        try {
+          window.localStorage.setItem(LAST_NOTIFICATION_KEY, JSON.stringify(notification ?? {}));
+        } catch {
+          // ignore storage errors
+        }
         await LocalNotifications.requestPermissions();
         await LocalNotifications.schedule({
           notifications: [

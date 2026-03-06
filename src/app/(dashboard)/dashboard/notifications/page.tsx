@@ -11,9 +11,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { Bell, CheckCircle2, Trash2 } from "lucide-react";
+import { NotificationsDebugPanel } from "@/components/notifications-debug-panel";
 
 export default function NotificationsPage() {
   const { data, isLoading } = useNotificationsQuery();
+  const showDebug = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("debug") === "1";
   const notifications = Array.isArray(data) ? data : data?.results ?? [];
   const unreadCount = Array.isArray(data)
     ? notifications.filter((item) => !item.isRead).length
@@ -51,6 +53,7 @@ export default function NotificationsPage() {
         </div>
       </div>
 
+      {showDebug ? <NotificationsDebugPanel /> : null}
       <div className="grid gap-4">
         {isLoading ? (
           <Card className="border-border/60 bg-white/70 dark:bg-white/5 backdrop-blur-xl rounded-[1.25rem]">
