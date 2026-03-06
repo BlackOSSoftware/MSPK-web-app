@@ -26,23 +26,56 @@ export function clearCookie(name: string): void {
 export function setAuthSession(token: string, expiresAtMs: number): void {
   setCookie(AUTH_TOKEN_COOKIE, token, expiresAtMs);
   setCookie(AUTH_EXPIRES_COOKIE, String(expiresAtMs), expiresAtMs);
+
+  if (typeof window !== "undefined") {
+    window.localStorage.setItem(AUTH_TOKEN_COOKIE, token);
+    window.localStorage.setItem(AUTH_EXPIRES_COOKIE, String(expiresAtMs));
+  }
 }
 
 export function clearAuthSession(): void {
   clearCookie(AUTH_TOKEN_COOKIE);
   clearCookie(AUTH_EXPIRES_COOKIE);
+
+  if (typeof window !== "undefined") {
+    window.localStorage.removeItem(AUTH_TOKEN_COOKIE);
+    window.localStorage.removeItem(AUTH_EXPIRES_COOKIE);
+  }
 }
 
 export function getAuthToken(): string | null {
-  return getCookie(AUTH_TOKEN_COOKIE);
+  const cookie = getCookie(AUTH_TOKEN_COOKIE);
+  if (cookie) return cookie;
+
+  if (typeof window !== "undefined") {
+    const stored = window.localStorage.getItem(AUTH_TOKEN_COOKIE);
+    if (stored) return stored;
+  }
+
+  return null;
 }
 
 export function getAuthExpiresAt(): number | null {
   const value = getCookie(AUTH_EXPIRES_COOKIE);
-  if (!value) return null;
+  if (!value) {
+    if (typeof window !== "undefined") {
+      const stored = window.localStorage.getItem(AUTH_EXPIRES_COOKIE);
+      const storedParsed = stored ? Number(stored) : NaN;
+      return Number.isFinite(storedParsed) ? storedParsed : null;
+    }
+    return null;
+  }
 
   const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
+  if (Number.isFinite(parsed)) return parsed;
+
+  if (typeof window !== "undefined") {
+    const stored = window.localStorage.getItem(AUTH_EXPIRES_COOKIE);
+    const storedParsed = stored ? Number(stored) : NaN;
+    return Number.isFinite(storedParsed) ? storedParsed : null;
+  }
+
+  return null;
 }
 
 export function decodeJwtExpMs(token: string): number | null {

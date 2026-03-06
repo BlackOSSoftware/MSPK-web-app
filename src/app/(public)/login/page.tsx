@@ -40,16 +40,21 @@ export default function LoginPage() {
         try {
             await loginMutation.mutateAsync({ email, password });
             if (typeof window !== 'undefined') {
-                const storedToken =
-                    window.localStorage.getItem('fcm_token') || window.localStorage.getItem('fcmToken');
-                const token = await getFcmToken();
-                if (token && token !== storedToken) {
-                    window.localStorage.setItem('fcm_token', token);
-                }
-                if (token) {
-                    console.log('FCM token:', token);
-                    await registerFcmTokenMutation.mutateAsync({ token });
-                }
+                void (async () => {
+                    try {
+                        const storedToken =
+                            window.localStorage.getItem('fcm_token') || window.localStorage.getItem('fcmToken');
+                        const token = await getFcmToken();
+                        if (token && token !== storedToken) {
+                            window.localStorage.setItem('fcm_token', token);
+                        }
+                        if (token) {
+                            await registerFcmTokenMutation.mutateAsync({ token });
+                        }
+                    } catch {
+                        // ignore FCM registration issues during login
+                    }
+                })();
             }
             toast.success('Login successful');
             router.replace('/dashboard');
@@ -97,16 +102,21 @@ export default function LoginPage() {
         try {
             await verifyOtpMutation.mutateAsync({ type: 'email', identifier: email.trim(), otp: otp.trim() });
             if (typeof window !== 'undefined') {
-                const storedToken =
-                    window.localStorage.getItem('fcm_token') || window.localStorage.getItem('fcmToken');
-                const token = await getFcmToken();
-                if (token && token !== storedToken) {
-                    window.localStorage.setItem('fcm_token', token);
-                }
-                if (token) {
-                    console.log('FCM token:', token);
-                    await registerFcmTokenMutation.mutateAsync({ token });
-                }
+                void (async () => {
+                    try {
+                        const storedToken =
+                            window.localStorage.getItem('fcm_token') || window.localStorage.getItem('fcmToken');
+                        const token = await getFcmToken();
+                        if (token && token !== storedToken) {
+                            window.localStorage.setItem('fcm_token', token);
+                        }
+                        if (token) {
+                            await registerFcmTokenMutation.mutateAsync({ token });
+                        }
+                    } catch {
+                        // ignore FCM registration issues during OTP verification
+                    }
+                })();
             }
             toast.success('Email verified');
             router.replace('/dashboard');

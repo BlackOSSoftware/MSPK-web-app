@@ -15,7 +15,9 @@ export default function NotificationDetailPage({
 
   return (
     <div className="flex-1 space-y-6 py-2">
-      <Link href="/dashboard/notifications" className="text-sm text-primary">← Back to notifications</Link>
+      <Link href="/dashboard/notifications" className="text-sm text-primary">
+        &larr; Back to notifications
+      </Link>
       <Card className="border-border/60 bg-white/80 dark:bg-white/5 rounded-[1.5rem]">
         <CardContent className="p-6 space-y-3 text-sm text-muted-foreground">
           {isLoading ? (

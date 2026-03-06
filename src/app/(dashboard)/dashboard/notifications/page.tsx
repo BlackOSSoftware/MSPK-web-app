@@ -9,6 +9,7 @@ import {
 } from "@/services/notifications/notification.hooks";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import Link from "next/link";
 import { Bell, CheckCircle2, Trash2 } from "lucide-react";
 
 export default function NotificationsPage() {
@@ -66,7 +67,7 @@ export default function NotificationsPage() {
           </Card>
         ) : (
           sortedNotifications.map((item) => (
-            <a key={item._id} href={`/dashboard/notifications/${item._id}`}>
+            <Link key={item._id} href={`/dashboard/notifications/${item._id}`}>
               <Card
                 className={`border-border/60 rounded-[1.25rem] transition-all ${
                   item.isRead ? "bg-white/70 dark:bg-white/5" : "bg-primary/10 dark:bg-primary/15 border-primary/30"
@@ -108,7 +109,7 @@ export default function NotificationsPage() {
                   </div>
                 </CardContent>
               </Card>
-            </a>
+            </Link>
           ))
         )}
       </div>

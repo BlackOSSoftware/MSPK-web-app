@@ -36,6 +36,7 @@ import { ClickSoundProvider } from "@/components/click-sound-provider";
 import { FcmListener } from "@/components/fcm-listener";
 import { CapacitorPushInit } from "@/components/capacitor-push-init";
 import { NotificationsWatcher } from "@/components/notifications-watcher";
+import { WebPushInit } from "@/components/web-push-init";
 
 export default function RootLayout({
   children,
@@ -64,6 +65,7 @@ export default function RootLayout({
               {children}
               <FcmListener />
               <CapacitorPushInit />
+              <WebPushInit />
               <NotificationsWatcher />
               <Toaster position="top-center" richColors />
             </ClickSoundProvider>

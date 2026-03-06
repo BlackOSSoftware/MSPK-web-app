@@ -1,6 +1,6 @@
 "use client";
 
-import { clearAuthSession, getAuthExpiresAt, getAuthToken } from "@/lib/auth/session";
+import { clearAuthSession, decodeJwtExpMs, getAuthExpiresAt, getAuthToken, setAuthSession } from "@/lib/auth/session";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
@@ -9,9 +9,26 @@ export function AuthSessionGuard() {
 
   useEffect(() => {
     const token = getAuthToken();
-    const expiresAt = getAuthExpiresAt();
+    let expiresAt = getAuthExpiresAt();
 
-    if (!token || !expiresAt || expiresAt <= Date.now()) {
+    if (!token) {
+      clearAuthSession();
+      router.replace("/login");
+      return;
+    }
+
+    if (!expiresAt) {
+      const jwtExp = decodeJwtExpMs(token);
+      if (jwtExp && jwtExp > Date.now()) {
+        setAuthSession(token, jwtExp);
+        expiresAt = jwtExp;
+      } else {
+        // If expiry is missing, avoid forcing logout on webview.
+        return;
+      }
+    }
+
+    if (expiresAt <= Date.now()) {
       clearAuthSession();
       router.replace("/login");
       return;

@@ -1,4 +1,4 @@
-package com.mspk.trading.solutions;
+package com.mspktrade.solution;
 
 import com.getcapacitor.BridgeActivity;
 

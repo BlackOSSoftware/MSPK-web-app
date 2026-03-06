@@ -1,5 +1,5 @@
 import axios, { AxiosError } from "axios";
-import { clearAuthSession, getAuthToken } from "@/lib/auth/session";
+import { clearAuthSession, getAuthExpiresAt, getAuthToken } from "@/lib/auth/session";
 
 const baseURL = process.env.NEXT_PUBLIC_API_URL;
 
@@ -12,6 +12,7 @@ const apiClient = axios.create({
   headers: {
     "Content-Type": "application/json",
   },
+  timeout: 15000,
 });
 
 apiClient.interceptors.request.use((config) => {
@@ -33,14 +34,18 @@ apiClient.interceptors.response.use(
         (error.config?.headers as Record<string, unknown> | undefined)?.authorization;
       const hasAuthHeader = typeof authHeader === "string" && authHeader.trim().length > 0;
       const hasSession = Boolean(getAuthToken());
+      const expiresAt = getAuthExpiresAt();
+      const isExpired = Boolean(expiresAt && expiresAt <= Date.now());
 
       if (!hasAuthHeader && !hasSession) {
         return Promise.reject(error);
       }
 
-      clearAuthSession();
-      if (window.location.pathname !== "/login") {
-        window.location.href = "/login";
+      if (isExpired) {
+        clearAuthSession();
+        if (window.location.pathname !== "/login") {
+          window.location.href = "/login";
+        }
       }
     }
 

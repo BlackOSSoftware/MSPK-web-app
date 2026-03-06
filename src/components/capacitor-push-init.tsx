@@ -5,6 +5,7 @@ import { Capacitor } from "@capacitor/core";
 import { PushNotifications } from "@capacitor/push-notifications";
 import { LocalNotifications } from "@capacitor/local-notifications";
 import { useRegisterFcmTokenMutation } from "@/services/notifications/notification.hooks";
+import { getAuthToken } from "@/lib/auth/session";
 
 type PushToken = {
   value: string;
@@ -15,6 +16,24 @@ export function CapacitorPushInit() {
 
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
+
+    const TOKEN_KEY = "native_fcm_token";
+    const REGISTERED_KEY = "native_fcm_registered_token";
+
+    const tryRegisterToken = async () => {
+      const token = window.localStorage.getItem(TOKEN_KEY);
+      if (!token) return;
+      const registered = window.localStorage.getItem(REGISTERED_KEY);
+      if (registered === token) return;
+      if (!getAuthToken()) return;
+
+      try {
+        await registerTokenMutation.mutateAsync({ token });
+        window.localStorage.setItem(REGISTERED_KEY, token);
+      } catch {
+        // ignore registration errors
+      }
+    };
 
     const init = async () => {
       const permission = await PushNotifications.requestPermissions();
@@ -32,7 +51,8 @@ export function CapacitorPushInit() {
               window.localStorage.setItem("fcm_token", token.value);
             }
             if (token.value) {
-              await registerTokenMutation.mutateAsync({ token: token.value });
+              window.localStorage.setItem(TOKEN_KEY, token.value);
+              await tryRegisterToken();
             }
           } catch {
             // ignore token registration errors
@@ -62,11 +82,16 @@ export function CapacitorPushInit() {
         window.location.href = "/dashboard/notifications";
       });
 
+      await tryRegisterToken();
+
+      const retryId = window.setInterval(tryRegisterToken, 15000);
+
       return () => {
         registrationListener.remove();
         registrationErrorListener.remove();
         receivedListener.remove();
         actionListener.remove();
+        window.clearInterval(retryId);
       };
     };
 
