@@ -6,4 +6,17 @@ export const metadata: Metadata = buildMetadata({
   description: "Access the MSPK Trade Solutions client portal securely.",
   path: "/",
   index: false,
+  keywords: [
+    "mspk",
+    "mspk trade solutions",
+    "trading signals",
+    "client portal",
+    "secure login",
+    "signal dashboard",
+    "market alerts",
+    "risk management",
+    "premium trading",
+    "execution insights"
+  ],
 });
+

@@ -10,6 +10,7 @@ export type SeoParams = {
   description: string;
   path: string;
   index?: boolean;
+  keywords?: string[];
 };
 
 export function buildMetadata({
@@ -17,12 +18,14 @@ export function buildMetadata({
   description,
   path,
   index = false,
+  keywords,
 }: SeoParams): Metadata {
   const canonicalUrl = new URL(path, siteUrl).toString();
 
   return {
     title,
     description,
+    keywords,
     alternates: {
       canonical: canonicalUrl,
     },

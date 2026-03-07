@@ -1,9 +1,22 @@
-import type { Metadata } from \"next\";
-import { buildMetadata } from \"@/lib/seo\";
+import type { Metadata } from "next";
+import { buildMetadata } from "@/lib/seo";
 
 export const metadata: Metadata = buildMetadata({
-  title: \"Strategies\",
-  description: \"Explore MSPK trading strategies and execution approaches.\",
-  path: \"/dashboard/strategies\",
+  title: "Strategies",
+  description: "Explore MSPK trading strategies and execution approaches.",
+  path: "/dashboard/strategies",
   index: false,
+  keywords: [
+    "strategies",
+    "trading strategies",
+    "execution strategy",
+    "signal strategy",
+    "mspk strategies",
+    "trade setups",
+    "market approach",
+    "entry strategy",
+    "risk strategy",
+    "pro trading"
+  ],
 });
+
