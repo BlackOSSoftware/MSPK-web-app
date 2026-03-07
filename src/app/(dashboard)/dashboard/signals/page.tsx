@@ -1,9 +1,11 @@
 "use client";
-
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSignalsQuery } from "@/services/signals/signal.hooks";
+import { useMarketUserWatchlistQuery } from "@/services/market/market.hooks";
 import type { SignalItem } from "@/services/signals/signal.types";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ManageScriptsPanel } from "@/components/signals/manage-scripts-panel";
 import {
   Dialog,
   DialogContent,
@@ -20,12 +22,16 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock3,
+  Eye,
+  Layers3,
+  Radio,
   RefreshCw,
   ShieldCheck,
   Sparkles,
   Target,
   TrendingUp,
 } from "lucide-react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 const numberFormatter = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 });
 type SignalRuntimeShape = SignalItem & {
@@ -276,7 +282,10 @@ function useAnimatedCount(value: number, trigger: number) {
   return display;
 }
 
-export default function SignalsPage() {
+function SignalsPageContent() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [page, setPage] = useState(1);
   const [selectedKey, setSelectedKey] = useState("");
   const [isDetailOpen, setIsDetailOpen] = useState(false);
@@ -285,10 +294,24 @@ export default function SignalsPage() {
     active: 0,
     closed: 0,
   });
+  const activeTab = searchParams.get("tab") === "scripts" ? "scripts" : "feed";
 
   const { data, isLoading, isFetching, error, refetch } = useSignalsQuery({ page, limit: 12 });
+  const watchlistQuery = useMarketUserWatchlistQuery(true, { staleTime: 15_000 });
 
   const signals = useMemo(() => data?.results ?? [], [data?.results]);
+  const selectedScripts = useMemo(
+    () =>
+      (watchlistQuery.data ?? [])
+        .map((item) => ({
+          symbol: String(item.symbol || "").trim().toUpperCase(),
+          segment: String(item.segment || "").trim().toUpperCase(),
+        }))
+        .filter((item) => item.symbol.length > 0),
+    [watchlistQuery.data]
+  );
+  const visibleScripts = selectedScripts.slice(0, 8);
+  const hiddenScriptCount = Math.max(0, selectedScripts.length - visibleScripts.length);
   const pagination = data?.pagination;
   const focusSignal = useMemo(() => {
     if (signals.length === 0) return undefined;
@@ -318,6 +341,7 @@ export default function SignalsPage() {
       }).length;
     return { total, active, closed };
   }, [signals, pagination, data?.stats]);
+  const emptyMessage = data?.access?.message || "No signals found.";
 
   const totalPages = Math.max(1, pagination?.totalPages ?? 1);
   const currentPage = pagination?.page ?? page;
@@ -336,6 +360,11 @@ export default function SignalsPage() {
   const selectSignal = (signal: SignalItem) => {
     setSelectedKey(getSignalKey(signal));
     setIsDetailOpen(false);
+  };
+
+  const handleTabChange = (value: string) => {
+    const nextTab = value === "scripts" ? "scripts" : "feed";
+    router.replace(nextTab === "scripts" ? `${pathname}?tab=scripts` : pathname, { scroll: false });
   };
 
   return (
@@ -441,6 +470,92 @@ export default function SignalsPage() {
         </div>
       </section>
 
+      <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-4 sm:space-y-6">
+        <div className="rounded-[1.4rem] border border-slate-300/70 bg-white/80 p-2 dark:border-slate-700/60 dark:bg-slate-950/45">
+          <TabsList className="h-auto w-full justify-start rounded-[1rem] bg-transparent p-0">
+            <TabsTrigger
+              value="feed"
+              className="h-11 flex-1 rounded-[0.9rem] border border-transparent bg-transparent text-xs sm:text-sm data-[state=active]:border-sky-500/25 data-[state=active]:bg-sky-500/10 data-[state=active]:text-sky-700 dark:data-[state=active]:border-sky-400/25 dark:data-[state=active]:bg-sky-400/12 dark:data-[state=active]:text-sky-200"
+            >
+              <Radio className="h-4 w-4" />
+              Signal Feed
+            </TabsTrigger>
+            <TabsTrigger
+              value="scripts"
+              className="h-11 flex-1 rounded-[0.9rem] border border-transparent bg-transparent text-xs sm:text-sm data-[state=active]:border-emerald-500/25 data-[state=active]:bg-emerald-500/10 data-[state=active]:text-emerald-700 dark:data-[state=active]:border-emerald-400/25 dark:data-[state=active]:bg-emerald-400/12 dark:data-[state=active]:text-emerald-200"
+            >
+              <Layers3 className="h-4 w-4" />
+              Manage Scripts
+            </TabsTrigger>
+          </TabsList>
+        </div>
+
+        <TabsContent value="feed" className="space-y-4 sm:space-y-6">
+      <section className="rounded-[1.6rem] border border-slate-300/70 dark:border-amber-300/18 bg-[linear-gradient(160deg,rgba(255,255,255,0.96),rgba(241,245,249,0.92))] dark:bg-[linear-gradient(165deg,rgba(5,12,24,0.84),rgba(14,23,38,0.78))] p-4 sm:p-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="space-y-1.5">
+            <div className="inline-flex items-center gap-2 rounded-full border border-slate-300/80 bg-white/75 px-3 py-1 text-[10px] uppercase tracking-[0.18em] text-slate-700 dark:border-amber-200/25 dark:bg-amber-200/10 dark:text-amber-100">
+              <Eye className="h-3.5 w-3.5" />
+              Selected Scripts
+            </div>
+            <p className="text-xs sm:text-sm text-slate-700 dark:text-slate-300">
+              Signals aapki selected scripts ke hisaab se dikh rahe hain, aur selected scripts par signals unlimited aa sakte hain.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex items-center gap-2 rounded-full border border-sky-500/25 bg-sky-500/10 px-3 py-1 text-[11px] font-semibold text-sky-700 dark:border-sky-400/25 dark:bg-sky-400/12 dark:text-sky-200">
+              {selectedScripts.length} script{selectedScripts.length === 1 ? "" : "s"} active
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => handleTabChange("scripts")}
+              className="h-8 rounded-full border-emerald-500/25 bg-emerald-500/10 px-3 text-[10px] uppercase tracking-[0.16em] text-emerald-700 hover:bg-emerald-500/16 dark:border-emerald-400/25 dark:bg-emerald-400/10 dark:text-emerald-200"
+            >
+              Manage Scripts
+            </Button>
+          </div>
+        </div>
+
+        {selectedScripts.length > 0 ? (
+          <div className="mt-4 flex flex-wrap gap-2">
+            {visibleScripts.map((item) => (
+              <span
+                key={`${item.segment}-${item.symbol}`}
+                className="inline-flex items-center gap-2 rounded-full border border-emerald-600/20 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-semibold text-emerald-700 dark:border-emerald-300/25 dark:bg-emerald-300/10 dark:text-emerald-100"
+              >
+                <span>{item.symbol}</span>
+                <span className="rounded-full bg-white/70 px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-slate-600 dark:bg-slate-900/55 dark:text-slate-300">
+                  {item.segment || "SCRIPT"}
+                </span>
+              </span>
+            ))}
+            {hiddenScriptCount > 0 ? (
+              <span className="inline-flex items-center rounded-full border border-slate-300/80 bg-white/75 px-3 py-1.5 text-[11px] font-semibold text-slate-700 dark:border-slate-600/70 dark:bg-slate-900/60 dark:text-slate-200">
+                +{hiddenScriptCount} more
+              </span>
+            ) : null}
+          </div>
+        ) : (
+          <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-amber-500/25 bg-amber-500/10 p-4 text-sm text-amber-800 dark:border-amber-300/20 dark:bg-amber-300/10 dark:text-amber-100 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="font-semibold">Koi script selected nahi hai.</div>
+              <div className="text-xs sm:text-sm text-amber-700/90 dark:text-amber-100/80">
+                Manage Scripts tab se symbols add karo. Har segment me maximum 10 scripts add kar sakte ho, lekin selected scripts ke liye signals unlimited milenge.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleTabChange("scripts")}
+              className="inline-flex h-10 items-center justify-center rounded-full border border-amber-700/25 bg-white/80 px-4 text-xs font-semibold text-amber-800 transition-colors hover:bg-white dark:border-amber-200/20 dark:bg-slate-950/55 dark:text-amber-100 dark:hover:bg-slate-900/75"
+            >
+              Open Manage Scripts
+            </button>
+          </div>
+        )}
+      </section>
+
       <section className="relative grid grid-cols-3 gap-2 sm:gap-3 xl:grid-cols-3">
         <div
           className="group relative overflow-hidden rounded-xl sm:rounded-2xl border border-slate-300/70 dark:border-amber-300/18 bg-[linear-gradient(145deg,rgba(248,250,252,0.95),rgba(226,232,240,0.92))] dark:bg-[linear-gradient(145deg,rgba(15,23,42,0.84),rgba(30,41,59,0.66))] p-2.5 sm:p-5 transition-all duration-300 hover:-translate-y-1 hover:border-amber-400/45 dark:hover:border-amber-300/40 dark:shadow-[0_0_0_1px_rgba(148,163,184,0.12),0_20px_34px_-22px_rgba(96,165,250,0.5)]"
@@ -512,7 +627,7 @@ export default function SignalsPage() {
         </div>
       ) : signals.length === 0 ? (
         <div className="rounded-[1.8rem] border border-border/60 bg-background/60 p-6 text-sm text-muted-foreground">
-          No signals found.
+          {emptyMessage}
         </div>
       ) : (
         <>
@@ -993,6 +1108,30 @@ export default function SignalsPage() {
           </Dialog>
         </>
       )}
+        </TabsContent>
+
+        <TabsContent value="scripts">
+          <ManageScriptsPanel />
+        </TabsContent>
+      </Tabs>
     </div>
+  );
+}
+
+function SignalsPageFallback() {
+  return (
+    <div className="flex-1 space-y-4 sm:space-y-6 py-2">
+      <div className="rounded-[1.8rem] border border-border/60 bg-background/60 p-6 text-sm text-muted-foreground">
+        Loading signals...
+      </div>
+    </div>
+  );
+}
+
+export default function SignalsPage() {
+  return (
+    <Suspense fallback={<SignalsPageFallback />}>
+      <SignalsPageContent />
+    </Suspense>
   );
 }

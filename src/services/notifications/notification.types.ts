@@ -44,3 +44,11 @@ export type TelegramDisconnectResponse = {
   message?: string;
   telegram?: TelegramConnectionStatus;
 };
+
+export type WhatsAppTestResponse = {
+  message?: string;
+  provider?: string;
+  to?: string;
+  queued?: boolean;
+  externalMessageId?: string | null;
+};

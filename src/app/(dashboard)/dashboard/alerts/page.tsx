@@ -5,7 +5,11 @@ import { useMutation } from "@tanstack/react-query";
 import { AlertCircle, Bell, CheckCircle2, Copy, ExternalLink, Loader2, Mail, MessageCircle, RefreshCw, Smartphone, Unplug } from "lucide-react";
 import { toast } from "sonner";
 import { useMeQuery, useUpdateMeMutation } from "@/hooks/use-auth";
-import { disconnectTelegram, getTelegramConnectLink } from "@/services/notifications/notification.service";
+import {
+  disconnectTelegram,
+  getTelegramConnectLink,
+  sendWhatsAppTestMessage,
+} from "@/services/notifications/notification.service";
 
 function formatConnectedAt(value?: string | null) {
   if (!value) {
@@ -43,10 +47,15 @@ export default function AlertsPage() {
 
   const telegram = meQuery.data?.telegram;
   const isConnected = Boolean(telegram?.connected);
+  const isWhatsAppEnabled = meQuery.data?.isWhatsAppEnabled !== false;
   const isEmailEnabled = meQuery.data?.isEmailAlertEnabled !== false;
+  const whatsappPhone = meQuery.data?.phone?.trim() || "";
   const botUsername = telegram?.botUsername || "Mspk_alert_bot";
   const telegramUrl = `https://t.me/${botUsername}`;
   const telegramWebUrl = `https://web.telegram.org/k/#@${botUsername}`;
+  const whatsappTestMutation = useMutation({
+    mutationFn: () => sendWhatsAppTestMessage(),
+  });
 
   const handleConnect = async () => {
     try {
@@ -96,6 +105,28 @@ export default function AlertsPage() {
       toast.success(`Signal email alerts ${!isEmailEnabled ? "enabled" : "disabled"}`);
     } catch (error) {
       toast.error(getErrorMessage(error, "Email alert preference update nahi ho saka"));
+    }
+  };
+
+  const handleWhatsAppTest = async () => {
+    try {
+      const response = await whatsappTestMutation.mutateAsync();
+      const providerLabel = response.provider ? ` via ${response.provider}` : "";
+      const phoneLabel = response.to || whatsappPhone || "your phone";
+      toast.success(`WhatsApp test sent to ${phoneLabel}${providerLabel}`);
+    } catch (error) {
+      toast.error(getErrorMessage(error, "WhatsApp test send nahi ho saka"));
+    }
+  };
+
+  const handleWhatsAppToggle = async () => {
+    try {
+      await updateMeMutation.mutateAsync({
+        isWhatsAppEnabled: !isWhatsAppEnabled,
+      });
+      toast.success(`Signal WhatsApp alerts ${!isWhatsAppEnabled ? "enabled" : "disabled"}`);
+    } catch (error) {
+      toast.error(getErrorMessage(error, "WhatsApp alert preference update nahi ho saka"));
     }
   };
 
@@ -267,9 +298,50 @@ export default function AlertsPage() {
                 <Smartphone className="h-4 w-4 text-emerald-500" />
                 WhatsApp
               </div>
+              <div
+                className={`mt-3 inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11px] font-semibold ${
+                  isWhatsAppEnabled
+                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-300"
+                    : "bg-zinc-500/10 text-zinc-700 dark:text-zinc-300"
+                }`}
+              >
+                {isWhatsAppEnabled ? <CheckCircle2 className="h-3.5 w-3.5" /> : <AlertCircle className="h-3.5 w-3.5" />}
+                {isWhatsAppEnabled ? "Signal WhatsApp on" : "Signal WhatsApp off"}
+              </div>
               <p className="mt-2 text-sm text-muted-foreground">
-                WhatsApp alerts phone mapping aur admin config par chalte hain. Is page par abhi manual setup nahi chahiye.
+                Signal alerts aapke profile phone number par jayenge. Isko yahin se on ya off kar sakte ho. Default setting on rahegi.
               </p>
+              <div className="mt-3 text-xs text-muted-foreground">
+                Delivery number: <span className="font-semibold text-foreground">{whatsappPhone || "Profile phone missing"}</span>
+              </div>
+              <div className="mt-4 flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={handleWhatsAppToggle}
+                  disabled={updateMeMutation.isPending || !whatsappPhone}
+                  className="inline-flex h-10 items-center gap-2 rounded-2xl border border-emerald-500/20 px-4 text-sm font-semibold text-emerald-700 disabled:opacity-60 dark:text-emerald-200"
+                >
+                  {updateMeMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Smartphone className="h-4 w-4" />}
+                  {whatsappPhone
+                    ? isWhatsAppEnabled
+                      ? "Turn Off WhatsApp Alerts"
+                      : "Turn On WhatsApp Alerts"
+                    : "Add Phone In Profile"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleWhatsAppTest}
+                  disabled={whatsappTestMutation.isPending || !whatsappPhone}
+                  className="inline-flex h-10 items-center gap-2 rounded-2xl border border-sky-500/20 px-4 text-sm font-semibold text-sky-700 disabled:opacity-60 dark:text-sky-200"
+                >
+                  {whatsappTestMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Smartphone className="h-4 w-4" />
+                  )}
+                  Send Test WhatsApp
+                </button>
+              </div>
             </div>
 
             <div className="rounded-2xl border border-black/5 bg-black/[0.03] px-4 py-4 dark:border-white/10 dark:bg-white/[0.03]">

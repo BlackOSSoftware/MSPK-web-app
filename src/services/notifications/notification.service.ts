@@ -5,6 +5,7 @@ import type {
   RegisterFcmTokenRequest,
   TelegramConnectLinkResponse,
   TelegramDisconnectResponse,
+  WhatsAppTestResponse,
 } from "./notification.types";
 
 export async function getNotifications(): Promise<NotificationListResponse | NotificationItem[]> {
@@ -43,5 +44,12 @@ export async function getTelegramConnectLink(): Promise<TelegramConnectLinkRespo
 
 export async function disconnectTelegram(): Promise<TelegramDisconnectResponse> {
   const response = await apiClient.post<TelegramDisconnectResponse>("/notifications/telegram/disconnect");
+  return response.data;
+}
+
+export async function sendWhatsAppTestMessage(message?: string): Promise<WhatsAppTestResponse> {
+  const response = await apiClient.post<WhatsAppTestResponse>("/notifications/whatsapp/test", {
+    ...(message ? { message } : {}),
+  });
   return response.data;
 }

@@ -37,6 +37,16 @@ export type SignalItem = {
 };
 
 export type SignalListResponse = {
+  access?: {
+    mode?: string;
+    scope?: string;
+    tokenProvided?: boolean;
+    planStatus?: string | null;
+    planName?: string | null;
+    planExpiry?: string | null;
+    selectedSymbolCount?: number;
+    message?: string | null;
+  };
   results?: SignalItem[];
   pagination?: {
     page?: number;
