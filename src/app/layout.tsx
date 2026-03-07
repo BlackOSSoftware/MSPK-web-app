@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "@fontsource/outfit";
 import "@fontsource/jetbrains-mono";
 import "./globals.css";
+import { defaultDescription, siteName, siteUrl } from "@/lib/seo";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -17,15 +18,24 @@ const geistMono = Geist_Mono({
 import { Toaster } from 'sonner';
 
 export const metadata: Metadata = {
+  metadataBase: siteUrl,
   title: {
-    default: "MSPK Trade Solutions",
-    template: "%s | MSPK Trade Solutions",
+    default: siteName,
+    template: `%s | ${siteName}`,
   },
-  description: "Institutional-grade trading signals with disciplined risk and premium execution clarity.",
+  description: defaultDescription,
   icons: {
     icon: "/logo.jpg",
     shortcut: "/logo.jpg",
     apple: "/logo.jpg",
+  },
+  openGraph: {
+    siteName,
+    type: "website",
+    locale: "en_IN",
+  },
+  twitter: {
+    card: "summary_large_image",
   },
 };
 
