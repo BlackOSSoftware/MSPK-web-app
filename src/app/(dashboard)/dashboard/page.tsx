@@ -212,8 +212,10 @@ export default function DashboardPage() {
   const isMarkedExpired = planNameLower.includes("expired");
   const isFreePlan = subscriptionPlan === "free";
   const isPlanMissing = !planId && !isActiveFromMeData;
+  const hasActiveAccess = isActiveFromSubscription || isActiveFromExpiry || isActiveFromMeData;
   const isPlanBlocked =
-    !isActiveFromSubscription && (planIsExpired || isMarkedExpired || isFreePlan || isPlanMissing);
+    !hasActiveAccess &&
+    (planIsExpired || isMarkedExpired || isPlanMissing || (isFreePlan && !planId));
   const planStatus = planIsActive ? "Active" : "Inactive";
   const planName = planNameLabel;
 

@@ -46,6 +46,7 @@ type ViewMode = "table" | "cards";
 type CardPulse = "up" | "down";
 
 const VIEW_MODE_STORAGE_KEY = "watchlist_view_mode";
+const TABLE_COLUMN_STORAGE_KEY = "watchlist_table_columns_v1";
 const SUPPORT_WHATSAPP = "917770039037";
 
 type SocketTick = {
@@ -76,6 +77,24 @@ type WatchlistRow = {
   points?: number;
   updatedAt?: string;
 };
+
+const DEFAULT_TABLE_COLUMNS = [
+  "symbol",
+  "name",
+  "segment",
+  "exchange",
+  "current",
+  "high",
+  "low",
+  "close",
+  "changePercent",
+  "points",
+  "bid",
+  "ask",
+  "action",
+] as const;
+
+type TableColumnId = (typeof DEFAULT_TABLE_COLUMNS)[number];
 
 function toNumber(value: unknown): number | undefined {
   const parsed = Number(value);
@@ -275,11 +294,14 @@ export default function WatchlistPage() {
   const [viewMode, setViewMode] = useState<ViewMode>("table");
   const [searchQuery, setSearchQuery] = useState("");
   const [isFilterDialogOpen, setIsFilterDialogOpen] = useState(false);
+  const [isColumnDialogOpen, setIsColumnDialogOpen] = useState(false);
   const [removingSymbol, setRemovingSymbol] = useState<string | null>(null);
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   const [cardPulseMap, setCardPulseMap] = useState<Record<string, CardPulse>>({});
   const [highPulseMap, setHighPulseMap] = useState<Record<string, CardPulse>>({});
   const [lowPulseMap, setLowPulseMap] = useState<Record<string, CardPulse>>({});
+  const [columnOrder, setColumnOrder] = useState<TableColumnId[]>([...DEFAULT_TABLE_COLUMNS]);
+  const [hiddenColumns, setHiddenColumns] = useState<TableColumnId[]>([]);
   const previousPriceRef = useRef<Record<string, number>>({});
   const previousHighRef = useRef<Record<string, number>>({});
   const previousLowRef = useRef<Record<string, number>>({});
@@ -322,8 +344,51 @@ export default function WatchlistPage() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    const stored = window.localStorage.getItem(TABLE_COLUMN_STORAGE_KEY);
+    if (!stored) return;
+    try {
+      const parsed = JSON.parse(stored) as { order?: string[]; hidden?: string[] };
+      const order = Array.isArray(parsed.order)
+        ? parsed.order.filter((col): col is TableColumnId =>
+            DEFAULT_TABLE_COLUMNS.includes(col as TableColumnId)
+          )
+        : [];
+      const hidden = Array.isArray(parsed.hidden)
+        ? parsed.hidden.filter((col): col is TableColumnId =>
+            DEFAULT_TABLE_COLUMNS.includes(col as TableColumnId)
+          )
+        : [];
+      const normalizedOrder = [
+        ...new Set([
+          ...order,
+          ...DEFAULT_TABLE_COLUMNS.filter((col) => !order.includes(col)),
+        ]),
+      ];
+      setColumnOrder(normalizedOrder);
+      setHiddenColumns(hidden);
+    } catch {
+      // ignore invalid storage payload
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
     window.localStorage.setItem(VIEW_MODE_STORAGE_KEY, viewMode);
   }, [viewMode]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(
+      TABLE_COLUMN_STORAGE_KEY,
+      JSON.stringify({ order: columnOrder, hidden: hiddenColumns })
+    );
+  }, [columnOrder, hiddenColumns]);
+
+  useEffect(() => {
+    if (hiddenColumns.length >= columnOrder.length) {
+      setHiddenColumns([]);
+    }
+  }, [hiddenColumns.length, columnOrder.length]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -590,6 +655,45 @@ export default function WatchlistPage() {
     };
   }, []);
 
+  const hiddenColumnSet = useMemo(() => new Set(hiddenColumns), [hiddenColumns]);
+  const visibleColumns = useMemo(
+    () => columnOrder.filter((col) => !hiddenColumnSet.has(col)),
+    [columnOrder, hiddenColumnSet]
+  );
+
+  const toggleColumn = (colId: TableColumnId) => {
+    setHiddenColumns((prev) => {
+      const isHidden = prev.includes(colId);
+      if (!isHidden) {
+        const nextHidden = [...prev, colId];
+        const nextVisibleCount = columnOrder.filter((col) => !nextHidden.includes(col)).length;
+        if (nextVisibleCount === 0) {
+          toast.error("At least one column must remain visible.");
+          return prev;
+        }
+        return nextHidden;
+      }
+      return prev.filter((col) => col !== colId);
+    });
+  };
+
+  const moveColumn = (colId: TableColumnId, direction: "up" | "down") => {
+    setColumnOrder((prev) => {
+      const index = prev.indexOf(colId);
+      if (index === -1) return prev;
+      const nextIndex = direction === "up" ? index - 1 : index + 1;
+      if (nextIndex < 0 || nextIndex >= prev.length) return prev;
+      const next = [...prev];
+      [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
+      return next;
+    });
+  };
+
+  const resetColumns = () => {
+    setColumnOrder([...DEFAULT_TABLE_COLUMNS]);
+    setHiddenColumns([]);
+  };
+
   const segmentOptions = useMemo(() => {
     const set = new Set<string>();
     for (const row of allRows) {
@@ -605,6 +709,81 @@ export default function WatchlistPage() {
     }
     return ["ALL", ...Array.from(set).sort((a, b) => a.localeCompare(b))];
   }, [allRows]);
+
+  const tableHeaderMap: Record<TableColumnId, React.ReactNode> = {
+    symbol: "Symbol",
+    name: "Name",
+    segment: "Segment",
+    exchange: "Exchange",
+    current: (
+      <span className="inline-flex w-full items-center justify-end gap-1">
+        <ArrowUp className="h-3 w-3 text-emerald-500" />
+        <ArrowDown className="h-3 w-3 text-rose-500" />
+        Current
+      </span>
+    ),
+    high: (
+      <span className="inline-flex w-full items-center justify-end gap-1">
+        <ArrowUp className="h-3 w-3 text-emerald-500" />
+        High
+      </span>
+    ),
+    low: (
+      <span className="inline-flex w-full items-center justify-end gap-1">
+        <ArrowDown className="h-3 w-3 text-rose-500" />
+        Low
+      </span>
+    ),
+    close: <span className="inline-flex w-full items-center justify-end">Close</span>,
+    changePercent: (
+      <span className="inline-flex w-full items-center justify-end gap-1">
+        <ArrowUp className="h-3 w-3 text-emerald-500" />
+        <ArrowDown className="h-3 w-3 text-rose-500" />
+        Change %
+      </span>
+    ),
+    points: (
+      <span className="inline-flex w-full items-center justify-end gap-1">
+        <ArrowUp className="h-3 w-3 text-emerald-500" />
+        <ArrowDown className="h-3 w-3 text-rose-500" />
+        Points
+      </span>
+    ),
+    bid: (
+      <span className="inline-flex w-full items-center justify-end gap-1">
+        <ArrowUp className="h-3 w-3 text-emerald-500" />
+        Bid
+      </span>
+    ),
+    ask: (
+      <span className="inline-flex w-full items-center justify-end gap-1">
+        <ArrowDown className="h-3 w-3 text-rose-500" />
+        Ask
+      </span>
+    ),
+    action: (
+      <span className="inline-flex w-full items-center justify-end gap-1">
+        <Trash2 className="h-3 w-3 text-rose-500" />
+        Action
+      </span>
+    ),
+  };
+
+  const tableColumnLabels: Record<TableColumnId, string> = {
+    symbol: "Symbol",
+    name: "Name",
+    segment: "Segment",
+    exchange: "Exchange",
+    current: "Current",
+    high: "High",
+    low: "Low",
+    close: "Close",
+    changePercent: "Change %",
+    points: "Points",
+    bid: "Bid",
+    ask: "Ask",
+    action: "Action",
+  };
 
 
   const filteredRows = useMemo(() => {
@@ -781,31 +960,45 @@ export default function WatchlistPage() {
                 ) : null}
               </Button>
             </div>
-            <div className="inline-flex w-full overflow-hidden rounded-lg border border-slate-300/80 bg-white/90 dark:border-slate-700/70 dark:bg-slate-900/70 sm:w-auto">
-              <button
-                type="button"
-                onClick={() => setViewMode("table")}
-                className={cn(
-                  "flex-1 px-4 py-2 text-xs font-semibold transition-colors sm:flex-none",
-                  viewMode === "table"
-                    ? "bg-sky-500/16 text-sky-700 dark:bg-sky-500/24 dark:text-sky-200"
-                    : "text-slate-600 hover:bg-slate-200/70 dark:text-slate-300 dark:hover:bg-slate-800/80"
-                )}
-              >
-                Table
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewMode("cards")}
-                className={cn(
-                  "flex-1 px-4 py-2 text-xs font-semibold transition-colors sm:flex-none",
-                  viewMode === "cards"
-                    ? "bg-emerald-500/16 text-emerald-700 dark:bg-emerald-500/24 dark:text-emerald-200"
-                    : "text-slate-600 hover:bg-slate-200/70 dark:text-slate-300 dark:hover:bg-slate-800/80"
-                )}
-              >
-                Cards
-              </button>
+            <div className="flex w-full items-center gap-2 sm:w-auto">
+              <div className="inline-flex flex-1 overflow-hidden rounded-lg border border-slate-300/80 bg-white/90 dark:border-slate-700/70 dark:bg-slate-900/70 sm:flex-none">
+                <button
+                  type="button"
+                  onClick={() => setViewMode("table")}
+                  className={cn(
+                    "flex-1 px-4 py-2 text-xs font-semibold transition-colors sm:flex-none",
+                    viewMode === "table"
+                      ? "bg-sky-500/16 text-sky-700 dark:bg-sky-500/24 dark:text-sky-200"
+                      : "text-slate-600 hover:bg-slate-200/70 dark:text-slate-300 dark:hover:bg-slate-800/80"
+                  )}
+                >
+                  Table
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode("cards")}
+                  className={cn(
+                    "flex-1 px-4 py-2 text-xs font-semibold transition-colors sm:flex-none",
+                    viewMode === "cards"
+                      ? "bg-emerald-500/16 text-emerald-700 dark:bg-emerald-500/24 dark:text-emerald-200"
+                      : "text-slate-600 hover:bg-slate-200/70 dark:text-slate-300 dark:hover:bg-slate-800/80"
+                  )}
+                >
+                  Cards
+                </button>
+              </div>
+              {viewMode === "table" ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsColumnDialogOpen(true)}
+                  className="hidden h-9 border-slate-300/80 bg-white/90 text-slate-700 dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200 md:inline-flex"
+                >
+                  <SlidersHorizontal className="mr-1 h-4 w-4" />
+                  Columns
+                </Button>
+              ) : null}
             </div>
           </div>
         </div>
@@ -887,74 +1080,30 @@ export default function WatchlistPage() {
               <Table className="min-w-[980px]">
           <TableHeader>
             <TableRow className="bg-slate-100/80 dark:bg-slate-900/80">
-              <TableHead>Symbol</TableHead>
-              <TableHead>Name</TableHead>
-              <TableHead>Segment</TableHead>
-              <TableHead>Exchange</TableHead>
-              <TableHead className="text-right">
-                <span className="inline-flex w-full items-center justify-end gap-1">
-                  <ArrowUp className="h-3 w-3 text-emerald-500" />
-                  <ArrowDown className="h-3 w-3 text-rose-500" />
-                  Current
-                </span>
-              </TableHead>
-              <TableHead className="text-right">
-                <span className="inline-flex w-full items-center justify-end gap-1">
-                  <ArrowUp className="h-3 w-3 text-emerald-500" />
-                  High
-                </span>
-              </TableHead>
-              <TableHead className="text-right">
-                <span className="inline-flex w-full items-center justify-end gap-1">
-                  <ArrowDown className="h-3 w-3 text-rose-500" />
-                  Low
-                </span>
-              </TableHead>
-              <TableHead className="text-right">Close</TableHead>
-              <TableHead className="text-right">
-                <span className="inline-flex w-full items-center justify-end gap-1">
-                  <ArrowUp className="h-3 w-3 text-emerald-500" />
-                  <ArrowDown className="h-3 w-3 text-rose-500" />
-                  Change %
-                </span>
-              </TableHead>
-              <TableHead className="text-right">
-                <span className="inline-flex w-full items-center justify-end gap-1">
-                  <ArrowUp className="h-3 w-3 text-emerald-500" />
-                  <ArrowDown className="h-3 w-3 text-rose-500" />
-                  Points
-                </span>
-              </TableHead>
-              <TableHead className="text-right">
-                <span className="inline-flex w-full items-center justify-end gap-1">
-                  <ArrowUp className="h-3 w-3 text-emerald-500" />
-                  Bid
-                </span>
-              </TableHead>
-              <TableHead className="text-right">
-                <span className="inline-flex w-full items-center justify-end gap-1">
-                  <ArrowDown className="h-3 w-3 text-rose-500" />
-                  Ask
-                </span>
-              </TableHead>
-              <TableHead className="text-right">
-                <span className="inline-flex w-full items-center justify-end gap-1">
-                  <Trash2 className="h-3 w-3 text-rose-500" />
-                  Action
-                </span>
-              </TableHead>
+              {visibleColumns.map((col) => (
+                <TableHead
+                  key={col}
+                  className={cn(
+                    ["current", "high", "low", "close", "changePercent", "points", "bid", "ask", "action"].includes(col)
+                      ? "text-right"
+                      : ""
+                  )}
+                >
+                  {tableHeaderMap[col]}
+                </TableHead>
+              ))}
             </TableRow>
           </TableHeader>
           <TableBody>
             {showLoading ? (
               <TableRow>
-                <TableCell colSpan={13} className="py-8 text-center text-sm text-muted-foreground">
+                <TableCell colSpan={visibleColumns.length} className="py-8 text-center text-sm text-muted-foreground">
                   Loading watchlist...
                 </TableCell>
               </TableRow>
             ) : filteredRows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={13} className="py-8 text-center text-sm text-muted-foreground">
+                <TableCell colSpan={visibleColumns.length} className="py-8 text-center text-sm text-muted-foreground">
                   {allRows.length === 0
                     ? "Watchlist empty. Add your first symbol above."
                     : "No rows match current filters."}
@@ -1061,17 +1210,19 @@ export default function WatchlistPage() {
                   }
                 }
 
-                return (
-                  <TableRow
-                    key={row.symbol}
-                    onClick={() => setSelectedSymbol(row.symbol)}
-                    className="group cursor-pointer transition-all duration-300 hover:bg-sky-500/[0.06] dark:hover:bg-sky-400/[0.08]"
-                  >
-                    <TableCell className="font-semibold tracking-wide text-slate-900 dark:text-slate-100">
+                const cellMap: Record<TableColumnId, JSX.Element> = {
+                  symbol: (
+                    <TableCell key="symbol" className="font-semibold tracking-wide text-slate-900 dark:text-slate-100">
                       {row.symbol}
                     </TableCell>
-                    <TableCell className="max-w-44 truncate">{row.name}</TableCell>
-                    <TableCell>
+                  ),
+                  name: (
+                    <TableCell key="name" className="max-w-44 truncate">
+                      {row.name}
+                    </TableCell>
+                  ),
+                  segment: (
+                    <TableCell key="segment">
                       <Badge
                         variant="outline"
                         className="border-slate-300/80 bg-slate-100/75 text-slate-700 dark:border-slate-700/80 dark:bg-slate-900/75 dark:text-slate-300"
@@ -1079,8 +1230,10 @@ export default function WatchlistPage() {
                         {row.segment}
                       </Badge>
                     </TableCell>
-                    <TableCell>{row.exchange}</TableCell>
-                    <TableCell className="text-right font-semibold tabular-nums">
+                  ),
+                  exchange: <TableCell key="exchange">{row.exchange}</TableCell>,
+                  current: (
+                    <TableCell key="current" className="text-right font-semibold tabular-nums">
                       <div className="inline-flex min-w-[132px] flex-col items-end">
                         <span
                           className={cn(
@@ -1108,7 +1261,9 @@ export default function WatchlistPage() {
                         </span>
                       </div>
                     </TableCell>
-                    <TableCell className="text-right font-semibold tabular-nums">
+                  ),
+                  high: (
+                    <TableCell key="high" className="text-right font-semibold tabular-nums">
                       <span
                         className={cn(
                           "inline-flex items-center gap-1 rounded-[6px] px-1.5 py-0.5 transition-colors duration-200",
@@ -1124,7 +1279,9 @@ export default function WatchlistPage() {
                         {formatNumber(row.high, digits)}
                       </span>
                     </TableCell>
-                    <TableCell className="text-right font-semibold tabular-nums">
+                  ),
+                  low: (
+                    <TableCell key="low" className="text-right font-semibold tabular-nums">
                       <span
                         className={cn(
                           "inline-flex items-center gap-1 rounded-[6px] px-1.5 py-0.5 transition-colors duration-200",
@@ -1140,7 +1297,9 @@ export default function WatchlistPage() {
                         {formatNumber(row.low, digits)}
                       </span>
                     </TableCell>
-                    <TableCell className={cn("text-right font-semibold tabular-nums", closeTextClass)}>
+                  ),
+                  close: (
+                    <TableCell key="close" className={cn("text-right font-semibold tabular-nums", closeTextClass)}>
                       <span className="inline-flex items-center justify-end gap-1">
                         {closeDirectionUp ? (
                           <ArrowUp className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-300" />
@@ -1150,7 +1309,9 @@ export default function WatchlistPage() {
                         {formatNumber(row.close, digits)}
                       </span>
                     </TableCell>
-                    <TableCell className={cn("text-right font-semibold tabular-nums", trendClass)}>
+                  ),
+                  changePercent: (
+                    <TableCell key="changePercent" className={cn("text-right font-semibold tabular-nums", trendClass)}>
                       <span className="inline-flex items-center justify-end gap-1">
                         {trendDirectionUp ? (
                           <ArrowUp className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-300" />
@@ -1160,7 +1321,9 @@ export default function WatchlistPage() {
                         {formatPercent(row.changePercent)}
                       </span>
                     </TableCell>
-                    <TableCell className={cn("text-right font-semibold tabular-nums", trendClass)}>
+                  ),
+                  points: (
+                    <TableCell key="points" className={cn("text-right font-semibold tabular-nums", trendClass)}>
                       <span className="inline-flex items-center justify-end gap-1">
                         {trendDirectionUp ? (
                           <ArrowUp className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-300" />
@@ -1170,19 +1333,25 @@ export default function WatchlistPage() {
                         {formatPoints(row.points, digits)}
                       </span>
                     </TableCell>
-                    <TableCell className={cn("text-right font-semibold tabular-nums", bidTextClass)}>
+                  ),
+                  bid: (
+                    <TableCell key="bid" className={cn("text-right font-semibold tabular-nums", bidTextClass)}>
                       <span className="inline-flex items-center justify-end gap-1">
                         <ArrowUp className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-300" />
                         {formatNumber(row.bid, digits)}
                       </span>
                     </TableCell>
-                    <TableCell className={cn("text-right font-semibold tabular-nums", askTextClass)}>
+                  ),
+                  ask: (
+                    <TableCell key="ask" className={cn("text-right font-semibold tabular-nums", askTextClass)}>
                       <span className="inline-flex items-center justify-end gap-1">
                         <ArrowDown className="h-4 w-4 shrink-0 text-rose-600 dark:text-rose-300" />
                         {formatNumber(row.ask, digits)}
                       </span>
                     </TableCell>
-                    <TableCell className="text-right">
+                  ),
+                  action: (
+                    <TableCell key="action" className="text-right">
                       <Button
                         type="button"
                         variant="ghost"
@@ -1198,6 +1367,16 @@ export default function WatchlistPage() {
                         Remove
                       </Button>
                     </TableCell>
+                  ),
+                };
+
+                return (
+                  <TableRow
+                    key={row.symbol}
+                    onClick={() => setSelectedSymbol(row.symbol)}
+                    className="group cursor-pointer transition-all duration-300 hover:bg-sky-500/[0.06] dark:hover:bg-sky-400/[0.08]"
+                  >
+                    {visibleColumns.map((col) => cellMap[col])}
                   </TableRow>
                 );
               })
@@ -1403,6 +1582,71 @@ export default function WatchlistPage() {
               </Button>
               <Button type="button" className="h-9" onClick={() => setIsFilterDialogOpen(false)}>
                 Apply
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isColumnDialogOpen} onOpenChange={setIsColumnDialogOpen}>
+        <DialogContent className="max-h-[88vh] max-w-[calc(100%-1rem)] overflow-y-auto border border-slate-200/85 bg-[linear-gradient(170deg,rgba(255,255,255,0.98),rgba(241,245,249,0.95))] p-0 text-slate-900 shadow-[0_28px_70px_-42px_rgba(15,23,42,0.48)] sm:max-h-[82vh] sm:max-w-md dark:border-slate-700/80 dark:bg-[linear-gradient(170deg,rgba(7,16,27,0.98),rgba(6,12,22,0.96))] dark:text-slate-100">
+          <DialogHeader className="border-b border-slate-200/85 bg-[linear-gradient(120deg,rgba(240,249,255,0.9),rgba(255,255,255,0.88))] px-5 py-4 dark:border-slate-800/80 dark:[background-image:none] dark:bg-transparent">
+            <DialogTitle className="flex items-center gap-2 text-lg font-extrabold tracking-wide text-slate-900 dark:text-slate-100">
+              <SlidersHorizontal className="h-5 w-5 text-sky-600 dark:text-sky-300" />
+              Table Columns
+            </DialogTitle>
+            <DialogDescription className="text-slate-600 dark:text-slate-400">
+              Reorder columns and choose what to show. Saved for this device.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 px-5 py-4">
+            <div className="space-y-2">
+              {columnOrder.map((colId, index) => {
+                const isHidden = hiddenColumnSet.has(colId);
+                return (
+                  <div
+                    key={colId}
+                    className="flex items-center justify-between gap-3 rounded-xl border border-slate-200/80 bg-white/90 px-3 py-2 dark:border-slate-700/70 dark:bg-slate-900/65"
+                  >
+                    <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                      <input
+                        type="checkbox"
+                        checked={!isHidden}
+                        onChange={() => toggleColumn(colId)}
+                        className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary/40"
+                      />
+                      <span className="font-semibold">{tableColumnLabels[colId]}</span>
+                    </label>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => moveColumn(colId, "up")}
+                        disabled={index === 0}
+                        className="h-7 w-7 rounded-lg border border-slate-200/80 bg-slate-100/80 text-slate-600 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700/70 dark:bg-slate-800/60 dark:text-slate-200 dark:hover:bg-slate-800"
+                      >
+                        <ArrowUp className="mx-auto h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moveColumn(colId, "down")}
+                        disabled={index === columnOrder.length - 1}
+                        className="h-7 w-7 rounded-lg border border-slate-200/80 bg-slate-100/80 text-slate-600 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700/70 dark:bg-slate-800/60 dark:text-slate-200 dark:hover:bg-slate-800"
+                      >
+                        <ArrowDown className="mx-auto h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="flex items-center justify-between pt-2">
+              <Button type="button" variant="outline" className="h-9" onClick={resetColumns}>
+                Reset
+              </Button>
+              <Button type="button" className="h-9" onClick={() => setIsColumnDialogOpen(false)}>
+                Done
               </Button>
             </div>
           </div>

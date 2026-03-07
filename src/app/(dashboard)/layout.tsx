@@ -55,8 +55,10 @@ export default function DashboardLayout({
     const isMarkedExpired = planName.includes("expired");
     const isFreePlan = subscriptionPlan === "free";
     const isPlanMissing = !planId && !isActiveFromMeData;
+    const hasActiveAccess = isActiveFromSubscription || isActiveFromMeData || (Boolean(planExpiry) && !planIsExpired);
     const isPlanBlocked =
-        !isActiveFromSubscription && (planIsExpired || isMarkedExpired || isFreePlan || isPlanMissing);
+        !hasActiveAccess &&
+        (planIsExpired || isMarkedExpired || isPlanMissing || (isFreePlan && !planId));
     const isAllowedWhenBlocked = pathname === "/dashboard" || pathname.startsWith("/dashboard/plans");
     const shouldRedirectToDashboard = isPlanBlocked && !isAllowedWhenBlocked;
 
