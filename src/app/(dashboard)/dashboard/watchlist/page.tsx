@@ -1210,7 +1210,7 @@ export default function WatchlistPage() {
                   }
                 }
 
-                const cellMap: Record<TableColumnId, JSX.Element> = {
+                const cellMap: Record<TableColumnId, React.ReactNode> = {
                   symbol: (
                     <TableCell key="symbol" className="font-semibold tracking-wide text-slate-900 dark:text-slate-100">
                       {row.symbol}
