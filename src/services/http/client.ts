@@ -17,6 +17,12 @@ const apiClient = axios.create({
 
 apiClient.interceptors.request.use((config) => {
   const token = getAuthToken();
+  const expiresAt = getAuthExpiresAt();
+
+  if (expiresAt && expiresAt <= Date.now()) {
+    clearAuthSession();
+    return config;
+  }
 
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
@@ -34,18 +40,14 @@ apiClient.interceptors.response.use(
         (error.config?.headers as Record<string, unknown> | undefined)?.authorization;
       const hasAuthHeader = typeof authHeader === "string" && authHeader.trim().length > 0;
       const hasSession = Boolean(getAuthToken());
-      const expiresAt = getAuthExpiresAt();
-      const isExpired = Boolean(expiresAt && expiresAt <= Date.now());
 
       if (!hasAuthHeader && !hasSession) {
         return Promise.reject(error);
       }
 
-      if (isExpired) {
-        clearAuthSession();
-        if (window.location.pathname !== "/login") {
-          window.location.href = "/login";
-        }
+      clearAuthSession();
+      if (window.location.pathname !== "/login") {
+        window.location.href = "/login";
       }
     }
 

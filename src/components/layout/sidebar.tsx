@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import {
     House,
     UserRound,
+    BellRing,
     LifeBuoy,
     CreditCard,
     Radio,
@@ -30,6 +31,7 @@ type SidebarNavItem = {
 const navigation: SidebarNavItem[] = [
     { name: "Dashboard", path: "/dashboard", icon: House },
     { name: "Profile", path: "/dashboard/profile", icon: UserRound },
+    { name: "Connect Alerts", path: "/dashboard/alerts", icon: BellRing },
     { name: "Signal", path: "/dashboard/signals", icon: Radio },
     { name: "Watchlist", path: "/dashboard/watchlist", icon: Eye },
     { name: "Plans & Billing", path: "/dashboard/plans", icon: CreditCard },

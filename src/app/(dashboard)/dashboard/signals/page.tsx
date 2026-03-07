@@ -5,6 +5,13 @@ import { useSignalsQuery } from "@/services/signals/signal.hooks";
 import type { SignalItem } from "@/services/signals/signal.types";
 import { Button } from "@/components/ui/button";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Activity,
   ArrowDownRight,
   ArrowUpRight,
@@ -21,6 +28,25 @@ import {
 } from "lucide-react";
 
 const numberFormatter = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 });
+type SignalRuntimeShape = SignalItem & {
+  entry_price?: unknown;
+  stop_loss?: unknown;
+  exit?: unknown;
+  exit_price?: unknown;
+  total_points?: unknown;
+  trade_type?: string;
+};
+
+function toFiniteNumber(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const normalized = value.replaceAll(",", "").trim();
+    if (!normalized) return undefined;
+    const parsed = Number(normalized);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return undefined;
+}
 
 function getSignalId(signal: SignalItem) {
   return signal.id || signal._id || "";
@@ -36,24 +62,102 @@ function getSignalKey(signal: SignalItem) {
 }
 
 function getEntry(signal: SignalItem) {
-  if (typeof signal.entry === "number") return signal.entry;
-  if (typeof signal.entryPrice === "number") return signal.entryPrice;
+  const runtimeSignal = signal as SignalRuntimeShape;
+  const directEntry = toFiniteNumber(signal.entry);
+  if (typeof directEntry === "number") return directEntry;
+  const snakeEntry = toFiniteNumber(runtimeSignal.entry_price);
+  if (typeof snakeEntry === "number") return snakeEntry;
+  const entryPrice = toFiniteNumber(signal.entryPrice);
+  if (typeof entryPrice === "number") return entryPrice;
   return undefined;
 }
 
 function getStopLoss(signal: SignalItem) {
-  if (typeof signal.stoploss === "number") return signal.stoploss;
-  if (typeof signal.stopLoss === "number") return signal.stopLoss;
+  const runtimeSignal = signal as SignalRuntimeShape;
+  const stoploss = toFiniteNumber(signal.stoploss);
+  if (typeof stoploss === "number") return stoploss;
+  const snakeStopLoss = toFiniteNumber(runtimeSignal.stop_loss);
+  if (typeof snakeStopLoss === "number") return snakeStopLoss;
+  const stopLoss = toFiniteNumber(signal.stopLoss);
+  if (typeof stopLoss === "number") return stopLoss;
+  return undefined;
+}
+
+function getExit(signal: SignalItem) {
+  const runtimeSignal = signal as SignalRuntimeShape;
+  const directExit = toFiniteNumber(runtimeSignal.exit);
+  if (typeof directExit === "number") return directExit;
+  const snakeExit = toFiniteNumber(runtimeSignal.exit_price);
+  if (typeof snakeExit === "number") return snakeExit;
+  const exitPrice = toFiniteNumber(signal.exitPrice);
+  if (typeof exitPrice === "number") return exitPrice;
   return undefined;
 }
 
 function getTargets(signal: SignalItem) {
   if (!signal.targets) return [];
-  if (Array.isArray(signal.targets)) return signal.targets.filter((val) => typeof val === "number");
+  if (Array.isArray(signal.targets)) {
+    return signal.targets
+      .map((value) => toFiniteNumber(value))
+      .filter((value): value is number => typeof value === "number");
+  }
   const { target1, target2, target3, t1, t2, t3 } = signal.targets;
-  return [target1 ?? t1, target2 ?? t2, target3 ?? t3].filter(
-    (val): val is number => typeof val === "number",
-  );
+  return [target1 ?? t1, target2 ?? t2, target3 ?? t3]
+    .map((value) => toFiniteNumber(value))
+    .filter((value): value is number => typeof value === "number");
+}
+
+function isBuySignal(signal: SignalItem) {
+  const runtimeSignal = signal as SignalRuntimeShape;
+  return (signal.type || runtimeSignal.trade_type || "BUY").toUpperCase() !== "SELL";
+}
+
+function roundSignalValue(value: number) {
+  return Math.round(value * 100) / 100;
+}
+
+function getResolvedPoints(signal: SignalItem) {
+  const runtimeSignal = signal as SignalRuntimeShape;
+  const storedPoints = toFiniteNumber(signal.totalPoints ?? runtimeSignal.total_points);
+  const entry = getEntry(signal);
+  const exit = getExit(signal);
+
+  if (
+    typeof storedPoints === "number" &&
+    (Math.abs(storedPoints) > 0 || typeof entry !== "number" || typeof exit !== "number")
+  ) {
+    return roundSignalValue(storedPoints);
+  }
+
+  if (typeof entry === "number" && typeof exit === "number") {
+    const points = isBuySignal(signal) ? exit - entry : entry - exit;
+    return roundSignalValue(points);
+  }
+
+  if (typeof storedPoints === "number") return roundSignalValue(storedPoints);
+  return undefined;
+}
+
+function getDisplayStatus(signal: SignalItem) {
+  const rawStatus = String(signal.status || "").trim();
+  const normalized = rawStatus.toLowerCase();
+  const points = getResolvedPoints(signal);
+  const entry = getEntry(signal);
+  const exit = getExit(signal);
+  const favorableExit =
+    typeof entry === "number" &&
+    typeof exit === "number" &&
+    (isBuySignal(signal) ? exit > entry : exit < entry);
+
+  if (normalized.includes("partial")) return "Partial Profit Book";
+  if (
+    normalized.includes("stop") &&
+    ((typeof points === "number" && points > 0) || favorableExit)
+  ) {
+    return "Partial Profit Book";
+  }
+
+  return rawStatus || "-";
 }
 
 function formatPrice(value?: number) {
@@ -85,6 +189,9 @@ function getStatusTone(status?: string) {
   const normalized = String(status || "").toLowerCase();
   if (normalized.includes("active") || normalized.includes("open")) {
     return "border border-emerald-600/25 bg-emerald-600/10 text-emerald-700 dark:border-emerald-400/25 dark:bg-emerald-400/12 dark:text-emerald-300";
+  }
+  if (normalized.includes("partial") || normalized.includes("profit") || normalized.includes("target")) {
+    return "border border-amber-600/25 bg-amber-500/12 text-amber-700 dark:border-amber-300/25 dark:bg-amber-300/12 dark:text-amber-100";
   }
   if (normalized.includes("close") || normalized.includes("history")) {
     return "border border-slate-500/25 bg-slate-500/10 text-slate-700 dark:border-slate-300/20 dark:bg-slate-300/10 dark:text-slate-300";
@@ -134,6 +241,13 @@ function HeaderCell({ icon: Icon, label }: { icon: typeof Activity; label: strin
 
 type StatHoverKey = "total" | "active" | "closed";
 
+function getPointsTone(points?: number) {
+  if (typeof points !== "number") return "text-slate-500 dark:text-slate-400";
+  if (points > 0) return "text-emerald-700 dark:text-emerald-200";
+  if (points < 0) return "text-rose-700 dark:text-rose-200";
+  return "text-slate-600 dark:text-slate-300";
+}
+
 function useAnimatedCount(value: number, trigger: number) {
   const safeValue = Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
   const [display, setDisplay] = useState(safeValue);
@@ -165,6 +279,7 @@ function useAnimatedCount(value: number, trigger: number) {
 export default function SignalsPage() {
   const [page, setPage] = useState(1);
   const [selectedKey, setSelectedKey] = useState("");
+  const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [statHoverPulse, setStatHoverPulse] = useState<Record<StatHoverKey, number>>({
     total: 0,
     active: 0,
@@ -183,7 +298,12 @@ export default function SignalsPage() {
   const activeSignalKey = focusSignal ? getSignalKey(focusSignal) : "";
   const latestSignalKey = signals.length > 0 ? getSignalKey(signals[0]) : "";
   const isFocusLatest = Boolean(activeSignalKey && activeSignalKey === latestSignalKey);
-  const focusIsBuy = (focusSignal?.type || "BUY").toUpperCase() !== "SELL";
+  const focusIsBuy = focusSignal ? isBuySignal(focusSignal) : true;
+  const focusStatus = focusSignal ? getDisplayStatus(focusSignal) : "-";
+  const detailSignal = useMemo(() => {
+    if (!selectedKey) return null;
+    return signals.find((item) => getSignalKey(item) === selectedKey) ?? null;
+  }, [signals, selectedKey]);
 
   const stats = useMemo(() => {
     const total = data?.stats?.totalSignals ?? pagination?.totalResults ?? signals.length;
@@ -192,7 +312,10 @@ export default function SignalsPage() {
       signals.filter((s) => s.status?.toLowerCase() === "active").length;
     const closed =
       data?.stats?.closedSignals ??
-      signals.filter((s) => s.status?.toLowerCase().includes("close")).length;
+      signals.filter((s) => {
+        const normalized = getDisplayStatus(s).toLowerCase();
+        return normalized.includes("close") || normalized.includes("target") || normalized.includes("stop") || normalized.includes("partial");
+      }).length;
     return { total, active, closed };
   }, [signals, pagination, data?.stats]);
 
@@ -203,6 +326,17 @@ export default function SignalsPage() {
   const animatedTotal = useAnimatedCount(stats.total, statHoverPulse.total);
   const animatedActive = useAnimatedCount(stats.active, statHoverPulse.active);
   const animatedClosed = useAnimatedCount(stats.closed, statHoverPulse.closed);
+  const isDetailVisible = isDetailOpen && Boolean(detailSignal);
+
+  const openSignalDetail = (signal: SignalItem) => {
+    setSelectedKey(getSignalKey(signal));
+    setIsDetailOpen(true);
+  };
+
+  const selectSignal = (signal: SignalItem) => {
+    setSelectedKey(getSignalKey(signal));
+    setIsDetailOpen(false);
+  };
 
   return (
     <div className="flex-1 space-y-4 sm:space-y-6 py-2">
@@ -277,10 +411,10 @@ export default function SignalsPage() {
                 {focusSignal?.type || "BUY"}
               </span>
               <span
-                className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-semibold ${getStatusTone(focusSignal?.status)}`}
+                className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-semibold ${getStatusTone(focusStatus)}`}
               >
                 <Activity className="h-3.5 w-3.5" />
-                {focusSignal?.status || "-"}
+                {focusStatus}
               </span>
               <span
                 className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-semibold ${
@@ -390,7 +524,7 @@ export default function SignalsPage() {
               </div>
               <div className="inline-flex items-center gap-1.5 rounded-full border border-primary/35 bg-primary/10 px-3 py-1 text-[10px] uppercase tracking-[0.16em] text-primary dark:border-primary/30 dark:bg-primary/12 dark:text-primary">
                 <Activity className="h-3.5 w-3.5" />
-                {signals.length} entries
+                {pagination?.totalResults ?? signals.length} entries
               </div>
             </div>
 
@@ -408,9 +542,10 @@ export default function SignalsPage() {
 
               {signals.map((signal) => {
                 const rowKey = getSignalKey(signal);
-                const isBuy = signal.type?.toUpperCase() !== "SELL";
+                const isBuy = isBuySignal(signal);
                 const targets = getTargets(signal);
-                const points = typeof signal.totalPoints === "number" ? signal.totalPoints : undefined;
+                const points = getResolvedPoints(signal);
+                const status = getDisplayStatus(signal);
                 const isSelected = activeSignalKey === rowKey;
                 const rowSlideLabel = isBuy ? "BUY" : "SELL";
 
@@ -418,7 +553,7 @@ export default function SignalsPage() {
                   <button
                     type="button"
                     key={rowKey}
-                    onClick={() => setSelectedKey(rowKey)}
+                    onClick={() => openSignalDetail(signal)}
                     className={`group/row relative overflow-hidden [perspective:1400px] grid w-full grid-cols-[1.5fr_0.85fr_0.9fr_0.9fr_1.15fr_1.2fr_0.85fr_0.9fr] gap-4 px-5 py-3.5 text-left text-xs border-b border-slate-300/55 dark:border-primary/20 transition-all duration-500 hover:-translate-y-[2px] hover:bg-primary/10 hover:shadow-[0_20px_32px_-20px_rgba(59,130,246,0.6)] before:content-[''] before:absolute before:left-0 before:top-3 before:bottom-3 before:w-[3px] before:rounded-full before:bg-primary before:opacity-0 hover:before:opacity-100 after:content-[''] after:absolute after:inset-0 after:bg-[linear-gradient(110deg,transparent_35%,rgba(59,130,246,0.12)_52%,transparent_65%)] after:opacity-0 hover:after:opacity-100 after:transition-opacity ${
                       isSelected ? "bg-primary/14 before:opacity-100" : ""
                     }`}
@@ -475,9 +610,20 @@ export default function SignalsPage() {
 
                     <div className="inline-flex items-start gap-1.5 text-[10px] text-slate-700 dark:text-slate-300 leading-relaxed">
                       <BadgeCheck className="h-3.5 w-3.5 mt-[1px] text-emerald-700 dark:text-emerald-200" />
-                      <span>
-                        {targets.length ? targets.map((item) => formatPrice(item)).join(" / ") : "-"}
-                      </span>
+                      {targets.length ? (
+                        <div className="flex flex-wrap gap-1">
+                          {targets.map((item, index) => (
+                            <span
+                              key={`${rowKey}-target-${index + 1}`}
+                              className="rounded-full border border-emerald-600/20 bg-emerald-500/10 px-2 py-0.5 text-[9px] font-semibold text-emerald-700 dark:border-emerald-300/25 dark:bg-emerald-300/10 dark:text-emerald-100"
+                            >
+                              T{index + 1}: {formatPrice(item)}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span>-</span>
+                      )}
                     </div>
 
                     <div className="inline-flex items-start gap-1.5 text-[10px] text-slate-700 dark:text-slate-300">
@@ -488,14 +634,14 @@ export default function SignalsPage() {
                     </div>
 
                     <div
-                      className={`inline-flex h-fit w-fit items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-semibold ${getStatusTone(signal.status)}`}
+                      className={`inline-flex h-fit w-fit items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-semibold ${getStatusTone(status)}`}
                     >
                       <Activity className="h-3.5 w-3.5" />
-                      {signal.status || "-"}
+                      {status}
                     </div>
 
                     <div
-                      className={`inline-flex items-center gap-1.5 font-semibold ${typeof points === "number" ? (points >= 0 ? "text-emerald-700 dark:text-emerald-200" : "text-rose-700 dark:text-rose-200") : "text-slate-500 dark:text-slate-400"}`}
+                      className={`inline-flex items-center gap-1.5 font-semibold ${getPointsTone(points)}`}
                     >
                       <Sparkles className="h-3.5 w-3.5 text-amber-700 dark:text-amber-100" />
                       {formatPoints(points)}
@@ -508,9 +654,10 @@ export default function SignalsPage() {
             <div className="grid gap-3 p-4 sm:p-5 xl:hidden">
               {signals.map((signal) => {
                 const cardKey = getSignalKey(signal);
-                const isBuy = signal.type?.toUpperCase() !== "SELL";
+                const isBuy = isBuySignal(signal);
                 const targets = getTargets(signal);
-                const points = typeof signal.totalPoints === "number" ? signal.totalPoints : undefined;
+                const points = getResolvedPoints(signal);
+                const status = getDisplayStatus(signal);
                 const isSelected = activeSignalKey === cardKey;
                 const bookFlipLabel = isBuy ? "BUY" : "SELL";
 
@@ -518,7 +665,7 @@ export default function SignalsPage() {
                   <button
                     type="button"
                     key={cardKey}
-                    onClick={() => setSelectedKey(cardKey)}
+                    onClick={() => selectSignal(signal)}
                     className={`group relative overflow-hidden rounded-2xl border p-4 text-left transition-all duration-300 [perspective:1200px] ${
                       isSelected
                         ? "border-primary/55 bg-primary/12 dark:border-primary/50 dark:bg-primary/14"
@@ -599,21 +746,32 @@ export default function SignalsPage() {
                             <BadgeCheck className="h-3.5 w-3.5 text-emerald-700 dark:text-emerald-200" />
                             Targets
                           </div>
-                          <div className="mt-1 font-semibold text-slate-900 dark:text-foreground">
-                            {targets.length ? targets.map((item) => formatPrice(item)).join(" / ") : "-"}
-                          </div>
+                          {targets.length ? (
+                            <div className="mt-1 flex flex-wrap gap-1.5">
+                              {targets.map((item, index) => (
+                                <span
+                                  key={`${cardKey}-target-${index + 1}`}
+                                  className="rounded-full border border-emerald-600/20 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-semibold text-emerald-700 dark:border-emerald-300/25 dark:bg-emerald-300/10 dark:text-emerald-100"
+                                >
+                                  TP{index + 1} {formatPrice(item)}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="mt-1 font-semibold text-slate-900 dark:text-foreground">-</div>
+                          )}
                         </div>
                       </div>
 
                       <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
                         <div
-                          className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 font-semibold ${getStatusTone(signal.status)}`}
+                          className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 font-semibold ${getStatusTone(status)}`}
                         >
                           <Activity className="h-3.5 w-3.5" />
-                          {signal.status || "-"}
+                          {status}
                         </div>
                         <div
-                          className={`inline-flex items-center gap-1 font-semibold ${typeof points === "number" ? (points >= 0 ? "text-emerald-700 dark:text-emerald-200" : "text-rose-700 dark:text-rose-200") : "text-slate-500 dark:text-slate-400"}`}
+                          className={`inline-flex items-center gap-1 font-semibold ${getPointsTone(points)}`}
                         >
                           <Sparkles className="h-3.5 w-3.5 text-amber-700 dark:text-amber-100" />
                           {formatPoints(points)}
@@ -656,6 +814,183 @@ export default function SignalsPage() {
               <ChevronRight className="h-4 w-4" />
             </Button>
           </section>
+
+          <Dialog open={isDetailVisible} onOpenChange={setIsDetailOpen}>
+            <DialogContent className="max-h-[92vh] overflow-y-auto border-slate-300/70 bg-[linear-gradient(160deg,rgba(248,250,252,0.98),rgba(226,232,240,0.96))] p-0 text-slate-900 shadow-[0_30px_90px_-45px_rgba(15,23,42,0.7)] dark:border-primary/25 dark:bg-[linear-gradient(165deg,rgba(5,12,24,0.98),rgba(14,23,38,0.96))] dark:text-slate-100 sm:max-w-3xl">
+              {detailSignal ? (
+                <>
+                  <div className="border-b border-slate-300/60 px-5 py-5 dark:border-primary/20 sm:px-6">
+                    <DialogHeader className="gap-3">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="space-y-2">
+                          <div className="inline-flex items-center gap-2 rounded-full border border-amber-600/30 bg-amber-500/10 px-3 py-1 text-[10px] uppercase tracking-[0.2em] text-amber-700 dark:border-amber-300/25 dark:bg-amber-300/10 dark:text-amber-100">
+                            <Sparkles className="h-3.5 w-3.5" />
+                            Signal Details
+                          </div>
+                          <DialogTitle className="text-2xl font-semibold tracking-tight">
+                            {detailSignal.symbol || "Signal"}
+                          </DialogTitle>
+                          <DialogDescription className="max-w-2xl text-xs text-slate-600 dark:text-slate-300">
+                            Entry, exit, stop loss, targets, and live outcome for this signal.
+                          </DialogDescription>
+                        </div>
+
+                        <div className="flex flex-wrap items-center justify-end gap-2">
+                          <span
+                            className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-[10px] font-semibold ${
+                              isBuySignal(detailSignal)
+                                ? "border border-emerald-600/30 bg-emerald-600/10 text-emerald-700 dark:border-emerald-400/30 dark:bg-emerald-400/12 dark:text-emerald-200"
+                                : "border border-rose-600/30 bg-rose-600/10 text-rose-700 dark:border-rose-400/30 dark:bg-rose-400/12 dark:text-rose-200"
+                            }`}
+                          >
+                            {isBuySignal(detailSignal) ? (
+                              <ArrowUpRight className="h-3.5 w-3.5" />
+                            ) : (
+                              <ArrowDownRight className="h-3.5 w-3.5" />
+                            )}
+                            {detailSignal.type || "BUY"}
+                          </span>
+                          <span
+                            className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-[10px] font-semibold ${getSegmentBadgeTone(detailSignal.segment)}`}
+                          >
+                            <ShieldCheck className="h-3.5 w-3.5" />
+                            {detailSignal.segment || "SEG"}
+                            {detailSignal.timeframe ? ` - ${detailSignal.timeframe}` : ""}
+                          </span>
+                          <span
+                            className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-[10px] font-semibold ${getStatusTone(getDisplayStatus(detailSignal))}`}
+                          >
+                            <Activity className="h-3.5 w-3.5" />
+                            {getDisplayStatus(detailSignal)}
+                          </span>
+                        </div>
+                      </div>
+                    </DialogHeader>
+                  </div>
+
+                  <div className="space-y-5 px-5 py-5 sm:px-6">
+                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                      <div className="rounded-2xl border border-slate-300/65 bg-white/85 p-4 dark:border-primary/25 dark:bg-slate-950/55">
+                        <div className="inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.18em] text-slate-600 dark:text-slate-300">
+                          <TrendingUp className="h-3.5 w-3.5 text-cyan-700 dark:text-cyan-200" />
+                          Entry
+                        </div>
+                        <div className="mt-2 text-lg font-semibold text-slate-900 dark:text-slate-100">
+                          {formatPrice(getEntry(detailSignal))}
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-300/65 bg-white/85 p-4 dark:border-primary/25 dark:bg-slate-950/55">
+                        <div className="inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.18em] text-slate-600 dark:text-slate-300">
+                          <ArrowDownRight className="h-3.5 w-3.5 text-primary" />
+                          Exit
+                        </div>
+                        <div className="mt-2 text-lg font-semibold text-slate-900 dark:text-slate-100">
+                          {formatPrice(getExit(detailSignal))}
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-300/65 bg-white/85 p-4 dark:border-primary/25 dark:bg-slate-950/55">
+                        <div className="inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.18em] text-slate-600 dark:text-slate-300">
+                          <Target className="h-3.5 w-3.5 text-amber-700 dark:text-amber-200" />
+                          Stop Loss
+                        </div>
+                        <div className="mt-2 text-lg font-semibold text-slate-900 dark:text-slate-100">
+                          {formatPrice(getStopLoss(detailSignal))}
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-300/65 bg-white/85 p-4 dark:border-primary/25 dark:bg-slate-950/55">
+                        <div className="inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.18em] text-slate-600 dark:text-slate-300">
+                          <Sparkles className="h-3.5 w-3.5 text-amber-700 dark:text-amber-100" />
+                          Points
+                        </div>
+                        <div className={`mt-2 text-lg font-semibold ${getPointsTone(getResolvedPoints(detailSignal))}`}>
+                          {formatPoints(getResolvedPoints(detailSignal))}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-[1.4rem] border border-slate-300/65 bg-white/80 p-4 dark:border-primary/25 dark:bg-slate-950/55">
+                      <div className="inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.18em] text-slate-600 dark:text-slate-300">
+                        <BadgeCheck className="h-3.5 w-3.5 text-emerald-700 dark:text-emerald-200" />
+                        Targets
+                      </div>
+                      {getTargets(detailSignal).length ? (
+                        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                          {getTargets(detailSignal).map((target, index) => (
+                            <div
+                              key={`${getSignalKey(detailSignal)}-detail-target-${index + 1}`}
+                              className="rounded-2xl border border-emerald-600/20 bg-emerald-500/10 px-4 py-3 dark:border-emerald-300/25 dark:bg-emerald-300/10"
+                            >
+                              <div className="text-[10px] uppercase tracking-[0.18em] text-emerald-700 dark:text-emerald-100">
+                                Target {index + 1}
+                              </div>
+                              <div className="mt-1 text-base font-semibold text-emerald-800 dark:text-emerald-100">
+                                {formatPrice(target)}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="mt-3 text-sm text-slate-600 dark:text-slate-300">
+                          Targets not available.
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="rounded-[1.4rem] border border-slate-300/65 bg-white/80 p-4 dark:border-primary/25 dark:bg-slate-950/55">
+                        <div className="inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.18em] text-slate-600 dark:text-slate-300">
+                          <Clock3 className="h-3.5 w-3.5 text-amber-700 dark:text-amber-100" />
+                          Signal Time
+                        </div>
+                        <div className="mt-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                          {formatDate(
+                            detailSignal.signalTime || detailSignal.timestamp || detailSignal.createdAt,
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="rounded-[1.4rem] border border-slate-300/65 bg-white/80 p-4 dark:border-primary/25 dark:bg-slate-950/55">
+                        <div className="inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.18em] text-slate-600 dark:text-slate-300">
+                          <CalendarClock className="h-3.5 w-3.5 text-cyan-700 dark:text-cyan-200" />
+                          Exit Time
+                        </div>
+                        <div className="mt-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                          {formatDate(detailSignal.exitTime)}
+                        </div>
+                      </div>
+
+                      <div className="rounded-[1.4rem] border border-slate-300/65 bg-white/80 p-4 dark:border-primary/25 dark:bg-slate-950/55">
+                        <div className="inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.18em] text-slate-600 dark:text-slate-300">
+                          <Activity className="h-3.5 w-3.5 text-primary" />
+                          Exit Summary
+                        </div>
+                        <div className="mt-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                          {getDisplayStatus(detailSignal)}
+                        </div>
+                      </div>
+
+                      <div className="rounded-[1.4rem] border border-slate-300/65 bg-white/80 p-4 dark:border-primary/25 dark:bg-slate-950/55">
+                        <div className="inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.18em] text-slate-600 dark:text-slate-300">
+                          <ShieldCheck className="h-3.5 w-3.5 text-amber-700 dark:text-amber-100" />
+                          Signal ID
+                        </div>
+                        <div className="mt-2 break-all text-sm font-semibold text-slate-900 dark:text-slate-100">
+                          {detailSignal.uniqueId || detailSignal.webhookId || getSignalId(detailSignal) || "-"}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="px-6 py-8 text-sm text-slate-600 dark:text-slate-300">
+                  Signal details are not available on this page.
+                </div>
+              )}
+            </DialogContent>
+          </Dialog>
         </>
       )}
     </div>

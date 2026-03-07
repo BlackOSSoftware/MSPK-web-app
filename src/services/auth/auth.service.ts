@@ -95,6 +95,7 @@ export async function updateMe(payload: UpdateMePayload): Promise<MeResponse> {
     if (typeof payload.tradingViewId === "string") formData.append("tradingViewId", payload.tradingViewId.trim());
     if (typeof payload.isWhatsAppEnabled === "boolean") formData.append("isWhatsAppEnabled", String(payload.isWhatsAppEnabled));
     if (typeof payload.isNotificationEnabled === "boolean") formData.append("isNotificationEnabled", String(payload.isNotificationEnabled));
+    if (typeof payload.isEmailAlertEnabled === "boolean") formData.append("isEmailAlertEnabled", String(payload.isEmailAlertEnabled));
     if (typeof payload.profile?.address === "string") formData.append("profile[address]", payload.profile.address.trim());
     if (typeof payload.profile?.city === "string") formData.append("profile[city]", payload.profile.city.trim());
     if (typeof payload.profile?.state === "string") formData.append("profile[state]", payload.profile.state.trim());
@@ -110,6 +111,7 @@ export async function updateMe(payload: UpdateMePayload): Promise<MeResponse> {
   if (typeof payload.tradingViewId === "string") jsonPayload.tradingViewId = payload.tradingViewId.trim();
   if (typeof payload.isWhatsAppEnabled === "boolean") jsonPayload.isWhatsAppEnabled = payload.isWhatsAppEnabled;
   if (typeof payload.isNotificationEnabled === "boolean") jsonPayload.isNotificationEnabled = payload.isNotificationEnabled;
+  if (typeof payload.isEmailAlertEnabled === "boolean") jsonPayload.isEmailAlertEnabled = payload.isEmailAlertEnabled;
 
   if (
     typeof payload.profile?.address === "string" ||

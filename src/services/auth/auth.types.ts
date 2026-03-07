@@ -41,6 +41,14 @@ export type UserProfile = {
   state?: string;
 };
 
+export type TelegramConnection = {
+  connected?: boolean;
+  chatId?: string | null;
+  username?: string | null;
+  connectedAt?: string | null;
+  botUsername?: string | null;
+};
+
 export type MeResponse = {
   _id: string;
   name: string;
@@ -64,6 +72,7 @@ export type MeResponse = {
   isEmailVerified?: boolean;
   isWhatsAppEnabled?: boolean;
   isNotificationEnabled?: boolean;
+  isEmailAlertEnabled?: boolean;
   isBlocked?: boolean;
   tokenVersion?: number;
   lastLoginIp?: string;
@@ -73,6 +82,7 @@ export type MeResponse = {
   planName?: string | null;
   permissions?: string[];
   planExpiry?: string | null;
+  telegram?: TelegramConnection;
 };
 
 export type UpdateMePayload = {
@@ -81,6 +91,7 @@ export type UpdateMePayload = {
   tradingViewId?: string;
   isWhatsAppEnabled?: boolean;
   isNotificationEnabled?: boolean;
+  isEmailAlertEnabled?: boolean;
   profile?: {
     address?: string;
     city?: string;

@@ -8,6 +8,8 @@ export type NotificationItem = {
   createdAt?: string;
   updatedAt?: string;
   type?: string;
+  link?: string | null;
+  data?: Record<string, unknown>;
 };
 
 export type RegisterFcmTokenPayload = {
@@ -22,4 +24,23 @@ export type RegisterFcmTokenRequest = RegisterFcmTokenPayload & {
 export type NotificationListResponse = {
   results?: NotificationItem[];
   unreadCount?: number;
+};
+
+export type TelegramConnectionStatus = {
+  connected?: boolean;
+  chatId?: string | null;
+  username?: string | null;
+  connectedAt?: string | null;
+  botUsername?: string | null;
+};
+
+export type TelegramConnectLinkResponse = {
+  connectUrl: string;
+  expiresAt?: string;
+  telegram?: TelegramConnectionStatus;
+};
+
+export type TelegramDisconnectResponse = {
+  message?: string;
+  telegram?: TelegramConnectionStatus;
 };
