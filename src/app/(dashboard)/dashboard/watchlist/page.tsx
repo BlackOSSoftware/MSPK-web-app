@@ -1463,7 +1463,8 @@ export default function WatchlistPage() {
                   <a
                     href={whatsappUrl}
                     target="_blank"
-                    rel="noreferrer"
+                    rel="noopener noreferrer"
+                    data-no-leave-confirm="true"
                     className="inline-flex h-9 items-center gap-2 rounded-lg border border-emerald-400/70 bg-emerald-500/15 px-3 text-xs font-semibold text-emerald-800 transition hover:-translate-y-0.5 hover:bg-emerald-500/20 hover:text-emerald-900 dark:border-emerald-400/50 dark:bg-emerald-500/10 dark:text-emerald-100"
                   >
                     <span className="h-2 w-2 rounded-full bg-emerald-500" />

@@ -64,8 +64,9 @@ function formatDate(value?: string) {
 
 type HoverKey = "plan" | "days" | "today";
 
+const SUPPORT_WHATSAPP = "917770039037";
 const socialLinks = [
-  { label: "WhatsApp", href: "#", Icon: MessageCircle },
+  { label: "WhatsApp", href: `https://wa.me/${SUPPORT_WHATSAPP}`, Icon: MessageCircle },
   { label: "Telegram", href: "#", Icon: Send },
   { label: "Facebook", href: "#", Icon: Facebook },
   { label: "X (Twitter)", href: "#", Icon: Twitter },
@@ -324,16 +325,32 @@ export default function DashboardPage() {
                 Follow us
               </div>
               <div className="mt-2 flex items-center gap-2 justify-start sm:justify-end">
-                {socialLinks.map(({ label, href, Icon }) => (
-                  <Link
-                    key={label}
-                    href={href}
-                    aria-label={label}
-                    className="h-9 w-9 rounded-full border border-foreground/10 bg-foreground/5 flex items-center justify-center text-muted-foreground transition hover:border-primary/40 hover:text-primary"
-                  >
-                    <Icon className="h-4 w-4" />
-                  </Link>
-                ))}
+                {socialLinks.map(({ label, href, Icon }) => {
+                  if (label === "WhatsApp") {
+                    return (
+                      <a
+                        key={label}
+                        href={href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        aria-label={label}
+                        className="h-9 w-9 rounded-full border border-foreground/10 bg-foreground/5 flex items-center justify-center text-muted-foreground transition hover:border-primary/40 hover:text-primary"
+                      >
+                        <Icon className="h-4 w-4" />
+                      </a>
+                    );
+                  }
+                  return (
+                    <Link
+                      key={label}
+                      href={href}
+                      aria-label={label}
+                      className="h-9 w-9 rounded-full border border-foreground/10 bg-foreground/5 flex items-center justify-center text-muted-foreground transition hover:border-primary/40 hover:text-primary"
+                    >
+                      <Icon className="h-4 w-4" />
+                    </Link>
+                  );
+                })}
               </div>
             </div>
           </div>

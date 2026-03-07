@@ -388,7 +388,7 @@ export default function SupportPage() {
               <a
                 href={`https://wa.me/${SUPPORT_WHATSAPP}?text=Hello%20MSPK%20Support%2C%20I%20am%20contacting%20you%20from%20the%20Support%20page%20regarding%20an%20issue%20with%20my%20account%20or%20plan.%20Please%20assist%20me%20with%20the%20next%20steps.%20Thank%20you.`}
                 target="_blank"
-                rel="noreferrer"
+                rel="noopener noreferrer"
                 className="inline-flex w-full items-center gap-3 rounded-xl border border-emerald-400/70 bg-[linear-gradient(120deg,rgba(16,185,129,0.18),rgba(34,197,94,0.08))] px-3 py-2 text-emerald-800 shadow-[0_12px_24px_-18px_rgba(16,185,129,0.7)] transition hover:-translate-y-0.5 hover:border-emerald-500/80 hover:bg-[linear-gradient(120deg,rgba(16,185,129,0.24),rgba(34,197,94,0.12))] hover:text-emerald-900 dark:border-emerald-400/60 dark:bg-[linear-gradient(120deg,rgba(16,185,129,0.16),rgba(34,197,94,0.08))] dark:text-emerald-100"
               >
                 <span className="grid h-8 w-8 place-items-center rounded-full bg-emerald-500/15">
