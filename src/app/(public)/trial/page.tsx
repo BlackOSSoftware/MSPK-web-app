@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
@@ -16,6 +16,7 @@ function TrialPageContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const selectedPlanId = searchParams.get('planId');
+    const referralFromQuery = searchParams.get('ref') ?? '';
     const [loading, setLoading] = useState(false);
     const [success, setSuccess] = useState(false);
     const [step, setStep] = useState<'form' | 'otp' | 'success'>('form');
@@ -36,16 +37,29 @@ function TrialPageContent() {
     });
     const segmentOptions = useMemo(
         () => [
+            { id: 'all', label: 'All' },
             { id: 'nse', label: 'NSE' },
             { id: 'options', label: 'Options' },
             { id: 'mcx', label: 'MCX' },
             { id: 'forex', label: 'Forex' },
             { id: 'crypto', label: 'Crypto' },
-            { id: 'all', label: 'All' },
         ],
         []
     );
     const [segments, setSegments] = useState<string[]>([]);
+    const toggleSegment = (id: string) => {
+        setSegments((prev) => {
+            const isSelected = prev.includes(id);
+            if (id === 'all') {
+                return isSelected ? [] : ['all'];
+            }
+            if (isSelected) {
+                return prev.filter((item) => item !== id);
+            }
+            const next = prev.filter((item) => item !== 'all');
+            return [...next, id];
+        });
+    };
     const registerMutation = useRegisterMutation();
     const sendOtpMutation = useSendOtpMutation();
     const verifyOtpMutation = useVerifyOtpMutation();
@@ -59,6 +73,12 @@ function TrialPageContent() {
         return apiMessage || (error instanceof Error ? error.message : fallback);
     };
 
+    useEffect(() => {
+        if (!referralFromQuery) return;
+        setFormValues((prev) =>
+            prev.referralCode ? prev : { ...prev, referralCode: referralFromQuery }
+        );
+    }, [referralFromQuery]);
 
     async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
         e.preventDefault();
@@ -282,7 +302,7 @@ function TrialPageContent() {
                                         >
                                             Resend OTP
                                         </Button>
-                                        <p className="text-[11px] text-center text-muted-foreground">
+                                        <p className="text-sm text-center text-muted-foreground">
                                             Already have an account?{' '}
                                             <Link href="/login" className="font-semibold text-primary hover:underline underline-offset-4">
                                                 Login
@@ -296,7 +316,7 @@ function TrialPageContent() {
                                         <h2 className="text-lg sm:text-2xl font-bold mb-1">Create Your Account</h2>
                                         <p className="text-xs sm:text-sm text-muted-foreground">Share your details to register and verify your email.</p>
                                     </div>
-                                    <div className="mb-4 rounded-2xl border border-slate-200/70 dark:border-white/10 bg-slate-50/80 dark:bg-white/5 px-4 py-3">
+                                    {/* <div className="mb-4 rounded-2xl border border-slate-200/70 dark:border-white/10 bg-slate-50/80 dark:bg-white/5 px-4 py-3">
                                         <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">
                                             <Sparkles className="h-3.5 w-3.5" /> Premium Access
                                         </div>
@@ -305,7 +325,7 @@ function TrialPageContent() {
                                             <span className="rounded-full border border-slate-200 dark:border-white/10 px-2 py-1">Priority Onboarding</span>
                                             <span className="rounded-full border border-slate-200 dark:border-white/10 px-2 py-1">Live Signals</span>
                                         </div>
-                                    </div>
+                                    </div> */}
 
                                     <form onSubmit={onSubmit} className="space-y-3 sm:space-y-5">
                                         {formError ? (
@@ -410,13 +430,7 @@ function TrialPageContent() {
                                                         <button
                                                             key={segment.id}
                                                             type="button"
-                                                            onClick={() =>
-                                                                setSegments((prev) =>
-                                                                    prev.includes(segment.id)
-                                                                        ? prev.filter((item) => item !== segment.id)
-                                                                        : [...prev, segment.id]
-                                                                )
-                                                            }
+                                                            onClick={() => toggleSegment(segment.id)}
                                                             className={`h-8 sm:h-9 rounded-full px-3 text-[11px] sm:text-xs font-semibold transition-all border ${
                                                                 active
                                                                     ? "bg-primary text-black border-primary shadow-[0_10px_30px_-18px_rgba(59,130,246,0.7)]"
@@ -464,7 +478,7 @@ function TrialPageContent() {
                                         <p className="text-[11px] text-center text-muted-foreground">
                                             By continuing, you agree to our Terms of Service.
                                         </p>
-                                        <p className="text-[11px] text-center text-muted-foreground">
+                                        <p className="text-sm text-center text-muted-foreground">
                                             Already have an account?{' '}
                                             <Link href="/login" className="font-semibold text-primary hover:underline underline-offset-4">
                                                 Login

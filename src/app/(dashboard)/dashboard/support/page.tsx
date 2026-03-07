@@ -19,7 +19,6 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { useMeQuery } from "@/hooks/use-auth";
 import { useCreateTicketMutation, useTicketsQuery } from "@/hooks/use-tickets";
 import type { TicketItem } from "@/services/tickets/ticket.types";
-import { useCreateDashboardTicketMutation } from "@/services/dashboard-tickets/dashboard-ticket.hooks";
 
 type TicketFormState = {
   subject: string;
@@ -103,7 +102,6 @@ export default function SupportPage() {
   const meQuery = useMeQuery(true);
   const ticketsQuery = useTicketsQuery(true);
   const createTicketMutation = useCreateTicketMutation();
-  const createDashboardTicketMutation = useCreateDashboardTicketMutation();
 
   const tickets = useMemo(
     () => normalizeTickets(ticketsQuery.data).filter((ticket) => ticket.status?.toLowerCase() !== "rejected"),
@@ -171,38 +169,6 @@ export default function SupportPage() {
     }
   };
 
-  const onSubmitDashboardTicket = async () => {
-    setFormError(null);
-    setSubmitSuccess(null);
-
-    const resolvedEmail = (form.contactEmail || meQuery.data?.email || "").trim();
-    const resolvedNumber = (form.contactNumber || meQuery.data?.phone || "").trim();
-
-    if (!form.subject.trim() || !form.description.trim() || !resolvedEmail || !resolvedNumber) {
-      setFormError("Please fill subject, description, email and contact number.");
-      return;
-    }
-
-    try {
-      await createDashboardTicketMutation.mutateAsync({
-        subject: form.subject.trim(),
-        ticketType: form.ticketType.trim() || DEFAULT_TICKET_TYPE,
-        description: form.description.trim(),
-        contactEmail: resolvedEmail,
-        contactNumber: resolvedNumber,
-      });
-      await ticketsQuery.refetch();
-      setSubmitSuccess("Dashboard ticket submitted successfully.");
-      setForm((prev) => ({
-        ...initialForm,
-        contactEmail: prev.contactEmail,
-        contactNumber: prev.contactNumber,
-      }));
-      closeTicketModal();
-    } catch {
-      setFormError("Unable to submit dashboard ticket. Please try again.");
-    }
-  };
 
   return (
     <div className="flex-1 space-y-6 sm:space-y-8 py-2">
@@ -389,6 +355,7 @@ export default function SupportPage() {
                 href={`https://wa.me/${SUPPORT_WHATSAPP}?text=Hello%20MSPK%20Support%2C%20I%20am%20contacting%20you%20from%20the%20Support%20page%20regarding%20an%20issue%20with%20my%20account%20or%20plan.%20Please%20assist%20me%20with%20the%20next%20steps.%20Thank%20you.`}
                 target="_blank"
                 rel="noopener noreferrer"
+                data-no-leave-confirm="true"
                 className="inline-flex w-full items-center gap-3 rounded-xl border border-emerald-400/70 bg-[linear-gradient(120deg,rgba(16,185,129,0.18),rgba(34,197,94,0.08))] px-3 py-2 text-emerald-800 shadow-[0_12px_24px_-18px_rgba(16,185,129,0.7)] transition hover:-translate-y-0.5 hover:border-emerald-500/80 hover:bg-[linear-gradient(120deg,rgba(16,185,129,0.24),rgba(34,197,94,0.12))] hover:text-emerald-900 dark:border-emerald-400/60 dark:bg-[linear-gradient(120deg,rgba(16,185,129,0.16),rgba(34,197,94,0.08))] dark:text-emerald-100"
               >
                 <span className="grid h-8 w-8 place-items-center rounded-full bg-emerald-500/15">
@@ -487,10 +454,10 @@ export default function SupportPage() {
                     <div className="relative mt-2">
                       <Phone size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                       <input
-                        className="h-11 w-full rounded-xl border border-border/70 bg-background/55 py-2 pl-9 pr-3 text-sm text-foreground outline-none transition focus:border-primary/60 focus:ring-2 focus:ring-primary/20"
-                        value={form.contactNumber || meQuery.data?.phone || ""}
-                        onChange={(event) => updateField("contactNumber", event.target.value)}
-                        placeholder="9876543210"
+                        className="h-11 w-full rounded-xl border border-border/70 bg-background/55 py-2 pl-9 pr-3 text-sm text-foreground outline-none transition focus:border-primary/60 focus:ring-2 focus:ring-primary/20 read-only:cursor-not-allowed read-only:text-muted-foreground"
+                        value={meQuery.data?.phone || ""}
+                        readOnly
+                        placeholder="Phone not available"
                         inputMode="tel"
                       />
                     </div>
@@ -505,10 +472,10 @@ export default function SupportPage() {
                   <div className="relative mt-2">
                     <Mail size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                     <input
-                      className="h-11 w-full rounded-xl border border-border/70 bg-background/55 py-2 pl-9 pr-3 text-sm text-foreground outline-none transition focus:border-primary/60 focus:ring-2 focus:ring-primary/20"
-                      value={form.contactEmail || meQuery.data?.email || ""}
-                      onChange={(event) => updateField("contactEmail", event.target.value)}
-                      placeholder="user@test.com"
+                      className="h-11 w-full rounded-xl border border-border/70 bg-background/55 py-2 pl-9 pr-3 text-sm text-foreground outline-none transition focus:border-primary/60 focus:ring-2 focus:ring-primary/20 read-only:cursor-not-allowed read-only:text-muted-foreground"
+                      value={meQuery.data?.email || ""}
+                      readOnly
+                      placeholder="Email not available"
                       type="email"
                     />
                   </div>
@@ -534,7 +501,7 @@ export default function SupportPage() {
                   </div>
                 ) : null}
 
-                <div className="grid gap-2 sm:grid-cols-2">
+                <div className="grid gap-2">
                   <button
                     type="submit"
                     disabled={createTicketMutation.isPending}
@@ -542,16 +509,6 @@ export default function SupportPage() {
                   >
                     {createTicketMutation.isPending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
                     Submit Ticket
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={onSubmitDashboardTicket}
-                    disabled={createDashboardTicketMutation.isPending}
-                    className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-border/70 bg-background/55 px-4 text-sm font-semibold text-foreground transition hover:border-primary/35 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {createDashboardTicketMutation.isPending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-                    Submit Dashboard
                   </button>
                 </div>
 

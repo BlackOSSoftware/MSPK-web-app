@@ -16,9 +16,13 @@ import {
   Instagram,
   Facebook,
   Twitter,
+  Youtube,
   MessageCircle,
   Send,
 } from "lucide-react";
+import { SiWhatsapp } from "react-icons/si";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import { useMeQuery } from "@/hooks/use-auth";
 import { useSignalsQuery } from "@/services/signals/signal.hooks";
 import { useSubscriptionStatusQuery } from "@/services/subscriptions/subscription.hooks";
@@ -66,8 +70,14 @@ type HoverKey = "plan" | "days" | "today";
 
 const SUPPORT_WHATSAPP = "917770039037";
 const socialLinks = [
-  { label: "WhatsApp", href: `https://wa.me/${SUPPORT_WHATSAPP}`, Icon: MessageCircle },
+  {
+    label: "WhatsApp",
+    href: `https://wa.me/${SUPPORT_WHATSAPP}`,
+    Icon: SiWhatsapp,
+    iconClassName: "text-emerald-500",
+  },
   { label: "Telegram", href: "#", Icon: Send },
+  { label: "YouTube", href: "#", Icon: Youtube },
   { label: "Facebook", href: "#", Icon: Facebook },
   { label: "X (Twitter)", href: "#", Icon: Twitter },
   { label: "Instagram", href: "#", Icon: Instagram },
@@ -169,6 +179,10 @@ export default function DashboardPage() {
   const recentSignalsQuery = useSignalsQuery({ page: 1, limit: 6 });
 
   const planExpiry = meQuery.data?.planExpiry ?? undefined;
+  const planNameLabel = meQuery.data?.planName ?? "No active plan";
+  const planNameLower = planNameLabel.toLowerCase();
+  const planId = meQuery.data?.planId ?? null;
+  const subscriptionPlan = (meQuery.data?.subscription?.plan || "").toLowerCase();
   const expiryCountdown = useExpiryCountdown(planExpiry, isDaysHovered);
   const remainingDays = useMemo(() => {
     if (!planExpiry) return null;
@@ -184,13 +198,24 @@ export default function DashboardPage() {
   const isActiveFromSubscription =
     subscriptionStatusQuery.data?.hasActiveSubscription === true ||
     normalizedSubscriptionStatus === "active";
+  const planIsExpired = useMemo(() => {
+    if (!planExpiry) return false;
+    const expiryDate = new Date(planExpiry);
+    if (Number.isNaN(expiryDate.getTime())) return false;
+    return expiryDate.getTime() <= Date.now();
+  }, [planExpiry]);
   const isActiveFromExpiry = typeof remainingDays === "number" && remainingDays > 0;
   const isActiveFromMeData =
     Boolean(meQuery.data?.planId) ||
     (Array.isArray(meQuery.data?.permissions) && meQuery.data.permissions.length > 0);
   const planIsActive = isActiveFromSubscription || isActiveFromExpiry || isActiveFromMeData;
+  const isMarkedExpired = planNameLower.includes("expired");
+  const isFreePlan = subscriptionPlan === "free";
+  const isPlanMissing = !planId && !isActiveFromMeData;
+  const isPlanBlocked =
+    !isActiveFromSubscription && (planIsExpired || isMarkedExpired || isFreePlan || isPlanMissing);
   const planStatus = planIsActive ? "Active" : "Inactive";
-  const planName = meQuery.data?.planName ?? "No active plan";
+  const planName = planNameLabel;
 
   const todayCount =
     todaySignalsQuery.data?.pagination?.totalResults ??
@@ -220,8 +245,68 @@ export default function DashboardPage() {
     }
   };
 
+  const handlePlanWhatsApp = () => {
+    const whatsappNumber = "917770039037";
+    const userName = meQuery.data?.name?.trim() || "N/A";
+    const userEmail = meQuery.data?.email?.trim() || "N/A";
+    const userPhone = meQuery.data?.phone?.trim() || "N/A";
+    const planExpiryLabel = planExpiry || "N/A";
+
+    const message = [
+      "Hello MSPK Team,",
+      "",
+      "My plan has expired and I want to renew it.",
+      `- Current Plan: ${planNameLabel}`,
+      `- Plan Expiry: ${planExpiryLabel}`,
+      "",
+      "User Details:",
+      `- Name: ${userName}`,
+      `- Email: ${userEmail}`,
+      `- Phone: ${userPhone}`,
+    ].join("\n");
+
+    const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(message)}`;
+    window.open(whatsappUrl, "_blank", "noopener,noreferrer");
+  };
+
   return (
     <div className="flex-1 space-y-4 py-2">
+      <Dialog open={isPlanBlocked} onOpenChange={() => {}}>
+        <DialogContent className="max-w-[calc(100%-2rem)] rounded-3xl border border-primary/25 bg-white/95 p-6 text-slate-900 shadow-[0_26px_70px_-40px_rgba(15,23,42,0.6)] dark:border-primary/30 dark:bg-slate-950/95 dark:text-slate-100 sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-semibold">Your plan has expired</DialogTitle>
+            <DialogDescription className="text-sm text-slate-500 dark:text-slate-400">
+              Renew your plan to continue using the dashboard features.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-4 rounded-2xl border border-primary/20 bg-primary/5 p-4 text-sm text-slate-700 dark:text-slate-200">
+            <div className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-primary">
+              <Sparkles className="h-3.5 w-3.5" />
+              MSPK Plan Renewal
+            </div>
+            <div className="mt-2 text-sm">
+              Please renew your plan now to regain full access.
+            </div>
+          </div>
+          <div className="mt-4 grid gap-2 sm:grid-cols-2">
+            <Button
+              type="button"
+              onClick={() => window.location.assign("/dashboard/plans")}
+              className="h-10 w-full"
+            >
+              Renew Now
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handlePlanWhatsApp}
+              className="h-10 w-full"
+            >
+              WhatsApp Support
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
       {showMobilePopup && (
         <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
           <button
@@ -325,7 +410,7 @@ export default function DashboardPage() {
                 Follow us
               </div>
               <div className="mt-2 flex items-center gap-2 justify-start sm:justify-end">
-                {socialLinks.map(({ label, href, Icon }) => {
+                {socialLinks.map(({ label, href, Icon, iconClassName }) => {
                   if (label === "WhatsApp") {
                     return (
                       <a
@@ -334,9 +419,12 @@ export default function DashboardPage() {
                         target="_blank"
                         rel="noopener noreferrer"
                         aria-label={label}
-                        className="h-9 w-9 rounded-full border border-foreground/10 bg-foreground/5 flex items-center justify-center text-muted-foreground transition hover:border-primary/40 hover:text-primary"
+                        className="group relative h-9 w-9 rounded-full border border-foreground/10 bg-foreground/5 flex items-center justify-center text-muted-foreground transition hover:border-primary/40 hover:text-primary"
                       >
-                        <Icon className="h-4 w-4" />
+                        <Icon className={`h-4 w-4 ${iconClassName ?? ""}`} />
+                        <span className="pointer-events-none absolute left-1/2 top-full mt-2 -translate-x-1/2 whitespace-nowrap rounded-full border border-foreground/10 bg-foreground px-2.5 py-1 text-[10px] font-semibold text-background opacity-0 shadow-lg transition group-hover:opacity-100">
+                          {label}
+                        </span>
                       </a>
                     );
                   }
@@ -345,9 +433,12 @@ export default function DashboardPage() {
                       key={label}
                       href={href}
                       aria-label={label}
-                      className="h-9 w-9 rounded-full border border-foreground/10 bg-foreground/5 flex items-center justify-center text-muted-foreground transition hover:border-primary/40 hover:text-primary"
+                      className="group relative h-9 w-9 rounded-full border border-foreground/10 bg-foreground/5 flex items-center justify-center text-muted-foreground transition hover:border-primary/40 hover:text-primary"
                     >
-                      <Icon className="h-4 w-4" />
+                      <Icon className={`h-4 w-4 ${iconClassName ?? ""}`} />
+                      <span className="pointer-events-none absolute left-1/2 top-full mt-2 -translate-x-1/2 whitespace-nowrap rounded-full border border-foreground/10 bg-foreground px-2.5 py-1 text-[10px] font-semibold text-background opacity-0 shadow-lg transition group-hover:opacity-100">
+                        {label}
+                      </span>
                     </Link>
                   );
                 })}

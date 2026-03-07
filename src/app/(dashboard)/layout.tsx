@@ -3,12 +3,14 @@
 import { Header } from "@/components/layout/header";
 import { Sidebar } from "@/components/layout/sidebar";
 import { MobileBottomNav } from "@/components/layout/mobile-bottom-nav";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { AuthSessionGuard } from "@/components/auth/auth-session-guard";
+import { useMeQuery } from "@/hooks/use-auth";
+import { useSubscriptionStatusQuery } from "@/services/subscriptions/subscription.hooks";
 
 type LeaveRequest = {
     href?: string;
@@ -28,6 +30,40 @@ export default function DashboardLayout({
     const [pendingHref, setPendingHref] = useState<string | null>(null);
     const pendingActionRef = useRef<LeaveRequest["action"]>(null);
     const ignoreNextPopRef = useRef(false);
+    const meQuery = useMeQuery();
+    const subscriptionStatusQuery = useSubscriptionStatusQuery();
+
+    const planExpiry = meQuery.data?.planExpiry ?? undefined;
+    const planName = (meQuery.data?.planName || "").toLowerCase();
+    const planId = meQuery.data?.planId ?? null;
+    const subscriptionPlan = (meQuery.data?.subscription?.plan || "").toLowerCase();
+    const planIsExpired = useMemo(() => {
+        if (!planExpiry) return false;
+        const expiryDate = new Date(planExpiry);
+        if (Number.isNaN(expiryDate.getTime())) return false;
+        return expiryDate.getTime() <= Date.now();
+    }, [planExpiry]);
+    const subscriptionStatus = subscriptionStatusQuery.data?.subscription?.status;
+    const normalizedSubscriptionStatus =
+        typeof subscriptionStatus === "string" ? subscriptionStatus.toLowerCase() : "";
+    const isActiveFromSubscription =
+        subscriptionStatusQuery.data?.hasActiveSubscription === true ||
+        normalizedSubscriptionStatus === "active";
+    const isActiveFromMeData =
+        Boolean(meQuery.data?.planId) ||
+        (Array.isArray(meQuery.data?.permissions) && meQuery.data.permissions.length > 0);
+    const isMarkedExpired = planName.includes("expired");
+    const isFreePlan = subscriptionPlan === "free";
+    const isPlanMissing = !planId && !isActiveFromMeData;
+    const isPlanBlocked =
+        !isActiveFromSubscription && (planIsExpired || isMarkedExpired || isFreePlan || isPlanMissing);
+    const isAllowedWhenBlocked = pathname === "/dashboard" || pathname.startsWith("/dashboard/plans");
+    const shouldRedirectToDashboard = isPlanBlocked && !isAllowedWhenBlocked;
+
+    useEffect(() => {
+        if (!shouldRedirectToDashboard) return;
+        router.replace("/dashboard");
+    }, [shouldRedirectToDashboard, router]);
 
     useEffect(() => {
         if (typeof window === "undefined") return;
@@ -49,6 +85,11 @@ export default function DashboardLayout({
         const handlePopState = () => {
             if (ignoreNextPopRef.current) {
                 ignoreNextPopRef.current = false;
+                return;
+            }
+
+            const nextPath = window.location.pathname;
+            if (nextPath.startsWith("/dashboard")) {
                 return;
             }
 
@@ -74,6 +115,7 @@ export default function DashboardLayout({
             const anchor = target?.closest("a");
             if (!anchor) return;
             if (anchor.getAttribute("data-no-leave-confirm") === "true") return;
+            if (anchor.getAttribute("target") === "_blank") return;
 
             const href = anchor.getAttribute("href");
             if (!href || href.startsWith("#") || href.startsWith("mailto:") || href.startsWith("tel:")) return;
@@ -134,6 +176,10 @@ export default function DashboardLayout({
         setPendingHref(null);
     };
 
+    if (shouldRedirectToDashboard) {
+        return <div className="flex h-screen bg-white dark:bg-background" />;
+    }
+
     return (
         <div className="flex h-screen bg-white dark:bg-background overflow-hidden font-sans">
             <AuthSessionGuard />
@@ -189,6 +235,7 @@ export default function DashboardLayout({
                     </div>
                 </DialogContent>
             </Dialog>
+
         </div>
     );
 }

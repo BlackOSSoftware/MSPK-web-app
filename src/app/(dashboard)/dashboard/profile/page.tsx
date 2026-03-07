@@ -82,26 +82,58 @@ export default function ProfilePage() {
         ? `${apiBase}/${profile.avatar.replace(/^\/+/, "")}`
         : null
     : null;
+  const referralCodeLabel =
+    profile.referralCode && profile.referralCode !== "N/A" ? `(${profile.referralCode}) ` : "";
 
   const handleCopyUserId = async () => {
     const valueToCopy = profile.userId || "-";
     try {
       await navigator.clipboard.writeText(valueToCopy);
-      toast.success("User ID copied");
+      toast.success("Referral Code copied");
     } catch {
       toast.error("Unable to copy");
     }
   };
 
   const handleShareApp = async () => {
-    const url = typeof window !== "undefined" ? window.location.origin : "";
+    const trialBaseUrl = "https://user.mspktradesolutions.com/trial";
+    const referralCode = profile.referralCode && profile.referralCode !== "N/A" ? profile.referralCode : "";
+    const trialUrl = referralCode ? `${trialBaseUrl}?ref=${encodeURIComponent(referralCode)}` : trialBaseUrl;
+    const referralLine = referralCode
+      ? `Use my referral code: ${referralCode}.`
+      : "Join MSPK Trade Solutions today.";
+    const text = [
+      "MSPK Trade Solutions is a premium, trusted signals app.",
+      "Get real-time market updates and pro-level trade insights.",
+      referralLine,
+      `Start your free trial here: ${trialUrl}`,
+    ].join(" ");
     try {
       if (navigator.share) {
-        await navigator.share({ title: "MSPK Trade Solutions", url });
+        let files: File[] | undefined;
+        try {
+          if (typeof window !== "undefined") {
+            const logoResponse = await fetch("/logo.jpg");
+            if (logoResponse.ok) {
+              const blob = await logoResponse.blob();
+              const logoFile = new File([blob], "mspk-logo.jpg", { type: blob.type || "image/jpeg" });
+              if (navigator.canShare?.({ files: [logoFile] })) {
+                files = [logoFile];
+              }
+            }
+          }
+        } catch {
+          files = undefined;
+        }
+        await navigator.share(
+          files
+            ? { title: "MSPK Trade Solutions", text, files }
+            : { title: "MSPK Trade Solutions", text }
+        );
         return;
       }
-      await navigator.clipboard.writeText(url);
-      toast.success("App link copied");
+      await navigator.clipboard.writeText(text);
+      toast.success("App message copied");
     } catch {
       toast.error("Unable to share");
     }
@@ -253,16 +285,16 @@ export default function ProfilePage() {
               <IdCard size={16} className="text-primary" />
             </div>
             <div className="flex-1 min-w-0">
-              <div className="text-[10px] text-muted-foreground uppercase tracking-wider">User ID</div>
+              <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Referral Code</div>
               <div className="text-xs font-medium text-foreground truncate">
-                {profile.userId || "-"}
+                {profile.referralCode || "-"}
               </div>
             </div>
             <button
               type="button"
               onClick={handleCopyUserId}
               className="h-9 w-9 rounded-full bg-amber-400/80 text-white flex items-center justify-center"
-              title="Copy User ID"
+              title="Copy Referral Code"
             >
               <Copy size={16} />
             </button>
@@ -286,6 +318,33 @@ export default function ProfilePage() {
                 <ChevronRight size={16} className="text-muted-foreground" />
               </button>
             ))}
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-primary/20 bg-gradient-to-br from-primary/10 via-white/80 to-amber-50/60 dark:from-primary/15 dark:via-white/5 dark:to-white/10 px-4 py-4 sm:px-5 sm:py-5 shadow-[0_20px_60px_-45px_rgba(59,130,246,0.6)]">
+          <div className="flex items-start gap-3">
+            <div className="h-10 w-10 rounded-2xl bg-primary/15 text-primary flex items-center justify-center">
+              <Sparkles size={18} />
+            </div>
+            <div className="min-w-0">
+              <div className="text-xs uppercase tracking-[0.24em] text-muted-foreground">Tips</div>
+              <div className="mt-3 space-y-2 text-sm text-foreground">
+                <div className="flex items-start gap-2">
+                  <Sparkles size={14} className="mt-0.5 text-primary" />
+                  <span>Keep your profile details updated for faster support and accurate alerts.</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <BadgePercent size={14} className="mt-0.5 text-amber-500" />
+                  <span>
+                    Share your referral code {referralCodeLabel}to earn rewards when friends join MSPK.
+                  </span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <Share2 size={14} className="mt-0.5 text-emerald-500" />
+                  <span>Share the trial link so signups are tracked automatically: user.mspktradesolutions.com/trial</span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
