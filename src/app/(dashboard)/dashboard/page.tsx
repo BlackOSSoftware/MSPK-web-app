@@ -214,6 +214,7 @@ export default function DashboardPage() {
   const isPlanMissing = !planId && !isActiveFromMeData;
   const hasActiveAccess = isActiveFromSubscription || isActiveFromExpiry || isActiveFromMeData;
   const isPlanBlocked =
+    Boolean(meQuery.data) &&
     !hasActiveAccess &&
     (planIsExpired || isMarkedExpired || isPlanMissing || (isFreePlan && !planId));
   const planStatus = planIsActive ? "Active" : "Inactive";

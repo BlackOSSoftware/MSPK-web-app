@@ -56,9 +56,10 @@ export default function DashboardLayout({
     const isFreePlan = subscriptionPlan === "free";
     const isPlanMissing = !planId && !isActiveFromMeData;
     const hasActiveAccess = isActiveFromSubscription || isActiveFromMeData || (Boolean(planExpiry) && !planIsExpired);
-    const isPlanBlocked =
+    const isPlanBlockedRaw =
         !hasActiveAccess &&
         (planIsExpired || isMarkedExpired || isPlanMissing || (isFreePlan && !planId));
+    const isPlanBlocked = Boolean(meQuery.data) && isPlanBlockedRaw;
     const isAllowedWhenBlocked = pathname === "/dashboard" || pathname.startsWith("/dashboard/plans");
     const shouldRedirectToDashboard = isPlanBlocked && !isAllowedWhenBlocked;
 
