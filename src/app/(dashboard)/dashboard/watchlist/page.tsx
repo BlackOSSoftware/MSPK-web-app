@@ -7,6 +7,7 @@ import {
   ArrowDown,
   ArrowUp,
   ChevronDown,
+  GripVertical,
   Plus,
   Search,
   SlidersHorizontal,
@@ -37,6 +38,7 @@ import {
   useMarketSearchQuery,
   useMarketUserWatchlistAddMutation,
   useMarketUserWatchlistQuery,
+  useMarketUserWatchlistReorderMutation,
   useMarketUserWatchlistRemoveMutation,
 } from "@/services/market/market.hooks";
 import type { MarketSearchItem, MarketTicker } from "@/services/market/market.types";
@@ -48,6 +50,7 @@ type CardPulse = "up" | "down";
 const VIEW_MODE_STORAGE_KEY = "watchlist_view_mode";
 const TABLE_COLUMN_STORAGE_KEY = "watchlist_table_columns_v1";
 const SUPPORT_WHATSAPP = "917770039037";
+const USER_WATCHLIST_QUERY_KEY = [...MARKET_QUERY_KEY, "user-watchlist"] as const;
 
 type SocketTick = {
   symbol: string;
@@ -103,6 +106,34 @@ function toNumber(value: unknown): number | undefined {
 
 function normalizeSymbol(symbol: string): string {
   return symbol.trim().toUpperCase();
+}
+
+function reorderSymbolOrder(symbols: string[], draggedSymbol: string, targetSymbol: string) {
+  const draggedIndex = symbols.indexOf(draggedSymbol);
+  const targetIndex = symbols.indexOf(targetSymbol);
+  if (draggedIndex === -1 || targetIndex === -1 || draggedIndex === targetIndex) {
+    return symbols;
+  }
+
+  const next = [...symbols];
+  const [movedSymbol] = next.splice(draggedIndex, 1);
+  next.splice(targetIndex, 0, movedSymbol);
+  return next;
+}
+
+function reorderWatchlistItems(items: MarketTicker[], orderedSymbols: string[]) {
+  const itemMap = new Map(items.map((item) => [normalizeSymbol(item.symbol ?? ""), item]));
+  const orderedItems = orderedSymbols
+    .map((symbol) => itemMap.get(symbol))
+    .filter((item): item is MarketTicker => Boolean(item));
+  const remainingItems = items.filter(
+    (item) => !orderedSymbols.includes(normalizeSymbol(item.symbol ?? ""))
+  );
+  return [...orderedItems, ...remainingItems];
+}
+
+function areSameSymbolOrder(left: string[], right: string[]) {
+  return left.length === right.length && left.every((symbol, index) => symbol === right[index]);
 }
 
 function getReferencePrice(
@@ -300,12 +331,18 @@ export default function WatchlistPage() {
   const [cardPulseMap, setCardPulseMap] = useState<Record<string, CardPulse>>({});
   const [highPulseMap, setHighPulseMap] = useState<Record<string, CardPulse>>({});
   const [lowPulseMap, setLowPulseMap] = useState<Record<string, CardPulse>>({});
+  const [draggedCardSymbol, setDraggedCardSymbol] = useState<string | null>(null);
+  const [dragOverCardSymbol, setDragOverCardSymbol] = useState<string | null>(null);
   const [columnOrder, setColumnOrder] = useState<TableColumnId[]>([...DEFAULT_TABLE_COLUMNS]);
   const [hiddenColumns, setHiddenColumns] = useState<TableColumnId[]>([]);
+  const [draggedColumn, setDraggedColumn] = useState<TableColumnId | null>(null);
+  const [dragOverColumn, setDragOverColumn] = useState<TableColumnId | null>(null);
   const previousPriceRef = useRef<Record<string, number>>({});
   const previousHighRef = useRef<Record<string, number>>({});
   const previousLowRef = useRef<Record<string, number>>({});
   const pulseTimeoutRef = useRef<Record<string, number>>({});
+  const cardDragStartOrderRef = useRef<string[]>([]);
+  const cardPointerIdRef = useRef<number | null>(null);
 
   const watchlistQuery = useMarketUserWatchlistQuery(true, {
     staleTime: 8_000,
@@ -313,6 +350,7 @@ export default function WatchlistPage() {
   });
   const addMutation = useMarketUserWatchlistAddMutation();
   const removeMutation = useMarketUserWatchlistRemoveMutation();
+  const reorderMutation = useMarketUserWatchlistReorderMutation();
 
   const searchMarketQuery = useMarketSearchQuery(
     { q: searchQuery, limit: 12 },
@@ -555,8 +593,7 @@ export default function WatchlistPage() {
     const list = watchlistQuery.data ?? [];
     return list
       .map((item) => mapWatchlistRow(item, ticks[normalizeSymbol(item.symbol ?? "")]))
-      .filter((item): item is WatchlistRow => item !== null)
-      .sort((a, b) => a.symbol.localeCompare(b.symbol));
+      .filter((item): item is WatchlistRow => item !== null);
   }, [watchlistQuery.data, ticks]);
 
   useEffect(() => {
@@ -655,6 +692,123 @@ export default function WatchlistPage() {
     };
   }, []);
 
+  const setWatchlistOrderInCache = (orderedSymbols: string[]) => {
+    const currentItems = queryClient.getQueryData<MarketTicker[]>(USER_WATCHLIST_QUERY_KEY) ?? watchlistQuery.data ?? [];
+    queryClient.setQueryData<MarketTicker[]>(
+      USER_WATCHLIST_QUERY_KEY,
+      reorderWatchlistItems(currentItems, orderedSymbols)
+    );
+  };
+
+  const clearCardDragState = () => {
+    setDraggedCardSymbol(null);
+    setDragOverCardSymbol(null);
+    cardPointerIdRef.current = null;
+  };
+
+  const persistWatchlistOrder = async (orderedSymbols: string[], previousSymbols: string[]) => {
+    if (areSameSymbolOrder(orderedSymbols, previousSymbols)) {
+      return;
+    }
+
+    const currentItems = queryClient.getQueryData<MarketTicker[]>(USER_WATCHLIST_QUERY_KEY) ?? watchlistQuery.data ?? [];
+    const previousItems = reorderWatchlistItems(currentItems, previousSymbols);
+
+    try {
+      await reorderMutation.mutateAsync(orderedSymbols);
+      void queryClient.invalidateQueries({ queryKey: USER_WATCHLIST_QUERY_KEY });
+    } catch (error: unknown) {
+      queryClient.setQueryData<MarketTicker[]>(USER_WATCHLIST_QUERY_KEY, previousItems);
+      toast.error(getErrorMessage(error, "Unable to save watchlist order"));
+    }
+  };
+
+  const handleCardDragStart = (event: React.PointerEvent<HTMLButtonElement>, symbol: string) => {
+    if (reorderMutation.isPending || watchlistSymbols.length < 2) {
+      return;
+    }
+    if (event.pointerType === "mouse" && event.button !== 0) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const currentItems = queryClient.getQueryData<MarketTicker[]>(USER_WATCHLIST_QUERY_KEY) ?? watchlistQuery.data ?? [];
+    cardDragStartOrderRef.current = currentItems.map((item) => normalizeSymbol(item.symbol ?? ""));
+    cardPointerIdRef.current = event.pointerId;
+    setDraggedCardSymbol(symbol);
+    setDragOverCardSymbol(symbol);
+  };
+
+  useEffect(() => {
+    if (!draggedCardSymbol) {
+      return;
+    }
+
+    const finishCardDrag = (shouldPersist: boolean) => {
+      const currentItems = queryClient.getQueryData<MarketTicker[]>(USER_WATCHLIST_QUERY_KEY) ?? watchlistQuery.data ?? [];
+      const nextSymbols = currentItems.map((item) => normalizeSymbol(item.symbol ?? ""));
+      const previousSymbols = cardDragStartOrderRef.current;
+
+      clearCardDragState();
+
+      if (previousSymbols.length === 0) {
+        return;
+      }
+
+      if (!shouldPersist || areSameSymbolOrder(nextSymbols, previousSymbols)) {
+        setWatchlistOrderInCache(previousSymbols);
+        return;
+      }
+
+      void persistWatchlistOrder(nextSymbols, previousSymbols);
+    };
+
+    const handlePointerMove = (event: PointerEvent) => {
+      if (cardPointerIdRef.current !== null && event.pointerId !== cardPointerIdRef.current) {
+        return;
+      }
+
+      const targetElement = document
+        .elementFromPoint(event.clientX, event.clientY)
+        ?.closest<HTMLElement>("[data-watchlist-card-symbol]");
+      const targetSymbol = targetElement?.dataset.watchlistCardSymbol;
+
+      if (!targetSymbol || targetSymbol === draggedCardSymbol || targetSymbol === dragOverCardSymbol) {
+        return;
+      }
+
+      const currentItems = queryClient.getQueryData<MarketTicker[]>(USER_WATCHLIST_QUERY_KEY) ?? watchlistQuery.data ?? [];
+      const currentSymbols = currentItems.map((item) => normalizeSymbol(item.symbol ?? ""));
+      const nextSymbols = reorderSymbolOrder(currentSymbols, draggedCardSymbol, targetSymbol);
+
+      setDragOverCardSymbol(targetSymbol);
+      setWatchlistOrderInCache(nextSymbols);
+    };
+
+    const handlePointerUp = (event: PointerEvent) => {
+      if (cardPointerIdRef.current !== null && event.pointerId !== cardPointerIdRef.current) {
+        return;
+      }
+      finishCardDrag(true);
+    };
+
+    const handlePointerCancel = () => {
+      finishCardDrag(false);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerCancel);
+
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerCancel);
+    };
+  }, [draggedCardSymbol, dragOverCardSymbol, queryClient, reorderMutation, watchlistQuery.data]);
+
   const hiddenColumnSet = useMemo(() => new Set(hiddenColumns), [hiddenColumns]);
   const visibleColumns = useMemo(
     () => columnOrder.filter((col) => !hiddenColumnSet.has(col)),
@@ -677,21 +831,44 @@ export default function WatchlistPage() {
     });
   };
 
-  const moveColumn = (colId: TableColumnId, direction: "up" | "down") => {
+  const moveColumnToTarget = (draggedColId: TableColumnId, targetColId: TableColumnId) => {
     setColumnOrder((prev) => {
-      const index = prev.indexOf(colId);
-      if (index === -1) return prev;
-      const nextIndex = direction === "up" ? index - 1 : index + 1;
-      if (nextIndex < 0 || nextIndex >= prev.length) return prev;
+      const draggedIndex = prev.indexOf(draggedColId);
+      const targetIndex = prev.indexOf(targetColId);
+      if (draggedIndex === -1 || targetIndex === -1 || draggedIndex === targetIndex) return prev;
       const next = [...prev];
-      [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
+      const [movedColumn] = next.splice(draggedIndex, 1);
+      next.splice(targetIndex, 0, movedColumn);
       return next;
     });
+  };
+
+  const clearColumnDragState = () => {
+    setDraggedColumn(null);
+    setDragOverColumn(null);
+  };
+
+  const handleColumnDragStart = (colId: TableColumnId) => {
+    setDraggedColumn(colId);
+    setDragOverColumn(colId);
+  };
+
+  const handleColumnDragOver = (event: React.DragEvent<HTMLElement>, targetColId: TableColumnId) => {
+    event.preventDefault();
+    if (!draggedColumn || draggedColumn === targetColId || dragOverColumn === targetColId) return;
+    setDragOverColumn(targetColId);
+    moveColumnToTarget(draggedColumn, targetColId);
+  };
+
+  const handleColumnDrop = (event: React.DragEvent<HTMLElement>) => {
+    event.preventDefault();
+    clearColumnDragState();
   };
 
   const resetColumns = () => {
     setColumnOrder([...DEFAULT_TABLE_COLUMNS]);
     setHiddenColumns([]);
+    clearColumnDragState();
   };
 
   const segmentOptions = useMemo(() => {
@@ -710,63 +887,20 @@ export default function WatchlistPage() {
     return ["ALL", ...Array.from(set).sort((a, b) => a.localeCompare(b))];
   }, [allRows]);
 
-  const tableHeaderMap: Record<TableColumnId, React.ReactNode> = {
+  const tableHeaderMap: Record<TableColumnId, string> = {
     symbol: "Symbol",
     name: "Name",
     segment: "Segment",
     exchange: "Exchange",
-    current: (
-      <span className="inline-flex w-full items-center justify-end gap-1">
-        <ArrowUp className="h-3 w-3 text-emerald-500" />
-        <ArrowDown className="h-3 w-3 text-rose-500" />
-        Current
-      </span>
-    ),
-    high: (
-      <span className="inline-flex w-full items-center justify-end gap-1">
-        <ArrowUp className="h-3 w-3 text-emerald-500" />
-        High
-      </span>
-    ),
-    low: (
-      <span className="inline-flex w-full items-center justify-end gap-1">
-        <ArrowDown className="h-3 w-3 text-rose-500" />
-        Low
-      </span>
-    ),
-    close: <span className="inline-flex w-full items-center justify-end">Close</span>,
-    changePercent: (
-      <span className="inline-flex w-full items-center justify-end gap-1">
-        <ArrowUp className="h-3 w-3 text-emerald-500" />
-        <ArrowDown className="h-3 w-3 text-rose-500" />
-        Change %
-      </span>
-    ),
-    points: (
-      <span className="inline-flex w-full items-center justify-end gap-1">
-        <ArrowUp className="h-3 w-3 text-emerald-500" />
-        <ArrowDown className="h-3 w-3 text-rose-500" />
-        Points
-      </span>
-    ),
-    bid: (
-      <span className="inline-flex w-full items-center justify-end gap-1">
-        <ArrowUp className="h-3 w-3 text-emerald-500" />
-        Bid
-      </span>
-    ),
-    ask: (
-      <span className="inline-flex w-full items-center justify-end gap-1">
-        <ArrowDown className="h-3 w-3 text-rose-500" />
-        Ask
-      </span>
-    ),
-    action: (
-      <span className="inline-flex w-full items-center justify-end gap-1">
-        <Trash2 className="h-3 w-3 text-rose-500" />
-        Action
-      </span>
-    ),
+    current: "Current",
+    high: "High",
+    low: "Low",
+    close: "Close",
+    changePercent: "Change %",
+    points: "Points",
+    bid: "Bid",
+    ask: "Ask",
+    action: "Action",
   };
 
   const tableColumnLabels: Record<TableColumnId, string> = {
@@ -836,7 +970,7 @@ export default function WatchlistPage() {
     try {
       await addMutation.mutateAsync(target);
       await queryClient.invalidateQueries({
-        queryKey: [...MARKET_QUERY_KEY, "user-watchlist"],
+        queryKey: USER_WATCHLIST_QUERY_KEY,
       });
       setSymbolInput("");
       setSearchQuery("");
@@ -851,7 +985,7 @@ export default function WatchlistPage() {
     try {
       await removeMutation.mutateAsync(symbol);
       await queryClient.invalidateQueries({
-        queryKey: [...MARKET_QUERY_KEY, "user-watchlist"],
+        queryKey: USER_WATCHLIST_QUERY_KEY,
       });
       toast.success(`${symbol} removed`);
     } catch (error: unknown) {
@@ -988,17 +1122,26 @@ export default function WatchlistPage() {
                 </button>
               </div>
               {viewMode === "table" ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setIsColumnDialogOpen(true)}
-                  className="hidden h-9 border-slate-300/80 bg-white/90 text-slate-700 dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200 md:inline-flex"
-                >
-                  <SlidersHorizontal className="mr-1 h-4 w-4" />
-                  Columns
-                </Button>
-              ) : null}
+                <>
+                  <span className="hidden text-[11px] font-medium text-slate-500 dark:text-slate-400 md:inline-flex">
+                    Drag table headers to reorder
+                  </span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setIsColumnDialogOpen(true)}
+                    className="hidden h-9 border-slate-300/80 bg-white/90 text-slate-700 dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200 md:inline-flex"
+                  >
+                    <SlidersHorizontal className="mr-1 h-4 w-4" />
+                    Visible Columns
+                  </Button>
+                </>
+              ) : (
+                <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                  {reorderMutation.isPending ? "Saving card order..." : "Drag card handle to reorder"}
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -1083,13 +1226,35 @@ export default function WatchlistPage() {
               {visibleColumns.map((col) => (
                 <TableHead
                   key={col}
+                  draggable
+                  onDragStart={() => handleColumnDragStart(col)}
+                  onDragOver={(event) => handleColumnDragOver(event, col)}
+                  onDrop={handleColumnDrop}
+                  onDragEnd={clearColumnDragState}
                   className={cn(
+                    "select-none",
+                    draggedColumn === col &&
+                      "bg-sky-100/80 text-sky-700 dark:bg-sky-500/10 dark:text-sky-200",
+                    dragOverColumn === col &&
+                      draggedColumn !== col &&
+                      "bg-sky-50/90 ring-1 ring-inset ring-sky-400/45 dark:bg-sky-500/10 dark:ring-sky-400/45",
                     ["current", "high", "low", "close", "changePercent", "points", "bid", "ask", "action"].includes(col)
                       ? "text-right"
                       : ""
                   )}
+                  title={`Drag to reorder ${tableColumnLabels[col]}`}
                 >
-                  {tableHeaderMap[col]}
+                  <span
+                    className={cn(
+                      "inline-flex w-full items-center gap-2",
+                      ["current", "high", "low", "close", "changePercent", "points", "bid", "ask", "action"].includes(col)
+                        ? "justify-end"
+                        : "justify-start"
+                    )}
+                  >
+                    <GripVertical className="h-3.5 w-3.5 shrink-0 text-slate-400 dark:text-slate-500" />
+                    <span>{tableHeaderMap[col]}</span>
+                  </span>
                 </TableHead>
               ))}
             </TableRow>
@@ -1430,32 +1595,55 @@ export default function WatchlistPage() {
                         : "";
 
                   return (
-                    <button
+                    <div
                       key={row.symbol}
-                      type="button"
-                      onClick={() => setSelectedSymbol(row.symbol)}
+                      data-watchlist-card-symbol={row.symbol}
                       className={cn(
                         "relative min-h-[94px] overflow-hidden rounded-md border border-slate-200/85 bg-[linear-gradient(160deg,rgba(255,255,255,0.96),rgba(241,245,249,0.88))] px-1.5 py-1.5 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-sky-300/85 hover:bg-white hover:shadow-[0_14px_30px_-18px_rgba(14,165,233,0.78)] dark:border-slate-800/90 dark:bg-[linear-gradient(160deg,rgba(8,17,28,0.98),rgba(11,23,36,0.96))] dark:hover:border-sky-500/60 dark:hover:bg-[linear-gradient(160deg,rgba(10,23,36,0.98),rgba(14,31,48,0.96))] dark:hover:shadow-[0_10px_28px_-18px_rgba(14,165,233,0.8)] sm:min-h-[106px] sm:px-2 sm:py-1.5",
                         "before:absolute before:inset-y-2 before:left-0 before:w-[2px]",
                         accentClass,
-                        pulseClass
+                        pulseClass,
+                        draggedCardSymbol === row.symbol &&
+                          "scale-[0.985] border-sky-400/85 bg-sky-50/90 shadow-[0_16px_34px_-20px_rgba(14,165,233,0.8)] dark:bg-sky-500/10 dark:border-sky-400/70",
+                        dragOverCardSymbol === row.symbol &&
+                          draggedCardSymbol !== row.symbol &&
+                          "border-sky-400/80 ring-2 ring-sky-500/20 dark:border-sky-400/70 dark:ring-sky-400/20"
                       )}
                     >
-                      <p className="truncate text-[8px] font-semibold uppercase tracking-[0.11em] text-slate-800 dark:text-slate-300 sm:text-[10px]">
-                        {row.symbol}
-                      </p>
-                      <div className={cn("mt-0.5 inline-flex rounded-[4px] px-1.5 py-0.5 transition-colors duration-200", priceBadgeClass, pricePulseClass)}>
-                        <p className={cn("text-[15px] font-black leading-none tracking-tight sm:text-[19px]", priceClass)}>
-                          {formatNumber(row.currentPrice, digits)}
+                      <button
+                        type="button"
+                        onClick={() => setSelectedSymbol(row.symbol)}
+                        className="block w-full pr-6 text-left"
+                      >
+                        <p className="truncate text-[8px] font-semibold uppercase tracking-[0.11em] text-slate-800 dark:text-slate-300 sm:text-[10px]">
+                          {row.symbol}
                         </p>
-                      </div>
-                      <p className={cn("mt-0.5 text-[9px] font-semibold sm:mt-1 sm:text-[11px]", pointsClass)}>
-                        {formatPoints(row.points, digits)} ({formatPercent(row.changePercent)})
-                      </p>
-                      <p className="mt-0.5 text-[8px] text-slate-500 dark:text-slate-500 sm:mt-1 sm:text-[10px]">
-                        {row.exchange}
-                      </p>
-                    </button>
+                        <div className={cn("mt-0.5 inline-flex rounded-[4px] px-1.5 py-0.5 transition-colors duration-200", priceBadgeClass, pricePulseClass)}>
+                          <p className={cn("text-[15px] font-black leading-none tracking-tight sm:text-[19px]", priceClass)}>
+                            {formatNumber(row.currentPrice, digits)}
+                          </p>
+                        </div>
+                        <p className={cn("mt-0.5 text-[9px] font-semibold sm:mt-1 sm:text-[11px]", pointsClass)}>
+                          {formatPoints(row.points, digits)} ({formatPercent(row.changePercent)})
+                        </p>
+                        <p className="mt-0.5 text-[8px] text-slate-500 dark:text-slate-500 sm:mt-1 sm:text-[10px]">
+                          {row.exchange}
+                        </p>
+                      </button>
+                      <button
+                        type="button"
+                        onPointerDown={(event) => handleCardDragStart(event, row.symbol)}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                        }}
+                        className="absolute right-1 top-1 inline-flex h-6 w-6 touch-none cursor-grab items-center justify-center rounded-md border border-slate-200/80 bg-white/90 text-slate-400 transition hover:border-sky-400/70 hover:text-sky-600 active:cursor-grabbing dark:border-slate-700/80 dark:bg-slate-900/85 dark:text-slate-500 dark:hover:border-sky-500/60 dark:hover:text-sky-300"
+                        aria-label={`Drag to reorder ${row.symbol}`}
+                        disabled={reorderMutation.isPending || watchlistSymbols.length < 2}
+                      >
+                        <GripVertical className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   );
                 })}
               </div>
@@ -1593,16 +1781,16 @@ export default function WatchlistPage() {
           <DialogHeader className="border-b border-slate-200/85 bg-[linear-gradient(120deg,rgba(240,249,255,0.9),rgba(255,255,255,0.88))] px-5 py-4 dark:border-slate-800/80 dark:[background-image:none] dark:bg-transparent">
             <DialogTitle className="flex items-center gap-2 text-lg font-extrabold tracking-wide text-slate-900 dark:text-slate-100">
               <SlidersHorizontal className="h-5 w-5 text-sky-600 dark:text-sky-300" />
-              Table Columns
+              Visible Columns
             </DialogTitle>
             <DialogDescription className="text-slate-600 dark:text-slate-400">
-              Reorder columns and choose what to show. Saved for this device.
+              Choose which columns to show. Reordering happens directly from the watchlist headers.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-3 px-5 py-4">
             <div className="space-y-2">
-              {columnOrder.map((colId, index) => {
+              {columnOrder.map((colId) => {
                 const isHidden = hiddenColumnSet.has(colId);
                 return (
                   <div
@@ -1618,24 +1806,9 @@ export default function WatchlistPage() {
                       />
                       <span className="font-semibold">{tableColumnLabels[colId]}</span>
                     </label>
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => moveColumn(colId, "up")}
-                        disabled={index === 0}
-                        className="h-7 w-7 rounded-lg border border-slate-200/80 bg-slate-100/80 text-slate-600 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700/70 dark:bg-slate-800/60 dark:text-slate-200 dark:hover:bg-slate-800"
-                      >
-                        <ArrowUp className="mx-auto h-4 w-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => moveColumn(colId, "down")}
-                        disabled={index === columnOrder.length - 1}
-                        className="h-7 w-7 rounded-lg border border-slate-200/80 bg-slate-100/80 text-slate-600 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700/70 dark:bg-slate-800/60 dark:text-slate-200 dark:hover:bg-slate-800"
-                      >
-                        <ArrowDown className="mx-auto h-4 w-4" />
-                      </button>
-                    </div>
+                    <span className="text-[11px] font-medium text-slate-400 dark:text-slate-500">
+                      {isHidden ? "Hidden" : "Visible"}
+                    </span>
                   </div>
                 );
               })}

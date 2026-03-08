@@ -71,6 +71,11 @@ export async function removeMarketUserWatchlist(symbol: string): Promise<{ symbo
   return response.data;
 }
 
+export async function reorderMarketUserWatchlist(symbols: string[]): Promise<{ symbols: string[] }> {
+  const response = await apiClient.post<{ symbols: string[] }>("/market/watchlist/reorder", { symbols });
+  return response.data;
+}
+
 export async function getMarketSentiment(): Promise<MarketSentiment> {
   const response = await apiClient.get<MarketSentiment>("/market/sentiment");
   return response.data;

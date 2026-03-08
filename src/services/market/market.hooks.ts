@@ -13,6 +13,7 @@ import {
   getMarketUserWatchlist,
   addMarketUserWatchlist,
   postMarketLoginKite,
+  reorderMarketUserWatchlist,
   searchMarket,
   removeMarketUserWatchlist,
 } from "./market.service";
@@ -116,6 +117,12 @@ export function useMarketUserWatchlistAddMutation() {
 export function useMarketUserWatchlistRemoveMutation() {
   return useMutation({
     mutationFn: (symbol: string) => removeMarketUserWatchlist(symbol),
+  });
+}
+
+export function useMarketUserWatchlistReorderMutation() {
+  return useMutation({
+    mutationFn: (symbols: string[]) => reorderMarketUserWatchlist(symbols),
   });
 }
 

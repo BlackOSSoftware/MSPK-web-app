@@ -191,6 +191,33 @@ function formatDate(value?: string) {
   });
 }
 
+function formatTimeframe(value?: string | null) {
+  const raw = String(value || "").trim();
+  if (!raw) return "-";
+
+  const normalized = raw.toUpperCase();
+  if (normalized === "S") return "Scalp";
+  if (/^\d+S$/.test(normalized)) return `${normalized.slice(0, -1)}s`;
+  if (/^\d+M$/.test(normalized)) return `${normalized.slice(0, -1)}m`;
+  if (/^\d+H$/.test(normalized)) return `${normalized.slice(0, -1)}h`;
+  if (["D", "1D", "DAY"].includes(normalized)) return "1D";
+  if (["W", "1W", "WEEK"].includes(normalized)) return "1W";
+  if (["MO", "MON", "MONTH", "1MO", "1MON", "1MONTH"].includes(normalized)) return "1M";
+
+  if (/^\d+$/.test(normalized)) {
+    const amount = Number(normalized);
+    if (!Number.isFinite(amount) || amount <= 0) return raw;
+    if (amount < 60) return `${amount}m`;
+    if (amount < 1440 && amount % 60 === 0) return `${amount / 60}h`;
+    if (amount === 1440) return "1D";
+    if (amount === 10080) return "1W";
+    if (amount === 43200) return "1M";
+    return `${amount}m`;
+  }
+
+  return raw;
+}
+
 function getStatusTone(status?: string) {
   const normalized = String(status || "").toLowerCase();
   if (normalized.includes("active") || normalized.includes("open")) {
@@ -697,7 +724,7 @@ function SignalsPageContent() {
                         </div>
                         <div className="mt-0.5 inline-flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400">
                           <CalendarClock className="h-3.5 w-3.5" />
-                          {signal.timeframe || "-"}
+                          {formatTimeframe(signal.timeframe)}
                         </div>
                       </div>
                     </div>
@@ -821,7 +848,7 @@ function SignalsPageContent() {
                             </div>
                             <div className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-slate-700 dark:text-slate-300">
                               <CalendarClock className="h-3.5 w-3.5" />
-                              {signal.timeframe || "-"}
+                              {formatTimeframe(signal.timeframe)}
                             </div>
                           </div>
                         </div>
@@ -970,7 +997,7 @@ function SignalsPageContent() {
                           >
                             <ShieldCheck className="h-3.5 w-3.5" />
                             {detailSignal.segment || "SEG"}
-                            {detailSignal.timeframe ? ` - ${detailSignal.timeframe}` : ""}
+                            {detailSignal.timeframe ? ` - ${formatTimeframe(detailSignal.timeframe)}` : ""}
                           </span>
                           <span
                             className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-[10px] font-semibold ${getStatusTone(getDisplayStatus(detailSignal))}`}
@@ -1064,6 +1091,9 @@ function SignalsPageContent() {
                           {formatDate(
                             detailSignal.signalTime || detailSignal.timestamp || detailSignal.createdAt,
                           )}
+                        </div>
+                        <div className="mt-2 text-[11px] text-slate-600 dark:text-slate-300">
+                          Timeframe: <span className="font-semibold text-slate-900 dark:text-slate-100">{formatTimeframe(detailSignal.timeframe)}</span>
                         </div>
                       </div>
 

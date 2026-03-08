@@ -1,0 +1,211 @@
+
+> user-panel@0.1.0 dev
+> node --max-old-space-size=4096 node_modules/next/dist/bin/next dev --port 3001
+
+⚠ Warning: Next.js inferred your workspace root, but it may not be correct.
+ We detected multiple lockfiles and selected the directory of E:\j project\package-lock.json as the root directory.
+ To silence this warning, set `turbopack.root` in your Next.js config, or consider removing one of the lockfiles if it's not needed.
+   See https://nextjs.org/docs/app/api-reference/config/next-config-js/turbopack#root-directory for more information.
+ Detected additional lockfiles: 
+   * E:\j project\frontend-user\package-lock.json
+
+▲ Next.js 16.1.1 (Turbopack)
+- Local:         http://localhost:3001
+- Network:       http://192.168.31.72:3001
+- Environments: .env
+
+✓ Starting...
+Creating turbopack project { dir: 'E:\\j project\\frontend-user', testMode: true }
+○ Compiling middleware ...
+✓ Ready in 35.5s
+○ Compiling / ...
+ GET / 307 in 73s (compile: 73s, render: 378ms)
+○ Compiling /login ...
+✓ Finished writing to filesystem cache in 12.8s
+
+
+#
+# Fatal process out of memory: Zone
+#
+----- Native stack trace -----
+
+ 1: 00007FF6D85E7487 
+ 2: 00007FF6D84BCA6F 
+ 3: 00007FF6D9721DE6 
+ 4: 00007FF6D90A89A1 
+ 5: 00007FF6D8B8B6BB 
+ 6: 00007FF6D88F96C6 
+ 7: 00007FF6D89105B6 
+ 8: 00007FF6D9BE440D 
+ 9: 00007FF6D9BFF5F1 
+10: 00007FF6D9BFF66C 
+11: 00007FF6D9BCC31E 
+12: 00007FF6D9C156FA 
+13: 00007FF6D9C02DCC 
+14: 00007FF6D9BD8A39 
+15: 00007FF6D9BD65B7 
+16: 00007FF6D9BD5BBD 
+17: 00007FF6D9C1B6C5 
+18: 00007FF6D9842422 
+19: 00007FF6D983C23A 
+20: 00007FF6D9025CD4 
+21: 00007FF6D8FEC8B2 
+22: 00007FF6D92AD7D6 
+23: 00007FF6D84BF7F0 
+24: 00007FF6D8648593 
+25: 00007FF6D9E36D9B 
+26: 00007FFC18E5E8D7 BaseThreadInitThunk+23
+27: 00007FFC19E6C48C RtlUserThreadStart+44
+
+<--- Last few GCs --->
+
+[20360:000001D1C2BF1000]    13691 ms: Scavenge 20.9 (30.0) -> 15.2 (31.5) MB, pooled: 0 MB, 1033.77 / 0.00 ms  (average mu = 1.000, current mu = 1.000) allocation failure; 
+[20360:000001D1C2BF1000]    14977 ms: Scavenge 22.3 (31.5) -> 16.3 (32.5) MB, pooled: 0 MB, 2.13 / 0.00 ms  (average mu = 1.000, current mu = 1.000) allocation failure; 
+
+
+<--- JS stacktrace --->
+
+FATAL ERROR: NewSpace::EnsureCurrentCapacity Allocation failed - JavaScript heap out of memory
+----- Native stack trace -----
+
+ 1: 00007FF6D85E7487 
+ 2: 00007FF6D854B1B8 
+ 3: 00007FF6D90BC011 
+ 4: 00007FF6D90A8B96 
+ 5: 00007FF6D8F054E0 
+ 6: 00007FF6D8EE2260 
+ 7: 00007FF6D8F0C17B 
+ 8: 00007FF6D8F0E78E 
+ 9: 00007FF6D8EFE5AD 
+10: 00007FF6D8EFA165 
+11: 00007FF6D8883DCD 
+
+<--- Last few GCs --->
+
+[23316:00000229516F5000]    13969 ms: Scavenge 20.9 (29.7) -> 15.2 (31.5) MB, pooled: 0 MB, 7.29 / 0.00 ms  (average mu = 1.000, current mu = 1.000) allocation failure; 
+[23316:00000229516F5000]    14350 ms: Scavenge 22.3 (31.5) -> 16.3 (32.2) MB, pooled: 0 MB, 4.32 / 0.00 ms  (average mu = 1.000, current mu = 1.000) allocation failure; 
+
+
+<--- JS stacktrace --->
+
+FATAL ERROR: NewSpace::EnsureCurrentCapacity Allocation failed - JavaScript heap out of memory
+----- Native stack trace -----
+
+ 1: 00007FF6D85E7487 node::SetCppgcReference+16583
+ 2: 00007FF6D854B1B8 v8::base::CPU::num_virtual_address_bits+103032
+ 3: 00007FF6D90BC011 v8::Isolate::ReportExternalAllocationLimitReached+65
+ 4: 00007FF6D90A8B96 v8::Function::Experimental_IsNopFunction+3302
+ 5: 00007FF6D8F054E0 v8::internal::StrongRootAllocatorBase::StrongRootAllocatorBase+33904
+ 6: 00007FF6D8EE2260 v8::CpuProfileNode::GetScriptResourceNameStr+92560
+ 7: 00007FF6D8F0C17B v8::internal::StrongRootAllocatorBase::StrongRootAllocatorBase+61707
+ 8: 00007FF6D8F0E78E v8::internal::StrongRootAllocatorBase::StrongRootAllocatorBase+71454
+ 9: 00007FF6D8EFE5AD v8::internal::StrongRootAllocatorBase::StrongRootAllocatorBase+5437
+10: 00007FF6D8EFA165 v8::CpuProfileNode::GetScriptResourceNameStr+190613
+11: 00007FF6D8883DCD BIO_ssl_shutdown+189
+
+
+#
+# Fatal process out of memory: Zone
+#
+----- Native stack trace -----
+
+
+
+#
+# Fatal process out of memory: Zone
+#
+----- Native stack trace -----
+
+
+
+#
+# Fatal process out of memory: Zone
+#
+----- Native stack trace -----
+
+ 1: 00007FF6D85E7487 
+ 2: 00007FF6D84BCA6F 
+ 3: 00007FF6D9721DE6 
+ 4: 00007FF6D90A89A1 
+ 5: 00007FF6D8B8B6BB 
+ 6: 00007FF6D890C6E8 
+ 7: 00007FF6D97E11EE 
+ 8: 00007FF6D97E66C4 
+ 9: 00007FF6D9882AAB 
+10: 00007FF6D987C79E 
+11: 00007FF6D987C8CA 
+12: 00007FF6D987C2F1 
+13: 00007FF6D987CCC1 
+14: 00007FF6D987FA5E 
+15: 00007FF6D987F740 
+16: 00007FF6D97DB9CA 
+17: 00007FF6D97E04D3 
+18: 00007FF6D9829495 
+19: 00007FF6D988D3CC 
+20: 00007FF6D9885492 
+21: 00007FF6D98839A2 
+22: 00007FF6D9883C9B 
+23: 00007FF6D9B5DD45 
+24: 00007FF6D9847E01 
+25: 00007FF6D98428F9 
+26: 00007FF6D983C23A 
+27: 00007FF6D9025CD4 
+28: 00007FF6D8FEC8B2 
+29: 00007FF6D92AD7D6 
+30: 00007FF6D84BF7F0 
+31: 00007FF6D8648593 
+32: 00007FF6D9E36D9B 
+33: 00007FFC18E5E8D7 BaseThreadInitThunk+23
+34: 00007FFC19E6C48C RtlUserThreadStart+44
+ 1: 00007FF6D85E7487 
+ 2: 00007FF6D84BCA6F 
+ 3: 00007FF6D9721DE6 
+ 4: 00007FF6D90A89A1 
+ 5: 00007FF6D8B8B6BB 
+ 6: 00007FF6D890C6E8 
+ 7: 00007FF6D89029F0 
+ 8: 00007FF6D9BDF40C 
+ 9: 00007FF6D9BE2A02 
+10: 00007FF6D9C14A05 
+11: 00007FF6D9C02DCC 
+12: 00007FF6D9BD8A39 
+13: 00007FF6D9BD65B7 
+14: 00007FF6D9BD5BBD 
+15: 00007FF6D9C1B6C5 
+16: 00007FF6D9842422 
+17: 00007FF6D983C23A 
+18: 00007FF6D9025CD4 
+19: 00007FF6D8FEC8B2 
+20: 00007FF6D92AD7D6 
+21: 00007FF6D84BF7F0 
+22: 00007FF6D8648593 
+23: 00007FF6D9E36D9B 
+24: 00007FFC18E5E8D7 BaseThreadInitThunk+23
+25: 00007FFC19E6C48C RtlUserThreadStart+44
+ 1: 00007FF6D85E7487 
+ 2: 00007FF6D84BCA6F 
+ 3: 00007FF6D9721DE6 
+ 4: 00007FF6D90A89A1 
+ 5: 00007FF6D8B8B6BB 
+ 6: 00007FF6D9967819 
+ 7: 00007FF6D99679AF 
+ 8: 00007FF6D9835164 
+ 9: 00007FF6D984141F 
+10: 00007FF6D983C23A 
+11: 00007FF6D9025CD4 
+12: 00007FF6D8FEC8B2 
+13: 00007FF6D92AD7D6 
+14: 00007FF6D84BF7F0 
+15: 00007FF6D8648593 
+16: 00007FF6D9E36D9B 
+17: 00007FFC18E5E8D7 
+18: 00007FFC19E6C48C 
+
+-----
+[1m[31mFATAL[39m[0m: An unexpected Turbopack error occurred. A panic log has been written to C:\Users\HP-OMEN\AppData\Local\Temp\next-panic-6bcab2adaa5112ee2aaf4001539f6862.log.
+
+To help make Turbopack better, report this error by clicking here: https://github.com/vercel/next.js/discussions/new?category=turbopack-error-report&title=Turbopack%20Error%3A%20Failed%20to%20write%20app%20endpoint%20%2F%28public%29%2Fpage&body=Turbopack%20version%3A%20%60d1bd5b58%60%0ANext.js%20version%3A%20%600.0.0%60%0A%0AError%20message%3A%0A%60%60%60%0ATurbopack%20Error%3A%20Failed%20to%20write%20app%20endpoint%20%2F%28public%29%2Fpage%0A%60%60%60&labels=Turbopack,Turbopack%20Panic%20Backtrace
+-----
+
+✓ Compiled in 790.9s
+✓ Finished filesystem cache database compaction in 29.1s

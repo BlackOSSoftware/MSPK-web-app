@@ -45,6 +45,7 @@ export type TelegramConnection = {
   connected?: boolean;
   chatId?: string | null;
   username?: string | null;
+  displayName?: string | null;
   connectedAt?: string | null;
   botUsername?: string | null;
 };
