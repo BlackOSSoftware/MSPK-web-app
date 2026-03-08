@@ -6,6 +6,7 @@ export type Plan = {
   features?: string[];
   isActive?: boolean;
   isDemo?: boolean;
+  isCustom?: boolean;
   permissions?: string[];
   price?: number;
   segment?: string;

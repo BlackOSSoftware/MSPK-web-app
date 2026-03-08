@@ -81,7 +81,7 @@ export default function PlansPage() {
     const { data: segments = [] } = useSegmentsQuery();
     const { data: subscriptionStatus } = useSubscriptionStatusQuery();
     const visiblePlans = useMemo(() => {
-        return plans.filter((plan) => !plan.isDemo);
+        return plans.filter((plan) => !plan.isDemo && !plan.isCustom);
     }, [plans]);
 
     const loopedPlans = useMemo(
@@ -98,7 +98,7 @@ export default function PlansPage() {
     const { containerRef, activeIndex: activeVirtualIndex, isDragging, bind } = useSwipeCards(loopedPlans.length);
 
     const popularId = visiblePlans
-        .filter((plan) => !plan.isDemo)
+        .filter((plan) => !plan.isDemo && !plan.isCustom)
         .sort((a, b) => (b.price ?? 0) - (a.price ?? 0))[0]?._id;
 
     const segmentCards = useMemo(() => segments, [segments]);
