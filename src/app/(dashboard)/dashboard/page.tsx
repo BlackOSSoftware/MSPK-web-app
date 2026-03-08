@@ -17,7 +17,6 @@ import {
   Facebook,
   Twitter,
   Youtube,
-  MessageCircle,
   Send,
 } from "lucide-react";
 import { SiWhatsapp } from "react-icons/si";
@@ -69,18 +68,19 @@ function formatDate(value?: string) {
 type HoverKey = "plan" | "days" | "today";
 
 const SUPPORT_WHATSAPP = "917770039037";
+const whatsappSocialMessage = "Hello MSPK Team, I am contacting you from the dashboard. Please assist me.";
 const socialLinks = [
   {
     label: "WhatsApp",
-    href: `https://wa.me/${SUPPORT_WHATSAPP}`,
+    href: `https://wa.me/${SUPPORT_WHATSAPP}?text=${encodeURIComponent(whatsappSocialMessage)}`,
     Icon: SiWhatsapp,
     iconClassName: "text-emerald-500",
   },
-  { label: "Telegram", href: "#", Icon: Send },
-  { label: "YouTube", href: "#", Icon: Youtube },
-  { label: "Facebook", href: "#", Icon: Facebook },
-  { label: "X (Twitter)", href: "#", Icon: Twitter },
-  { label: "Instagram", href: "#", Icon: Instagram },
+  { label: "Telegram", href: "https://t.me/Mspktradesolution", Icon: Send },
+  { label: "YouTube", href: "https://youtube.com/@mspktradesolution?si=1_U7FF2PehnzFh_z", Icon: Youtube },
+  { label: "Facebook", href: "https://www.facebook.com/share/198XcXtc6n/", Icon: Facebook },
+  { label: "X (Twitter)", href: null, Icon: Twitter },
+  { label: "Instagram", href: "https://www.instagram.com/mspk_tradesolutions/", Icon: Instagram },
 ];
 
 function pad2(value: number) {
@@ -414,27 +414,26 @@ export default function DashboardPage() {
               </div>
               <div className="mt-2 flex items-center gap-2 justify-start sm:justify-end">
                 {socialLinks.map(({ label, href, Icon, iconClassName }) => {
-                  if (label === "WhatsApp") {
+                  if (!href) {
                     return (
-                      <a
+                      <span
                         key={label}
-                        href={href}
-                        target="_blank"
-                        rel="noopener noreferrer"
                         aria-label={label}
-                        className="group relative h-9 w-9 rounded-full border border-foreground/10 bg-foreground/5 flex items-center justify-center text-muted-foreground transition hover:border-primary/40 hover:text-primary"
+                        className="group relative h-9 w-9 rounded-full border border-foreground/10 bg-foreground/5 flex items-center justify-center text-muted-foreground/60"
                       >
                         <Icon className={`h-4 w-4 ${iconClassName ?? ""}`} />
                         <span className="pointer-events-none absolute left-1/2 top-full mt-2 -translate-x-1/2 whitespace-nowrap rounded-full border border-foreground/10 bg-foreground px-2.5 py-1 text-[10px] font-semibold text-background opacity-0 shadow-lg transition group-hover:opacity-100">
                           {label}
                         </span>
-                      </a>
+                      </span>
                     );
                   }
                   return (
-                    <Link
+                    <a
                       key={label}
                       href={href}
+                      target="_blank"
+                      rel="noopener noreferrer"
                       aria-label={label}
                       className="group relative h-9 w-9 rounded-full border border-foreground/10 bg-foreground/5 flex items-center justify-center text-muted-foreground transition hover:border-primary/40 hover:text-primary"
                     >
@@ -442,7 +441,7 @@ export default function DashboardPage() {
                       <span className="pointer-events-none absolute left-1/2 top-full mt-2 -translate-x-1/2 whitespace-nowrap rounded-full border border-foreground/10 bg-foreground px-2.5 py-1 text-[10px] font-semibold text-background opacity-0 shadow-lg transition group-hover:opacity-100">
                         {label}
                       </span>
-                    </Link>
+                    </a>
                   );
                 })}
               </div>
