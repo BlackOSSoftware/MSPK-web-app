@@ -17,6 +17,8 @@ function TrialPageContent() {
     const searchParams = useSearchParams();
     const selectedPlanId = searchParams.get('planId');
     const referralFromQuery = searchParams.get('ref') ?? '';
+    const otpStorageKey = 'mspk_trial_otp';
+    const otpTtlMs = 15 * 60 * 1000;
     const [loading, setLoading] = useState(false);
     const [success, setSuccess] = useState(false);
     const [step, setStep] = useState<'form' | 'otp' | 'success'>('form');
@@ -73,6 +75,39 @@ function TrialPageContent() {
         return apiMessage || (error instanceof Error ? error.message : fallback);
     };
 
+    const persistOtpState = (email: string) => {
+        if (typeof window === 'undefined') return;
+        const payload = JSON.stringify({ email, createdAt: Date.now() });
+        sessionStorage.setItem(otpStorageKey, payload);
+    };
+
+    const clearOtpState = () => {
+        if (typeof window === 'undefined') return;
+        sessionStorage.removeItem(otpStorageKey);
+    };
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const raw = sessionStorage.getItem(otpStorageKey);
+        if (!raw) return;
+        try {
+            const parsed = JSON.parse(raw) as { email?: string; createdAt?: number };
+            if (!parsed?.email || !parsed?.createdAt) {
+                sessionStorage.removeItem(otpStorageKey);
+                return;
+            }
+            const isExpired = Date.now() - parsed.createdAt > otpTtlMs;
+            if (isExpired) {
+                sessionStorage.removeItem(otpStorageKey);
+                return;
+            }
+            setRegisteredEmail(parsed.email);
+            setStep('otp');
+        } catch {
+            sessionStorage.removeItem(otpStorageKey);
+        }
+    }, []);
+
     useEffect(() => {
         if (!referralFromQuery) return;
         setFormValues((prev) =>
@@ -113,6 +148,8 @@ function TrialPageContent() {
             await sendOtpMutation.mutateAsync({ type: 'email', identifier: email });
             setRegisteredEmail(email);
             setStep('otp');
+            setOtp('');
+            persistOtpState(email);
             setFormValues({
                 name: '',
                 email: '',
@@ -139,6 +176,7 @@ function TrialPageContent() {
             await verifyOtpMutation.mutateAsync({ type: 'email', identifier: registeredEmail, otp: otp.trim() });
             setSuccess(true);
             setStep('success');
+            clearOtpState();
             router.replace('/login');
         } catch (error: unknown) {
             setOtpError(getErrorMessage(error, 'OTP verification failed.'));
@@ -153,6 +191,7 @@ function TrialPageContent() {
         setOtpError('');
         try {
             await sendOtpMutation.mutateAsync({ type: 'email', identifier: registeredEmail });
+            persistOtpState(registeredEmail);
         } catch (error: unknown) {
             setOtpError(getErrorMessage(error, 'Unable to resend OTP.'));
         } finally {

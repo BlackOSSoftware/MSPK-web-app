@@ -31,7 +31,7 @@ const StatusBadge = ({ status }: { status: string }) => {
 
 export function RecentDealsTable() {
     const deals: Deal[] = [
-        { id: '#8892', symbol: 'XAUUSD', strategy: 'Gold Rush V2', type: 'Buy', price: '2045.50', pnl: '+0.85%', cebooy: '4ms', status: 'Sent', date: 'Just now' },
+        { id: '#8892', symbol: 'XAUUSD', strategy: 'Gold Rush V2', type: 'Buy', price: '2045.50', pnl: '+0.85%', latency: '4ms', status: 'Sent', date: 'Just now' },
         { id: '#8891', symbol: 'BTCUSD', strategy: 'Crypto Breakout', type: 'Sell', price: '42,500', pnl: '0.00%', latency: '12ms', status: 'Pending', date: '500ms ago' },
         { id: '#8890', symbol: 'US30', strategy: 'Index Scalper', type: 'Buy', price: '37,200', pnl: '+1.2%', latency: '2ms', status: 'Sent', date: '1 min ago' },
         { id: '#8889', symbol: 'EURUSD', strategy: 'Forex Major', type: 'Sell', price: '1.0950', pnl: '-0.15%', latency: '3ms', status: 'Sent', date: '3 mins ago' },
