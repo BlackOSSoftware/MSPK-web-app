@@ -204,6 +204,7 @@ function getMarketSocketUrl(token: string): string {
   if (override) {
     const url = new URL(override);
     url.searchParams.set("token", token);
+    url.searchParams.set("autoSubscribe", "false");
     return url.toString();
   }
 
@@ -218,6 +219,7 @@ function getMarketSocketUrl(token: string): string {
   url.search = "";
   url.hash = "";
   url.searchParams.set("token", token);
+  url.searchParams.set("autoSubscribe", "false");
   return url.toString();
 }
 

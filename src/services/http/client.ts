@@ -46,7 +46,9 @@ apiClient.interceptors.response.use(
       }
 
       clearAuthSession();
-      if (window.location.pathname !== "/login") {
+      const path = window.location.pathname || "/";
+      const skipRedirect = path === "/login" || path.startsWith("/trial");
+      if (!skipRedirect) {
         window.location.href = "/login";
       }
     }

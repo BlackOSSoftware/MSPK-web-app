@@ -17,7 +17,7 @@ function TrialPageContent() {
     const searchParams = useSearchParams();
     const selectedPlanId = searchParams.get('planId');
     const referralFromQuery = searchParams.get('ref') ?? '';
-    const otpStorageKey = 'mspk_trial_otp';
+    const otpStorageKey = 'mspk_trial_otp_v1';
     const otpTtlMs = 15 * 60 * 1000;
     const [loading, setLoading] = useState(false);
     const [success, setSuccess] = useState(false);
@@ -78,33 +78,33 @@ function TrialPageContent() {
     const persistOtpState = (email: string) => {
         if (typeof window === 'undefined') return;
         const payload = JSON.stringify({ email, createdAt: Date.now() });
-        sessionStorage.setItem(otpStorageKey, payload);
+        localStorage.setItem(otpStorageKey, payload);
     };
 
     const clearOtpState = () => {
         if (typeof window === 'undefined') return;
-        sessionStorage.removeItem(otpStorageKey);
+        localStorage.removeItem(otpStorageKey);
     };
 
     useEffect(() => {
         if (typeof window === 'undefined') return;
-        const raw = sessionStorage.getItem(otpStorageKey);
+        const raw = localStorage.getItem(otpStorageKey);
         if (!raw) return;
         try {
             const parsed = JSON.parse(raw) as { email?: string; createdAt?: number };
             if (!parsed?.email || !parsed?.createdAt) {
-                sessionStorage.removeItem(otpStorageKey);
+                localStorage.removeItem(otpStorageKey);
                 return;
             }
             const isExpired = Date.now() - parsed.createdAt > otpTtlMs;
             if (isExpired) {
-                sessionStorage.removeItem(otpStorageKey);
+                localStorage.removeItem(otpStorageKey);
                 return;
             }
             setRegisteredEmail(parsed.email);
             setStep('otp');
         } catch {
-            sessionStorage.removeItem(otpStorageKey);
+            localStorage.removeItem(otpStorageKey);
         }
     }, []);
 
@@ -177,7 +177,6 @@ function TrialPageContent() {
             setSuccess(true);
             setStep('success');
             clearOtpState();
-            router.replace('/login');
         } catch (error: unknown) {
             setOtpError(getErrorMessage(error, 'OTP verification failed.'));
         } finally {
@@ -282,14 +281,28 @@ function TrialPageContent() {
                                     <p className="text-muted-foreground leading-relaxed">
                                         Your request is confirmed. Our onboarding team will contact you shortly to activate premium access.
                                     </p>
-                                    <Button onClick={() => setSuccess(false)} variant="outline" className="w-full h-10 sm:h-12 rounded-xl mt-2 sm:mt-4">
-                                        Request Another
-                                    </Button>
-                                    <Link href="/market" className="block w-full">
-                                        <Button variant="ghost" className="w-full h-10 sm:h-12 rounded-xl text-primary hover:text-primary hover:bg-primary/5">
-                                            Return to Market <ArrowRight className="w-4 h-4 ml-2" />
+                                    <div className="space-y-2">
+                                        <Link href="/login" className="block w-full">
+                                            <Button className="w-full h-10 sm:h-12 rounded-xl text-sm sm:text-base font-bold bg-primary text-black hover:bg-primary/90 shadow-lg shadow-primary/20">
+                                                Go to Login
+                                            </Button>
+                                        </Link>
+                                        <Button
+                                            onClick={() => {
+                                                setSuccess(false);
+                                                setStep('form');
+                                            }}
+                                            variant="outline"
+                                            className="w-full h-10 sm:h-12 rounded-xl"
+                                        >
+                                            Back to Registration
                                         </Button>
-                                    </Link>
+                                        <Link href="/market" className="block w-full">
+                                            <Button variant="ghost" className="w-full h-10 sm:h-12 rounded-xl text-primary hover:text-primary hover:bg-primary/5">
+                                                Return to Market <ArrowRight className="w-4 h-4 ml-2" />
+                                            </Button>
+                                        </Link>
+                                    </div>
                                 </div>
                             ) : step === 'otp' ? (
                                 <CardContent className="p-4 sm:p-8">
@@ -340,6 +353,21 @@ function TrialPageContent() {
                                             disabled={loading}
                                         >
                                             Resend OTP
+                                        </Button>
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            className="w-full h-10 sm:h-12 rounded-xl"
+                                            onClick={() => {
+                                                clearOtpState();
+                                                setOtp('');
+                                                setOtpError('');
+                                                setRegisteredEmail('');
+                                                setStep('form');
+                                            }}
+                                            disabled={loading}
+                                        >
+                                            Back to Registration
                                         </Button>
                                         <p className="text-sm text-center text-muted-foreground">
                                             Already have an account?{' '}

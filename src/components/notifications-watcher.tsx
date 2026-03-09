@@ -67,7 +67,10 @@ function getNotificationSocketUrl(token: string): string {
   const base = apiBase.replace(/\/v1\/?$/, '');
   const wsProtocol = base.startsWith('https://') ? 'wss://' : 'ws://';
   const host = base.replace(/^https?:\/\//, '').replace(/\/$/, '');
-  return `${wsProtocol}${host}/?token=${encodeURIComponent(token)}`;
+  const url = new URL(`${wsProtocol}${host}/`);
+  url.searchParams.set('token', token);
+  url.searchParams.set('autoSubscribe', 'false');
+  return url.toString();
 }
 
 export function NotificationsWatcher() {
