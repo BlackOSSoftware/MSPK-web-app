@@ -49,6 +49,7 @@ type CardPulse = "up" | "down";
 
 const VIEW_MODE_STORAGE_KEY = "watchlist_view_mode";
 const TABLE_COLUMN_STORAGE_KEY = "watchlist_table_columns_v1";
+const TABLE_COLUMN_WIDTHS_KEY = "watchlist_table_column_widths_v1";
 const SUPPORT_WHATSAPP = "917770039037";
 const USER_WATCHLIST_QUERY_KEY = [...MARKET_QUERY_KEY, "user-watchlist"] as const;
 
@@ -339,12 +340,32 @@ export default function WatchlistPage() {
   const [hiddenColumns, setHiddenColumns] = useState<TableColumnId[]>([]);
   const [draggedColumn, setDraggedColumn] = useState<TableColumnId | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<TableColumnId | null>(null);
+  const [columnWidths, setColumnWidths] = useState<Record<TableColumnId, number>>({
+    symbol: 160,
+    name: 220,
+    segment: 130,
+    exchange: 120,
+    current: 150,
+    high: 120,
+    low: 120,
+    close: 120,
+    changePercent: 150,
+    points: 130,
+    bid: 120,
+    ask: 120,
+    action: 130,
+  });
   const previousPriceRef = useRef<Record<string, number>>({});
   const previousHighRef = useRef<Record<string, number>>({});
   const previousLowRef = useRef<Record<string, number>>({});
   const pulseTimeoutRef = useRef<Record<string, number>>({});
   const cardDragStartOrderRef = useRef<string[]>([]);
   const cardPointerIdRef = useRef<number | null>(null);
+  const resizeRef = useRef<{
+    col: TableColumnId | null;
+    startX: number;
+    startWidth: number;
+  }>({ col: null, startX: 0, startWidth: 0 });
 
   const watchlistQuery = useMarketUserWatchlistQuery(true, {
     staleTime: 8_000,
@@ -425,6 +446,33 @@ export default function WatchlistPage() {
   }, [columnOrder, hiddenColumns]);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    const raw = window.localStorage.getItem(TABLE_COLUMN_WIDTHS_KEY);
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw) as Record<string, number>;
+      if (!parsed || typeof parsed !== "object") return;
+      setColumnWidths((prev) => {
+        const next = { ...prev };
+        Object.keys(parsed).forEach((key) => {
+          const value = Number(parsed[key]);
+          if (Number.isFinite(value) && value >= 80 && value <= 480) {
+            next[key as TableColumnId] = value;
+          }
+        });
+        return next;
+      });
+    } catch {
+      // ignore invalid storage payload
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(TABLE_COLUMN_WIDTHS_KEY, JSON.stringify(columnWidths));
+  }, [columnWidths]);
+
+  useEffect(() => {
     if (hiddenColumns.length >= columnOrder.length) {
       setHiddenColumns([]);
     }
@@ -437,6 +485,40 @@ export default function WatchlistPage() {
 
     return () => window.clearTimeout(timer);
   }, [symbolInput]);
+
+  const getColumnWidthStyle = (col: TableColumnId) => {
+    const width = columnWidths[col];
+    if (!width) return undefined;
+    return { width: `${width}px`, minWidth: `${width}px`, maxWidth: `${width}px` };
+  };
+
+  const startResize = (col: TableColumnId, event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const startX = event.clientX;
+    const startWidth = columnWidths[col] ?? 140;
+    resizeRef.current = { col, startX, startWidth };
+
+    const handleMove = (moveEvent: PointerEvent) => {
+      const { col: activeCol, startX: start, startWidth: base } = resizeRef.current;
+      if (!activeCol) return;
+      const delta = moveEvent.clientX - start;
+      const nextWidth = Math.min(480, Math.max(80, Math.round(base + delta)));
+      setColumnWidths((prev) => ({
+        ...prev,
+        [activeCol]: nextWidth,
+      }));
+    };
+
+    const handleUp = () => {
+      resizeRef.current = { col: null, startX: 0, startWidth: 0 };
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", handleUp);
+    };
+
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", handleUp);
+  };
 
   const searchSuggestions = useMemo(() => {
     const list = searchMarketQuery.data ?? [];
@@ -1234,7 +1316,7 @@ export default function WatchlistPage() {
                   onDrop={handleColumnDrop}
                   onDragEnd={clearColumnDragState}
                   className={cn(
-                    "select-none",
+                    "relative select-none",
                     draggedColumn === col &&
                       "bg-sky-100/80 text-sky-700 dark:bg-sky-500/10 dark:text-sky-200",
                     dragOverColumn === col &&
@@ -1245,10 +1327,11 @@ export default function WatchlistPage() {
                       : ""
                   )}
                   title={`Drag to reorder ${tableColumnLabels[col]}`}
+                  style={getColumnWidthStyle(col)}
                 >
                   <span
                     className={cn(
-                      "inline-flex w-full items-center gap-2",
+                      "inline-flex w-full items-center gap-2 font-bold",
                       ["current", "high", "low", "close", "changePercent", "points", "bid", "ask", "action"].includes(col)
                         ? "justify-end"
                         : "justify-start"
@@ -1257,6 +1340,12 @@ export default function WatchlistPage() {
                     <GripVertical className="h-3.5 w-3.5 shrink-0 text-slate-400 dark:text-slate-500" />
                     <span>{tableHeaderMap[col]}</span>
                   </span>
+                  <div
+                    role="separator"
+                    aria-orientation="vertical"
+                    onPointerDown={(event) => startResize(col, event)}
+                    className="absolute right-0 top-0 h-full w-2 cursor-col-resize touch-none select-none"
+                  />
                 </TableHead>
               ))}
             </TableRow>
@@ -1379,17 +1468,21 @@ export default function WatchlistPage() {
 
                 const cellMap: Record<TableColumnId, React.ReactNode> = {
                   symbol: (
-                    <TableCell key="symbol" className="font-semibold tracking-wide text-slate-900 dark:text-slate-100">
+                    <TableCell
+                      key="symbol"
+                      className="font-bold tracking-wide text-slate-900 dark:text-slate-100"
+                      style={getColumnWidthStyle("symbol")}
+                    >
                       {row.symbol}
                     </TableCell>
                   ),
                   name: (
-                    <TableCell key="name" className="max-w-44 truncate">
+                    <TableCell key="name" className="max-w-44 truncate font-semibold" style={getColumnWidthStyle("name")}>
                       {row.name}
                     </TableCell>
                   ),
                   segment: (
-                    <TableCell key="segment">
+                    <TableCell key="segment" className="font-semibold" style={getColumnWidthStyle("segment")}>
                       <Badge
                         variant="outline"
                         className="border-slate-300/80 bg-slate-100/75 text-slate-700 dark:border-slate-700/80 dark:bg-slate-900/75 dark:text-slate-300"
@@ -1398,9 +1491,17 @@ export default function WatchlistPage() {
                       </Badge>
                     </TableCell>
                   ),
-                  exchange: <TableCell key="exchange">{row.exchange}</TableCell>,
+                  exchange: (
+                    <TableCell key="exchange" className="font-semibold" style={getColumnWidthStyle("exchange")}>
+                      {row.exchange}
+                    </TableCell>
+                  ),
                   current: (
-                    <TableCell key="current" className="text-right font-semibold tabular-nums">
+                    <TableCell
+                      key="current"
+                      className="text-right font-bold tabular-nums"
+                      style={getColumnWidthStyle("current")}
+                    >
                       <div className="inline-flex min-w-[132px] flex-col items-end">
                         <span
                           className={cn(
@@ -1430,7 +1531,11 @@ export default function WatchlistPage() {
                     </TableCell>
                   ),
                   high: (
-                    <TableCell key="high" className="text-right font-semibold tabular-nums">
+                    <TableCell
+                      key="high"
+                      className="text-right font-bold tabular-nums"
+                      style={getColumnWidthStyle("high")}
+                    >
                       <span
                         className={cn(
                           "inline-flex items-center gap-1 rounded-[6px] px-1.5 py-0.5 transition-colors duration-200",
@@ -1448,7 +1553,11 @@ export default function WatchlistPage() {
                     </TableCell>
                   ),
                   low: (
-                    <TableCell key="low" className="text-right font-semibold tabular-nums">
+                    <TableCell
+                      key="low"
+                      className="text-right font-bold tabular-nums"
+                      style={getColumnWidthStyle("low")}
+                    >
                       <span
                         className={cn(
                           "inline-flex items-center gap-1 rounded-[6px] px-1.5 py-0.5 transition-colors duration-200",
@@ -1466,7 +1575,11 @@ export default function WatchlistPage() {
                     </TableCell>
                   ),
                   close: (
-                    <TableCell key="close" className={cn("text-right font-semibold tabular-nums", closeTextClass)}>
+                    <TableCell
+                      key="close"
+                      className={cn("text-right font-bold tabular-nums", closeTextClass)}
+                      style={getColumnWidthStyle("close")}
+                    >
                       <span className="inline-flex items-center justify-end gap-1">
                         {closeDirectionUp ? (
                           <ArrowUp className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-300" />
@@ -1478,7 +1591,11 @@ export default function WatchlistPage() {
                     </TableCell>
                   ),
                   changePercent: (
-                    <TableCell key="changePercent" className={cn("text-right font-semibold tabular-nums", trendClass)}>
+                    <TableCell
+                      key="changePercent"
+                      className={cn("text-right font-bold tabular-nums", trendClass)}
+                      style={getColumnWidthStyle("changePercent")}
+                    >
                       <span className="inline-flex items-center justify-end gap-1">
                         {trendDirectionUp ? (
                           <ArrowUp className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-300" />
@@ -1490,7 +1607,11 @@ export default function WatchlistPage() {
                     </TableCell>
                   ),
                   points: (
-                    <TableCell key="points" className={cn("text-right font-semibold tabular-nums", trendClass)}>
+                    <TableCell
+                      key="points"
+                      className={cn("text-right font-bold tabular-nums", trendClass)}
+                      style={getColumnWidthStyle("points")}
+                    >
                       <span className="inline-flex items-center justify-end gap-1">
                         {trendDirectionUp ? (
                           <ArrowUp className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-300" />
@@ -1502,7 +1623,11 @@ export default function WatchlistPage() {
                     </TableCell>
                   ),
                   bid: (
-                    <TableCell key="bid" className={cn("text-right font-semibold tabular-nums", bidTextClass)}>
+                    <TableCell
+                      key="bid"
+                      className={cn("text-right font-bold tabular-nums", bidTextClass)}
+                      style={getColumnWidthStyle("bid")}
+                    >
                       <span className="inline-flex items-center justify-end gap-1">
                         <ArrowUp className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-300" />
                         {formatNumber(row.bid, digits)}
@@ -1510,7 +1635,11 @@ export default function WatchlistPage() {
                     </TableCell>
                   ),
                   ask: (
-                    <TableCell key="ask" className={cn("text-right font-semibold tabular-nums", askTextClass)}>
+                    <TableCell
+                      key="ask"
+                      className={cn("text-right font-bold tabular-nums", askTextClass)}
+                      style={getColumnWidthStyle("ask")}
+                    >
                       <span className="inline-flex items-center justify-end gap-1">
                         <ArrowDown className="h-4 w-4 shrink-0 text-rose-600 dark:text-rose-300" />
                         {formatNumber(row.ask, digits)}
@@ -1518,7 +1647,7 @@ export default function WatchlistPage() {
                     </TableCell>
                   ),
                   action: (
-                    <TableCell key="action" className="text-right">
+                    <TableCell key="action" className="text-right font-semibold" style={getColumnWidthStyle("action")}>
                       <Button
                         type="button"
                         variant="ghost"
@@ -1848,9 +1977,9 @@ export default function WatchlistPage() {
 
               <div className="space-y-4 px-5 py-4">
                 <div className="rounded-xl border border-slate-200/85 bg-[linear-gradient(145deg,rgba(255,255,255,0.95),rgba(224,242,254,0.7))] p-4 shadow-[0_10px_24px_-18px_rgba(14,165,233,0.65)] dark:border-slate-800 dark:[background-image:none] dark:bg-[#0b1726] dark:shadow-none">
-                  <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Current Price</p>
+                  <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Bid / Ask</p>
                   <p className="mt-1 text-3xl font-black tracking-tight text-slate-900 dark:text-slate-100">
-                    {formatNumber(selectedRow.currentPrice, detailDigits)}
+                    {formatNumber(selectedRow.bid, detailDigits)} / {formatNumber(selectedRow.ask, detailDigits)}
                   </p>
                   <p className={cn("mt-1 text-sm font-semibold", detailTrendClass)}>
                     {formatPoints(selectedRow.points, detailDigits)} ({formatPercent(selectedRow.changePercent)})
@@ -1867,8 +1996,8 @@ export default function WatchlistPage() {
                     <p className="mt-1 text-sm font-semibold">{formatNumber(selectedRow.low, detailDigits)}</p>
                   </div>
                   <div className="rounded-lg border border-slate-200/85 bg-white/90 px-3 py-2.5 dark:border-slate-800 dark:bg-[#0a1422]">
-                    <p className="text-[10px] uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">Close</p>
-                    <p className="mt-1 text-sm font-semibold">{formatNumber(selectedRow.close, detailDigits)}</p>
+                    <p className="text-[10px] uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">Current Price</p>
+                    <p className="mt-1 text-sm font-semibold">{formatNumber(selectedRow.currentPrice, detailDigits)}</p>
                   </div>
                   <div className="rounded-lg border border-slate-200/85 bg-white/90 px-3 py-2.5 dark:border-slate-800 dark:bg-[#0a1422]">
                     <p className="text-[10px] uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">Bid / Ask</p>

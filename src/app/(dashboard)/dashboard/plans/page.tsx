@@ -101,7 +101,10 @@ export default function PlansPage() {
         .filter((plan) => !plan.isDemo && !plan.isCustom)
         .sort((a, b) => (b.price ?? 0) - (a.price ?? 0))[0]?._id;
 
-    const segmentCards = useMemo(() => segments, [segments]);
+    const segmentCards = useMemo(() => {
+        const hiddenSegmentCodes = new Set(["EQUITY", "CRYPTO", "COMMODITY", "FOREX", "OPTIONS"]);
+        return segments.filter((segment) => !hiddenSegmentCodes.has(String(segment.segment_code || "").toUpperCase()));
+    }, [segments]);
     const accessQueries = useQueries({
         queries: segmentCards.map((segment) => ({
             queryKey: ["subscription", "access", segment.segment_code],
@@ -306,7 +309,7 @@ export default function PlansPage() {
                 <div
                     ref={containerRef}
                     {...bind}
-                    className={`no-scrollbar flex gap-3 sm:gap-6 overflow-x-auto pb-5 px-1.5 sm:px-8 md:px-14 snap-x snap-mandatory scroll-smooth touch-pan-y items-stretch select-none ${isDragging ? "cursor-grabbing" : "cursor-grab"}`}
+                    className={`no-scrollbar flex gap-3 sm:gap-5 overflow-x-auto pb-5 px-1.5 sm:px-6 md:px-10 snap-x snap-mandatory scroll-smooth touch-pan-y items-stretch select-none ${isDragging ? "cursor-grabbing" : "cursor-grab"}`}
                 >
                     {loopedPlans.map(({ plan, planIndex, virtualIndex: index }) => {
                         const isPopular = plan._id === popularId;
@@ -326,7 +329,7 @@ export default function PlansPage() {
                         return (
                             <Card
                                 key={`${plan._id}-${index}`}
-                                className={`plan-swipe-card plan-swap relative overflow-hidden rounded-[1.75rem] bg-card/95 transition-all duration-500 group flex min-h-[520px] sm:min-h-[560px] lg:min-h-[600px] flex-col snap-center shrink-0 w-[94%] sm:w-[78%] md:w-[430px] lg:w-[460px]
+                                className={`plan-swipe-card plan-swap relative overflow-hidden rounded-[1.75rem] bg-card/95 transition-all duration-500 group flex min-h-[520px] sm:min-h-[560px] lg:min-h-[600px] flex-col snap-center shrink-0 w-[94%] sm:w-[78%] md:w-[360px] lg:w-[380px] xl:w-[400px]
                                     ${isActive ? "plan-swipe-active" : ""}
                                     ${depthClass}
                                     ${isPopular
