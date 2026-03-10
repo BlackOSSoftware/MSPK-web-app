@@ -5,7 +5,7 @@ const config: CapacitorConfig = {
   appName: 'MSPK Trading Solutions',
   webDir: 'build',
   server: {
-    url: 'https://mspk-web-app.vercel.app/',
+    url: 'https://user.mspktradesolutions.com/',
     cleartext: false
   },
   plugins: {
