@@ -83,8 +83,8 @@ export function NotificationsWatcher() {
     queryKey: NOTIFICATIONS_QUERY_KEY,
     queryFn: getNotifications,
     // Fallback for cases where push delivery fails (keeps UI near real-time).
-    refetchInterval: 15000,
-    refetchIntervalInBackground: true,
+    refetchInterval: 30000,
+    refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
     refetchOnMount: false,
     refetchOnReconnect: true,

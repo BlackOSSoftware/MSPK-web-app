@@ -317,6 +317,9 @@ export default function WatchlistPage() {
   const reconnectRef = useRef<number | null>(null);
   const reconnectAttempts = useRef(0);
   const subscribedSymbolsRef = useRef<Set<string>>(new Set());
+  const watchlistSymbolsRef = useRef<string[]>([]);
+  const connectRef = useRef<() => void>(() => {});
+  const closeSocketRef = useRef<(reason?: string) => void>(() => {});
   const mountedRef = useRef(true);
 
   const [connectionState, setConnectionState] = useState<ConnectionState>("disconnected");
@@ -387,6 +390,10 @@ export default function WatchlistPage() {
         .filter(Boolean),
     [watchlistQuery.data]
   );
+
+  useEffect(() => {
+    watchlistSymbolsRef.current = watchlistSymbols;
+  }, [watchlistSymbols]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -572,6 +579,8 @@ export default function WatchlistPage() {
 
     const scheduleReconnect = () => {
       if (!mountedRef.current || closedByEffect) return;
+      if (document.hidden) return;
+      if (watchlistSymbolsRef.current.length === 0) return;
       const waitMs = Math.min(6_000, 1_200 + reconnectAttempts.current * 500);
       reconnectAttempts.current += 1;
       reconnectRef.current = window.setTimeout(() => {
@@ -581,6 +590,8 @@ export default function WatchlistPage() {
 
     const connect = () => {
       if (closedByEffect || !mountedRef.current) return;
+      if (document.hidden) return;
+      if (watchlistSymbolsRef.current.length === 0) return;
       setConnectionState("connecting");
 
       let socketUrl = "";
@@ -598,7 +609,15 @@ export default function WatchlistPage() {
         if (closedByEffect || !mountedRef.current) return;
         setConnectionState("connected");
         reconnectAttempts.current = 0;
-        subscribedSymbolsRef.current.clear();
+        const symbols = watchlistSymbolsRef.current;
+        if (symbols.length > 0) {
+          for (const symbol of symbols) {
+            socket.send(JSON.stringify({ type: "subscribe", payload: symbol }));
+          }
+          subscribedSymbolsRef.current = new Set(symbols);
+        } else {
+          subscribedSymbolsRef.current.clear();
+        }
       };
 
       socket.onmessage = (event: MessageEvent<string>) => {
@@ -635,10 +654,7 @@ export default function WatchlistPage() {
       };
     };
 
-    connect();
-
-    return () => {
-      closedByEffect = true;
+    const closeSocket = () => {
       if (reconnectRef.current) {
         window.clearTimeout(reconnectRef.current);
         reconnectRef.current = null;
@@ -646,17 +662,71 @@ export default function WatchlistPage() {
       const socket = wsRef.current;
       wsRef.current = null;
       if (socket) {
+        try {
+          if (socket.readyState === WebSocket.OPEN) {
+            for (const symbol of subscribedSymbolsRef.current) {
+              socket.send(JSON.stringify({ type: "unsubscribe", payload: symbol }));
+            }
+          }
+        } catch {
+          // ignore socket errors during cleanup
+        }
+        subscribedSymbolsRef.current.clear();
         socket.close();
       }
+    };
+
+    const handleVisibility = () => {
+      if (document.hidden) {
+        closeSocket();
+        setConnectionState("disconnected");
+        return;
+      }
+      connect();
+    };
+
+    connectRef.current = connect;
+    closeSocketRef.current = closeSocket;
+
+    connect();
+
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", handleVisibility);
+    }
+    window.addEventListener("online", connect);
+    window.addEventListener("offline", closeSocket);
+
+    return () => {
+      closedByEffect = true;
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", handleVisibility);
+      }
+      window.removeEventListener("online", connect);
+      window.removeEventListener("offline", closeSocket);
+      closeSocket();
     };
   }, []);
 
   useEffect(() => {
     const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
-
     const nextSet = new Set(watchlistSymbols);
     const currentSet = subscribedSymbolsRef.current;
+
+    if (nextSet.size === 0) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        for (const symbol of currentSet) {
+          ws.send(JSON.stringify({ type: "unsubscribe", payload: symbol }));
+        }
+      }
+      subscribedSymbolsRef.current.clear();
+      closeSocketRef.current("empty");
+      return;
+    }
+
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      connectRef.current();
+      return;
+    }
 
     for (const symbol of currentSet) {
       if (!nextSet.has(symbol)) {
