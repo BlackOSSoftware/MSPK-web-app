@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { CandleLoader } from "@/components/ui/candle-loader";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   DropdownMenu,
@@ -157,6 +158,19 @@ function toNumber(value: unknown): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+function toPositiveNumber(value: unknown): number | undefined {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function getFirstPositive(...values: Array<unknown>): number | undefined {
+  for (const value of values) {
+    const parsed = toPositiveNumber(value);
+    if (parsed !== undefined) return parsed;
+  }
+  return undefined;
+}
+
 function intervalToSeconds(interval: ChartInterval): number {
   switch (interval) {
     case "5":
@@ -174,10 +188,10 @@ function intervalToSeconds(interval: ChartInterval): number {
 
 function getTickPrice(tick: SocketTick): number | undefined {
   return (
-    toNumber(tick.price) ??
-    toNumber(tick.close) ??
-    toNumber(tick.bid) ??
-    toNumber(tick.ask)
+    toPositiveNumber(tick.price) ??
+    toPositiveNumber(tick.close) ??
+    toPositiveNumber(tick.bid) ??
+    toPositiveNumber(tick.ask)
   );
 }
 
@@ -256,7 +270,7 @@ function getReferencePrice(
 ): number | undefined {
   const candidates = [row.currentPrice, row.high, row.low, row.close, row.bid, row.ask];
   for (const value of candidates) {
-    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "number" && Number.isFinite(value) && value > 0) return value;
   }
   return undefined;
 }
@@ -364,12 +378,12 @@ function mapSocketTick(payload: Record<string, unknown>): SocketTick | null {
 
   return {
     symbol: normalizeSymbol(symbolRaw),
-    price: toNumber(payload.price ?? payload.last_price ?? payload.lastPrice ?? payload.last),
-    high: toNumber(payload.high ?? ohlc?.high),
-    low: toNumber(payload.low ?? ohlc?.low),
-    close: toNumber(payload.close ?? payload.prevClose ?? ohlc?.close),
-    bid: toNumber(payload.bid ?? payload.bestBid ?? bidFromDepth),
-    ask: toNumber(payload.ask ?? payload.bestAsk ?? askFromDepth),
+    price: toPositiveNumber(payload.price ?? payload.last_price ?? payload.lastPrice ?? payload.last),
+    high: toPositiveNumber(payload.high ?? ohlc?.high),
+    low: toPositiveNumber(payload.low ?? ohlc?.low),
+    close: toPositiveNumber(payload.close ?? payload.prevClose ?? ohlc?.close),
+    bid: toPositiveNumber(payload.bid ?? payload.bestBid ?? bidFromDepth),
+    ask: toPositiveNumber(payload.ask ?? payload.bestAsk ?? askFromDepth),
     change: toNumber(payload.change),
     changePercent: toNumber(payload.changePercent ?? payload.change_percent),
     timestamp:
@@ -400,13 +414,23 @@ function areTicksEqual(left?: SocketTick, right?: SocketTick): boolean {
 function mapWatchlistRow(base: MarketTicker, live?: SocketTick): WatchlistRow | null {
   if (!base.symbol) return null;
   const symbol = normalizeSymbol(base.symbol);
-  const currentPrice = live?.price ?? base.price;
-  const close = live?.close ?? base.close ?? base.prevClose ?? currentPrice;
+  const currentPrice = getFirstPositive(
+    live?.price,
+    base.price,
+    live?.close,
+    base.close,
+    base.prevClose,
+    live?.bid,
+    live?.ask,
+    base.bid,
+    base.ask
+  );
+  const close = getFirstPositive(live?.close, base.close, base.prevClose, currentPrice);
   const highCandidates = [live?.high, base.high, currentPrice].filter(
-    (value): value is number => typeof value === "number" && Number.isFinite(value)
+    (value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0
   );
   const lowCandidates = [live?.low, base.low, currentPrice].filter(
-    (value): value is number => typeof value === "number" && Number.isFinite(value)
+    (value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0
   );
   let high = highCandidates.length > 0 ? Math.max(...highCandidates) : undefined;
   let low = lowCandidates.length > 0 ? Math.min(...lowCandidates) : undefined;
@@ -433,8 +457,8 @@ function mapWatchlistRow(base: MarketTicker, live?: SocketTick): WatchlistRow | 
     high,
     low,
     close,
-    bid: live?.bid ?? base.bid,
-    ask: live?.ask ?? base.ask,
+    bid: getFirstPositive(live?.bid, base.bid),
+    ask: getFirstPositive(live?.ask, base.ask),
     changePercent: live?.changePercent ?? base.change,
     points,
     updatedAt: live?.timestamp,
@@ -2053,7 +2077,9 @@ function WatchlistPageContent() {
                   Pass `?symbol=SYMBOL` in the URL to load a chart.
                 </span>
               ) : historyQuery.isFetching ? (
-                <span className="text-xs text-slate-500 dark:text-slate-400">Loading chart data...</span>
+                <div className="flex items-center">
+                  <CandleLoader size="sm" />
+                </div>
               ) : historyCandles.length === 0 ? (
                 <span className="text-xs text-slate-500 dark:text-slate-400">No chart data available.</span>
               ) : null}
@@ -2403,8 +2429,8 @@ function WatchlistPageContent() {
           <>
             <div className="md:hidden">
               {showLoading ? (
-                <div className="flex min-h-[220px] items-center justify-center px-4 text-center text-sm text-slate-500 dark:text-slate-400">
-                  Loading watchlist...
+                <div className="flex min-h-[220px] items-center justify-center px-4">
+                  <CandleLoader size="md" />
                 </div>
               ) : filteredRows.length === 0 ? (
                 <div className="flex min-h-[220px] items-center justify-center px-4 text-center text-sm text-slate-500 dark:text-slate-400">
@@ -2565,7 +2591,9 @@ function WatchlistPageContent() {
             {showLoading ? (
               <TableRow>
                 <TableCell colSpan={visibleColumns.length} className="h-28 align-middle text-center text-sm text-muted-foreground">
-                  Loading watchlist...
+                  <div className="flex items-center justify-center">
+                    <CandleLoader size="sm" />
+                  </div>
                 </TableCell>
               </TableRow>
             ) : filteredRows.length === 0 ? (
@@ -2922,8 +2950,8 @@ function WatchlistPageContent() {
         ) : (
           <div className="relative overflow-hidden bg-[radial-gradient(circle_at_0%_0%,rgba(56,189,248,0.16),transparent_45%),radial-gradient(circle_at_100%_100%,rgba(16,185,129,0.14),transparent_44%),linear-gradient(140deg,rgba(255,255,255,0.96),rgba(240,249,255,0.92))] p-2.5 dark:bg-[radial-gradient(circle_at_0%_0%,rgba(56,189,248,0.14),transparent_45%),radial-gradient(circle_at_100%_100%,rgba(16,185,129,0.12),transparent_44%),linear-gradient(140deg,rgba(5,11,19,0.98),rgba(5,12,21,0.96))] sm:p-3">
             {showLoading ? (
-              <div className="flex min-h-[220px] items-center justify-center px-4 text-center text-sm text-slate-500 dark:text-slate-400">
-                Loading watchlist...
+              <div className="flex min-h-[220px] items-center justify-center px-4">
+                <CandleLoader size="md" />
               </div>
             ) : filteredRows.length === 0 ? (
               <div className="flex min-h-[220px] items-center justify-center px-4 text-center text-sm text-slate-500 dark:text-slate-400">
@@ -3379,7 +3407,9 @@ function WatchlistPageContent() {
                   </div>
 
                   {historyQuery.isFetching ? (
-                    <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">Loading chart data...</p>
+                    <div className="mt-3 flex justify-center">
+                      <CandleLoader size="sm" />
+                    </div>
                   ) : historyCandles.length === 0 ? (
                     <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                       No chart data available right now.
@@ -3424,8 +3454,10 @@ function WatchlistPageContent() {
 function WatchlistPageFallback() {
   return (
     <div className="space-y-4 pb-6">
-      <div className="rounded-2xl border border-slate-300/70 bg-white/80 p-5 text-sm text-slate-600 shadow-sm dark:border-slate-700/60 dark:bg-slate-950/70 dark:text-slate-300">
-        Loading watchlist...
+      <div className="rounded-2xl border border-slate-300/70 bg-white/80 p-5 shadow-sm dark:border-slate-700/60 dark:bg-slate-950/70">
+        <div className="flex justify-center">
+          <CandleLoader size="lg" />
+        </div>
       </div>
     </div>
   );
