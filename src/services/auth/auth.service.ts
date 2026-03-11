@@ -1,3 +1,4 @@
+import axios from "axios";
 import { apiClient } from "@/services/http/client";
 import type {
   ChangePasswordPayload,
@@ -130,7 +131,14 @@ export async function updateMe(payload: UpdateMePayload): Promise<MeResponse> {
 }
 
 export async function logout(): Promise<void> {
-  await apiClient.post("/auth/logout");
+  try {
+    await apiClient.post("/auth/logout");
+  } catch (error: unknown) {
+    if (axios.isAxiosError(error) && (error.response?.status === 401 || error.response?.status === 403)) {
+      return;
+    }
+    throw error;
+  }
 }
 
 export async function changePassword(payload: ChangePasswordPayload): Promise<void> {

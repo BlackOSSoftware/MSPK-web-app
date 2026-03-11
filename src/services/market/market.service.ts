@@ -9,6 +9,7 @@ import type {
   MarketSymbol,
   MarketSearchItem,
   MarketTickers,
+  MarketUserWatchlistsResponse,
 } from "./market.types";
 
 export async function getMarketSegments(): Promise<MarketSegment[]> {
@@ -56,23 +57,60 @@ export async function getMarketTickers(): Promise<MarketTickers> {
   return response.data;
 }
 
-export async function getMarketUserWatchlist(): Promise<MarketTickers> {
-  const response = await apiClient.get<MarketTickers>("/market/watchlist");
+export async function getMarketUserWatchlist(watchlistId?: string): Promise<MarketTickers> {
+  const response = await apiClient.get<MarketTickers>("/market/watchlist", {
+    params: watchlistId ? { watchlistId } : undefined,
+  });
   return response.data;
 }
 
-export async function addMarketUserWatchlist(symbol: string): Promise<{ symbols: string[] }> {
-  const response = await apiClient.post<{ symbols: string[] }>("/market/watchlist/add", { symbol });
+export async function addMarketUserWatchlist(symbol: string, watchlistId?: string): Promise<{ symbols: string[] }> {
+  const response = await apiClient.post<{ symbols: string[] }>("/market/watchlist/add", {
+    symbol,
+    ...(watchlistId ? { watchlistId } : {}),
+  });
   return response.data;
 }
 
-export async function removeMarketUserWatchlist(symbol: string): Promise<{ symbols: string[] }> {
-  const response = await apiClient.post<{ symbols: string[] }>("/market/watchlist/remove", { symbol });
+export async function removeMarketUserWatchlist(symbol: string, watchlistId?: string): Promise<{ symbols: string[] }> {
+  const response = await apiClient.post<{ symbols: string[] }>("/market/watchlist/remove", {
+    symbol,
+    ...(watchlistId ? { watchlistId } : {}),
+  });
   return response.data;
 }
 
-export async function reorderMarketUserWatchlist(symbols: string[]): Promise<{ symbols: string[] }> {
-  const response = await apiClient.post<{ symbols: string[] }>("/market/watchlist/reorder", { symbols });
+export async function reorderMarketUserWatchlist(symbols: string[], watchlistId?: string): Promise<{ symbols: string[] }> {
+  const response = await apiClient.post<{ symbols: string[] }>("/market/watchlist/reorder", {
+    symbols,
+    ...(watchlistId ? { watchlistId } : {}),
+  });
+  return response.data;
+}
+
+export async function getMarketUserWatchlists(): Promise<MarketUserWatchlistsResponse> {
+  const response = await apiClient.get<MarketUserWatchlistsResponse>("/market/watchlists");
+  return response.data;
+}
+
+export async function createMarketUserWatchlist(payload: {
+  name: string;
+  setActive?: boolean;
+}): Promise<MarketUserWatchlistsResponse> {
+  const response = await apiClient.post<MarketUserWatchlistsResponse>("/market/watchlists", payload);
+  return response.data;
+}
+
+export async function updateMarketUserWatchlist(
+  id: string,
+  payload: { name?: string; setActive?: boolean }
+): Promise<MarketUserWatchlistsResponse> {
+  const response = await apiClient.patch<MarketUserWatchlistsResponse>(`/market/watchlists/${id}`, payload);
+  return response.data;
+}
+
+export async function deleteMarketUserWatchlist(id: string): Promise<MarketUserWatchlistsResponse> {
+  const response = await apiClient.delete<MarketUserWatchlistsResponse>(`/market/watchlists/${id}`);
   return response.data;
 }
 

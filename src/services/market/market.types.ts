@@ -45,6 +45,22 @@ export type MarketSearchItem = {
   tickSize?: number;
 };
 
+export type MarketUserWatchlistSummary = {
+  id: string;
+  name: string;
+  isDefault?: boolean;
+  isActive?: boolean;
+  symbolCount?: number;
+  symbols?: string[];
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type MarketUserWatchlistsResponse = {
+  activeWatchlistId: string;
+  watchlists: MarketUserWatchlistSummary[];
+};
+
 export type MarketStats = Record<string, unknown>;
 export type MarketTickers = MarketTicker[];
 export type MarketSentiment = Record<string, unknown>;

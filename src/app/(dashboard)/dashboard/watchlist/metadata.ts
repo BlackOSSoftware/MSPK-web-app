@@ -3,7 +3,7 @@ import { buildMetadata } from "@/lib/seo";
 
 export const metadata: Metadata = buildMetadata({
   title: "Watchlist",
-  description: "Track your preferred instruments and follow live signals from one watchlist.",
+  description: "Create and manage multiple named watchlists, then track preferred instruments with live updates.",
   path: "/dashboard/watchlist",
   index: false,
   keywords: [

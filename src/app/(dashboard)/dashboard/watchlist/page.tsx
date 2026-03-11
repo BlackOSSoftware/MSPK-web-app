@@ -1,14 +1,19 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { createChart, type IChartApi, type ISeriesApi } from "lightweight-charts";
+import { useSearchParams } from "next/navigation";
 import {
   ArrowDown,
   ArrowUp,
   ChevronDown,
+  Crosshair,
   GripVertical,
+  Minus,
   Plus,
+  RotateCcw,
   Search,
   SlidersHorizontal,
   Trash2,
@@ -35,11 +40,17 @@ import { AUTH_TOKEN_COOKIE, getCookie } from "@/lib/auth/session";
 import { cn } from "@/lib/utils";
 import {
   MARKET_QUERY_KEY,
+  USER_MARKET_WATCHLISTS_QUERY_KEY,
+  useMarketHistoryQuery,
   useMarketSearchQuery,
+  useMarketUserWatchlistsQuery,
   useMarketUserWatchlistAddMutation,
+  useMarketUserWatchlistCreateMutation,
+  useMarketUserWatchlistDeleteMutation,
   useMarketUserWatchlistQuery,
   useMarketUserWatchlistReorderMutation,
   useMarketUserWatchlistRemoveMutation,
+  useMarketUserWatchlistUpdateMutation,
 } from "@/services/market/market.hooks";
 import type { MarketSearchItem, MarketTicker } from "@/services/market/market.types";
 
@@ -51,7 +62,11 @@ const VIEW_MODE_STORAGE_KEY = "watchlist_view_mode";
 const TABLE_COLUMN_STORAGE_KEY = "watchlist_table_columns_v1";
 const TABLE_COLUMN_WIDTHS_KEY = "watchlist_table_column_widths_v1";
 const SUPPORT_WHATSAPP = "917770039037";
-const USER_WATCHLIST_QUERY_KEY = [...MARKET_QUERY_KEY, "user-watchlist"] as const;
+const USER_WATCHLIST_QUERY_KEY = [...MARKET_QUERY_KEY, "user-watchlist", "active"] as const;
+const CHART_BAR_SPACING_DEFAULT = 6;
+const CHART_BAR_SPACING_MIN = 2;
+const CHART_BAR_SPACING_MAX = 24;
+const CHART_BAR_SPACING_STEP = 2;
 
 type SocketTick = {
   symbol: string;
@@ -82,6 +97,20 @@ type WatchlistRow = {
   updatedAt?: string;
 };
 
+type ChartInterval = "5" | "15" | "60" | "D";
+type HistoryCandle = {
+  time: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume?: number;
+};
+type TickPoint = {
+  time: number;
+  price: number;
+};
+
 const DEFAULT_TABLE_COLUMNS = [
   "symbol",
   "name",
@@ -98,11 +127,85 @@ const DEFAULT_TABLE_COLUMNS = [
   "action",
 ] as const;
 
+const CHART_INTERVALS: { label: string; value: ChartInterval }[] = [
+  { label: "5m", value: "5" },
+  { label: "15m", value: "15" },
+  { label: "1h", value: "60" },
+  { label: "1D", value: "D" },
+];
+
+const MIN_HISTORY_CANDLES = 5;
+const HISTORY_CANDLE_COUNT = 500;
+const MAX_TICK_HISTORY_LENGTH = 5000;
+const TICK_HISTORY_WINDOW_SEC = 12 * 60 * 60;
+const CHART_UPDATE_THROTTLE_MS = 250;
+
 type TableColumnId = (typeof DEFAULT_TABLE_COLUMNS)[number];
 
 function toNumber(value: unknown): number | undefined {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function intervalToSeconds(interval: ChartInterval): number {
+  switch (interval) {
+    case "5":
+      return 5 * 60;
+    case "15":
+      return 15 * 60;
+    case "60":
+      return 60 * 60;
+    case "D":
+      return 24 * 60 * 60;
+    default:
+      return 15 * 60;
+  }
+}
+
+function getTickPrice(tick: SocketTick): number | undefined {
+  return (
+    toNumber(tick.price) ??
+    toNumber(tick.close) ??
+    toNumber(tick.bid) ??
+    toNumber(tick.ask)
+  );
+}
+
+function getTickTimestamp(tick: SocketTick): number {
+  if (tick.timestamp) {
+    const parsed = Date.parse(tick.timestamp);
+    if (!Number.isNaN(parsed)) {
+      return Math.floor(parsed / 1000);
+    }
+  }
+  return Math.floor(Date.now() / 1000);
+}
+
+function buildCandlesFromTicks(points: TickPoint[], intervalSec: number): HistoryCandle[] {
+  if (intervalSec <= 0 || points.length === 0) return [];
+  const candles: HistoryCandle[] = [];
+  let current: HistoryCandle | null = null;
+
+  for (const point of points) {
+    if (!Number.isFinite(point.time) || !Number.isFinite(point.price)) continue;
+    const bucket = Math.floor(point.time / intervalSec) * intervalSec;
+    if (!current || bucket !== current.time) {
+      current = {
+        time: bucket,
+        open: point.price,
+        high: point.price,
+        low: point.price,
+        close: point.price,
+      };
+      candles.push(current);
+    } else {
+      current.high = Math.max(current.high, point.price);
+      current.low = Math.min(current.low, point.price);
+      current.close = point.price;
+    }
+  }
+
+  return candles;
 }
 
 function normalizeSymbol(symbol: string): string {
@@ -267,6 +370,22 @@ function mapSocketTick(payload: Record<string, unknown>): SocketTick | null {
   };
 }
 
+function areTicksEqual(left?: SocketTick, right?: SocketTick): boolean {
+  if (!left || !right) return false;
+  return (
+    left.symbol === right.symbol &&
+    left.price === right.price &&
+    left.high === right.high &&
+    left.low === right.low &&
+    left.close === right.close &&
+    left.bid === right.bid &&
+    left.ask === right.ask &&
+    left.change === right.change &&
+    left.changePercent === right.changePercent &&
+    left.timestamp === right.timestamp
+  );
+}
+
 function mapWatchlistRow(base: MarketTicker, live?: SocketTick): WatchlistRow | null {
   if (!base.symbol) return null;
   const symbol = normalizeSymbol(base.symbol);
@@ -313,6 +432,13 @@ function mapWatchlistRow(base: MarketTicker, live?: SocketTick): WatchlistRow | 
 
 export default function WatchlistPage() {
   const queryClient = useQueryClient();
+  const searchParams = useSearchParams();
+  const chartMode = searchParams.get("chart") === "1";
+  const urlSymbol = useMemo(() => {
+    const raw = searchParams.get("symbol");
+    return raw ? normalizeSymbol(raw) : "";
+  }, [searchParams]);
+  const urlInterval = searchParams.get("interval") ?? "";
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectRef = useRef<number | null>(null);
   const reconnectAttempts = useRef(0);
@@ -330,10 +456,23 @@ export default function WatchlistPage() {
   const [tableSearch, setTableSearch] = useState("");
   const [viewMode, setViewMode] = useState<ViewMode>("table");
   const [searchQuery, setSearchQuery] = useState("");
+  const [isCreateWatchlistOpen, setIsCreateWatchlistOpen] = useState(false);
+  const [newWatchlistName, setNewWatchlistName] = useState("");
   const [isFilterDialogOpen, setIsFilterDialogOpen] = useState(false);
   const [isColumnDialogOpen, setIsColumnDialogOpen] = useState(false);
+  const [isWatchlistEditMode, setIsWatchlistEditMode] = useState(false);
   const [removingSymbol, setRemovingSymbol] = useState<string | null>(null);
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
+  const [chartInterval, setChartInterval] = useState<ChartInterval>("15");
+  const [hasChartData, setHasChartData] = useState(false);
+  const [crosshairEnabled, setCrosshairEnabled] = useState(true);
+  const chartBarSpacingRef = useRef(CHART_BAR_SPACING_DEFAULT);
+  const chartManualZoomRef = useRef(false);
+  const crosshairEnabledRef = useRef(true);
+  const chartFitProgrammaticRef = useRef(false);
+  const chartHoverRef = useRef(false);
+  const [chartLegend, setChartLegend] = useState<HistoryCandle | null>(null);
+  const chartLegendRef = useRef<HistoryCandle | null>(null);
   const [cardPulseMap, setCardPulseMap] = useState<Record<string, CardPulse>>({});
   const [highPulseMap, setHighPulseMap] = useState<Record<string, CardPulse>>({});
   const [lowPulseMap, setLowPulseMap] = useState<Record<string, CardPulse>>({});
@@ -343,6 +482,7 @@ export default function WatchlistPage() {
   const [hiddenColumns, setHiddenColumns] = useState<TableColumnId[]>([]);
   const [draggedColumn, setDraggedColumn] = useState<TableColumnId | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<TableColumnId | null>(null);
+  const [resizingColumn, setResizingColumn] = useState<TableColumnId | null>(null);
   const [columnWidths, setColumnWidths] = useState<Record<TableColumnId, number>>({
     symbol: 160,
     name: 220,
@@ -362,34 +502,74 @@ export default function WatchlistPage() {
   const previousHighRef = useRef<Record<string, number>>({});
   const previousLowRef = useRef<Record<string, number>>({});
   const pulseTimeoutRef = useRef<Record<string, number>>({});
+  const pendingTicksRef = useRef<Record<string, SocketTick>>({});
+  const tickHistoryRef = useRef<Record<string, TickPoint[]>>({});
+  const tickFlushRafRef = useRef<number | null>(null);
   const cardDragStartOrderRef = useRef<string[]>([]);
   const cardPointerIdRef = useRef<number | null>(null);
+  const [chartContainerReady, setChartContainerReady] = useState(false);
+  const chartContainerRef = useRef<HTMLDivElement | null>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const chartCandlesRef = useRef<HistoryCandle[]>([]);
+  const lastChartUpdateRef = useRef(0);
+  const historyCacheRef = useRef<Record<string, HistoryCandle[]>>({});
+  const chartKeyRef = useRef<string>("");
+  const selectedRowRef = useRef<WatchlistRow | null>(null);
   const resizeRef = useRef<{
     col: TableColumnId | null;
     startX: number;
     startWidth: number;
   }>({ col: null, startX: 0, startWidth: 0 });
+  const setChartContainer = useCallback((node: HTMLDivElement | null) => {
+    chartContainerRef.current = node;
+    setChartContainerReady(Boolean(node));
+  }, []);
 
-  const watchlistQuery = useMarketUserWatchlistQuery(true, {
+  const watchlistsQuery = useMarketUserWatchlistsQuery(!chartMode);
+  const watchlistQuery = useMarketUserWatchlistQuery(!chartMode, {
     staleTime: 8_000,
     refetchInterval: 25_000,
   });
   const addMutation = useMarketUserWatchlistAddMutation();
   const removeMutation = useMarketUserWatchlistRemoveMutation();
   const reorderMutation = useMarketUserWatchlistReorderMutation();
+  const createWatchlistMutation = useMarketUserWatchlistCreateMutation();
+  const updateWatchlistMutation = useMarketUserWatchlistUpdateMutation();
+  const deleteWatchlistMutation = useMarketUserWatchlistDeleteMutation();
 
   const searchMarketQuery = useMarketSearchQuery(
     { q: searchQuery, limit: 12 },
     searchQuery.trim().length >= 2
   );
 
-  const watchlistSymbols = useMemo(
-    () =>
-      (watchlistQuery.data ?? [])
-        .map((item) => (item.symbol ? normalizeSymbol(item.symbol) : ""))
-        .filter(Boolean),
-    [watchlistQuery.data]
+  const watchlistSymbols = useMemo(() => {
+    if (chartMode) {
+      return selectedSymbol ? [selectedSymbol] : [];
+    }
+    return (watchlistQuery.data ?? [])
+      .map((item) => (item.symbol ? normalizeSymbol(item.symbol) : ""))
+      .filter(Boolean);
+  }, [chartMode, selectedSymbol, watchlistQuery.data]);
+  const userWatchlists = useMemo(
+    () => watchlistsQuery.data?.watchlists ?? [],
+    [watchlistsQuery.data]
   );
+  const activeWatchlistId = useMemo(() => {
+    const fromApi = String(watchlistsQuery.data?.activeWatchlistId || "").trim();
+    if (fromApi) return fromApi;
+    const explicitActive = userWatchlists.find((item) => item.isActive)?.id;
+    if (explicitActive) return explicitActive;
+    return userWatchlists[0]?.id || "";
+  }, [watchlistsQuery.data, userWatchlists]);
+  const activeWatchlist = useMemo(
+    () => userWatchlists.find((item) => item.id === activeWatchlistId) ?? null,
+    [userWatchlists, activeWatchlistId]
+  );
+  const watchlistBusy =
+    createWatchlistMutation.isPending ||
+    updateWatchlistMutation.isPending ||
+    deleteWatchlistMutation.isPending;
 
   useEffect(() => {
     watchlistSymbolsRef.current = watchlistSymbols;
@@ -401,6 +581,19 @@ export default function WatchlistPage() {
       mountedRef.current = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!urlSymbol) return;
+    setSelectedSymbol(urlSymbol);
+  }, [urlSymbol]);
+
+  useEffect(() => {
+    if (!urlInterval) return;
+    const normalized = urlInterval.toUpperCase();
+    if (normalized === "5" || normalized === "15" || normalized === "60" || normalized === "D") {
+      setChartInterval(normalized as ChartInterval);
+    }
+  }, [urlInterval]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -505,6 +698,12 @@ export default function WatchlistPage() {
     const startX = event.clientX;
     const startWidth = columnWidths[col] ?? 140;
     resizeRef.current = { col, startX, startWidth };
+    setResizingColumn(col);
+
+    const previousBodyCursor = document.body.style.cursor;
+    const previousBodyUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
 
     const handleMove = (moveEvent: PointerEvent) => {
       const { col: activeCol, startX: start, startWidth: base } = resizeRef.current;
@@ -519,12 +718,17 @@ export default function WatchlistPage() {
 
     const handleUp = () => {
       resizeRef.current = { col: null, startX: 0, startWidth: 0 };
+      setResizingColumn(null);
+      document.body.style.cursor = previousBodyCursor;
+      document.body.style.userSelect = previousBodyUserSelect;
       window.removeEventListener("pointermove", handleMove);
       window.removeEventListener("pointerup", handleUp);
+      window.removeEventListener("pointercancel", handleUp);
     };
 
     window.addEventListener("pointermove", handleMove);
     window.addEventListener("pointerup", handleUp);
+    window.addEventListener("pointercancel", handleUp);
   };
 
   const searchSuggestions = useMemo(() => {
@@ -555,9 +759,29 @@ export default function WatchlistPage() {
   useEffect(() => {
     const activeSymbols = new Set(watchlistSymbols.map((sym) => sym.toUpperCase()));
     if (activeSymbols.size === 0) {
+      pendingTicksRef.current = {};
+      tickHistoryRef.current = {};
+      if (tickFlushRafRef.current !== null) {
+        window.cancelAnimationFrame(tickFlushRafRef.current);
+        tickFlushRafRef.current = null;
+      }
       setTicks({});
       return;
     }
+
+    const nextPendingTicks: Record<string, SocketTick> = {};
+    for (const [symbol, tick] of Object.entries(pendingTicksRef.current)) {
+      if (activeSymbols.has(symbol)) nextPendingTicks[symbol] = tick;
+    }
+    pendingTicksRef.current = nextPendingTicks;
+    const nextHistory: Record<string, TickPoint[]> = {};
+    for (const symbol of activeSymbols) {
+      const history = tickHistoryRef.current[symbol];
+      if (history && history.length > 0) {
+        nextHistory[symbol] = history;
+      }
+    }
+    tickHistoryRef.current = nextHistory;
 
     setTicks((prev) => {
       const next: Record<string, SocketTick> = {};
@@ -576,6 +800,52 @@ export default function WatchlistPage() {
     }
 
     let closedByEffect = false;
+    const flushPendingTicks = () => {
+      const pendingEntries = Object.entries(pendingTicksRef.current);
+      if (pendingEntries.length === 0) return;
+      pendingTicksRef.current = {};
+
+      const historyMap = tickHistoryRef.current;
+      setTicks((prev) => {
+        let changed = false;
+        const next = { ...prev };
+        for (const [symbol, tick] of pendingEntries) {
+          const price = getTickPrice(tick);
+          if (price !== undefined) {
+            const time = getTickTimestamp(tick);
+            const existing = historyMap[symbol] ?? [];
+            const last = existing[existing.length - 1];
+            if (!last || time >= last.time) {
+              if (last && time === last.time) {
+                last.price = price;
+              } else {
+                existing.push({ time, price });
+              }
+              const cutoff = time - TICK_HISTORY_WINDOW_SEC;
+              while (existing.length > 0 && existing[0].time < cutoff) {
+                existing.shift();
+              }
+              if (existing.length > MAX_TICK_HISTORY_LENGTH) {
+                existing.splice(0, existing.length - MAX_TICK_HISTORY_LENGTH);
+              }
+              historyMap[symbol] = existing;
+            }
+          }
+          if (areTicksEqual(prev[symbol], tick)) continue;
+          next[symbol] = tick;
+          changed = true;
+        }
+        return changed ? next : prev;
+      });
+    };
+
+    const scheduleTickFlush = () => {
+      if (tickFlushRafRef.current !== null) return;
+      tickFlushRafRef.current = window.requestAnimationFrame(() => {
+        tickFlushRafRef.current = null;
+        flushPendingTicks();
+      });
+    };
 
     const scheduleReconnect = () => {
       if (!mountedRef.current || closedByEffect) return;
@@ -632,10 +902,8 @@ export default function WatchlistPage() {
           const tick = mapSocketTick(message.payload as Record<string, unknown>);
           if (!tick) return;
 
-          setTicks((prev) => ({
-            ...prev,
-            [tick.symbol]: tick,
-          }));
+          pendingTicksRef.current[tick.symbol] = tick;
+          scheduleTickFlush();
         } catch {
           // ignore malformed socket payloads
         }
@@ -704,6 +972,11 @@ export default function WatchlistPage() {
       window.removeEventListener("online", connect);
       window.removeEventListener("offline", closeSocket);
       closeSocket();
+      pendingTicksRef.current = {};
+      if (tickFlushRafRef.current !== null) {
+        window.cancelAnimationFrame(tickFlushRafRef.current);
+        tickFlushRafRef.current = null;
+      }
     };
   }, []);
 
@@ -754,6 +1027,9 @@ export default function WatchlistPage() {
     const nextPrices: Record<string, number> = {};
     const nextHighs: Record<string, number> = {};
     const nextLows: Record<string, number> = {};
+    const cardPulseUpdates: Record<string, CardPulse> = {};
+    const highPulseUpdates: Record<string, CardPulse> = {};
+    const lowPulseUpdates: Record<string, CardPulse> = {};
     const prevPrices = previousPriceRef.current;
     const prevHighs = previousHighRef.current;
     const prevLows = previousLowRef.current;
@@ -764,7 +1040,7 @@ export default function WatchlistPage() {
         const previous = prevPrices[row.symbol];
         if (typeof previous === "number" && Number.isFinite(previous) && previous !== row.currentPrice) {
           const pulse: CardPulse = row.currentPrice > previous ? "up" : "down";
-          setCardPulseMap((prev) => ({ ...prev, [row.symbol]: pulse }));
+          cardPulseUpdates[row.symbol] = pulse;
 
           const currentKey = `${row.symbol}:current`;
           const activeTimeout = pulseTimeoutRef.current[currentKey];
@@ -788,7 +1064,7 @@ export default function WatchlistPage() {
         const previousHigh = prevHighs[row.symbol];
         if (typeof previousHigh === "number" && Number.isFinite(previousHigh) && previousHigh !== row.high) {
           const pulse: CardPulse = row.high > previousHigh ? "up" : "down";
-          setHighPulseMap((prev) => ({ ...prev, [row.symbol]: pulse }));
+          highPulseUpdates[row.symbol] = pulse;
 
           const highKey = `${row.symbol}:high`;
           const activeTimeout = pulseTimeoutRef.current[highKey];
@@ -812,7 +1088,7 @@ export default function WatchlistPage() {
         const previousLow = prevLows[row.symbol];
         if (typeof previousLow === "number" && Number.isFinite(previousLow) && previousLow !== row.low) {
           const pulse: CardPulse = row.low > previousLow ? "up" : "down";
-          setLowPulseMap((prev) => ({ ...prev, [row.symbol]: pulse }));
+          lowPulseUpdates[row.symbol] = pulse;
 
           const lowKey = `${row.symbol}:low`;
           const activeTimeout = pulseTimeoutRef.current[lowKey];
@@ -830,6 +1106,16 @@ export default function WatchlistPage() {
           }, 1200);
         }
       }
+    }
+
+    if (Object.keys(cardPulseUpdates).length > 0) {
+      setCardPulseMap((prev) => ({ ...prev, ...cardPulseUpdates }));
+    }
+    if (Object.keys(highPulseUpdates).length > 0) {
+      setHighPulseMap((prev) => ({ ...prev, ...highPulseUpdates }));
+    }
+    if (Object.keys(lowPulseUpdates).length > 0) {
+      setLowPulseMap((prev) => ({ ...prev, ...lowPulseUpdates }));
     }
 
     previousPriceRef.current = nextPrices;
@@ -864,12 +1150,18 @@ export default function WatchlistPage() {
     if (areSameSymbolOrder(orderedSymbols, previousSymbols)) {
       return;
     }
+    if (!activeWatchlistId) {
+      return;
+    }
 
     const currentItems = queryClient.getQueryData<MarketTicker[]>(USER_WATCHLIST_QUERY_KEY) ?? watchlistQuery.data ?? [];
     const previousItems = reorderWatchlistItems(currentItems, previousSymbols);
 
     try {
-      await reorderMutation.mutateAsync(orderedSymbols);
+      await reorderMutation.mutateAsync({
+        symbols: orderedSymbols,
+        watchlistId: activeWatchlistId,
+      });
       void queryClient.invalidateQueries({ queryKey: USER_WATCHLIST_QUERY_KEY });
     } catch (error: unknown) {
       queryClient.setQueryData<MarketTicker[]>(USER_WATCHLIST_QUERY_KEY, previousItems);
@@ -968,6 +1260,10 @@ export default function WatchlistPage() {
     () => columnOrder.filter((col) => !hiddenColumnSet.has(col)),
     [columnOrder, hiddenColumnSet]
   );
+  const getColumnDividerClass = (col: TableColumnId) =>
+    visibleColumns[visibleColumns.length - 1] === col
+      ? ""
+      : "border-r border-slate-200/60 dark:border-slate-700/65";
 
   const toggleColumn = (colId: TableColumnId) => {
     setHiddenColumns((prev) => {
@@ -1092,8 +1388,19 @@ export default function WatchlistPage() {
 
   const selectedRow = useMemo(() => {
     if (!selectedSymbol) return null;
-    return allRows.find((row) => row.symbol === selectedSymbol) ?? null;
+    const match = allRows.find((row) => row.symbol === selectedSymbol) ?? null;
+    if (match) return match;
+    const cached = selectedRowRef.current;
+    if (cached && cached.symbol === selectedSymbol) return cached;
+    return null;
   }, [allRows, selectedSymbol]);
+  useEffect(() => {
+    if (selectedRow) {
+      selectedRowRef.current = selectedRow;
+    }
+  }, [selectedRow]);
+  const selectedTick = selectedSymbol ? ticks[selectedSymbol] : undefined;
+  const intervalSeconds = useMemo(() => intervalToSeconds(chartInterval), [chartInterval]);
   const whatsappUrl = useMemo(() => {
     if (!selectedRow) return "";
     const message = [
@@ -1110,10 +1417,397 @@ export default function WatchlistPage() {
     return `https://wa.me/${SUPPORT_WHATSAPP}?text=${encodeURIComponent(message)}`;
   }, [selectedRow]);
 
+  const openChartWindow = (symbol: string) => {
+    if (!symbol) return;
+    const params = new URLSearchParams({
+      chart: "1",
+      symbol,
+      interval: chartInterval,
+    });
+    const url = `/dashboard/watchlist?${params.toString()}`;
+    window.location.href = url;
+  };
+
+  useEffect(() => {
+    if (selectedRow && !chartMode) {
+      setChartInterval("15");
+    }
+  }, [selectedRow?.symbol, chartMode]);
+
+  const chartParams = useMemo(() => {
+    if (!selectedSymbol) return null;
+    const now = Math.floor(Date.now() / 1000);
+    const spanSeconds = intervalSeconds * HISTORY_CANDLE_COUNT;
+    return {
+      symbol: selectedSymbol,
+      resolution: chartInterval,
+      from: now - spanSeconds,
+      to: now,
+      count: HISTORY_CANDLE_COUNT,
+    };
+  }, [selectedSymbol, chartInterval, intervalSeconds]);
+
+  const historyQuery = useMarketHistoryQuery(
+    chartParams ?? { symbol: "", resolution: "15", from: 0, to: 0, count: HISTORY_CANDLE_COUNT },
+    Boolean(chartParams)
+  );
+
+  const historyCandles = useMemo<HistoryCandle[]>(() => {
+    const raw = historyQuery.data as unknown;
+    const list = Array.isArray(raw)
+      ? raw
+      : Array.isArray((raw as { candles?: unknown[] })?.candles)
+        ? (raw as { candles: unknown[] }).candles
+        : [];
+
+    return list
+      .map((item) => {
+        const row = item as Record<string, unknown>;
+        const timeRaw = row.time ?? row.timestamp ?? row.t;
+        let time =
+          typeof timeRaw === "number"
+            ? timeRaw
+            : typeof timeRaw === "string"
+              ? Math.floor(new Date(timeRaw).getTime() / 1000)
+              : undefined;
+        if (typeof time === "number" && time > 10_000_000_000) {
+          time = Math.floor(time / 1000);
+        }
+        const open = toNumber(row.open);
+        let high = toNumber(row.high);
+        let low = toNumber(row.low);
+        const close = toNumber(row.close);
+        if (
+          !time ||
+          open === undefined ||
+          high === undefined ||
+          low === undefined ||
+          close === undefined ||
+          open <= 0 ||
+          high <= 0 ||
+          low <= 0 ||
+          close <= 0
+        ) {
+          return null;
+        }
+        if (high < low) {
+          [high, low] = [low, high];
+        }
+        return { time, open, high, low, close, volume: toNumber(row.volume) ?? undefined };
+      })
+      .filter((item): item is HistoryCandle => Boolean(item))
+      .sort((left, right) => left.time - right.time)
+      .slice(-HISTORY_CANDLE_COUNT);
+  }, [historyQuery.data]);
+
+  const historyKey = selectedSymbol ? `${selectedSymbol}:${chartInterval}` : "";
+
+  useEffect(() => {
+    if (!historyKey) return;
+    if (historyCandles.length >= MIN_HISTORY_CANDLES) {
+      historyCacheRef.current[historyKey] = historyCandles.slice(-HISTORY_CANDLE_COUNT);
+    }
+  }, [historyKey, historyCandles]);
+
+  const seedCandles = useMemo(() => {
+    if (!selectedSymbol) return [];
+    if (historyCandles.length >= MIN_HISTORY_CANDLES) {
+      return historyCandles;
+    }
+    if (historyKey) {
+      const cached = historyCacheRef.current[historyKey];
+      if (cached && cached.length >= MIN_HISTORY_CANDLES) {
+        return cached;
+      }
+    }
+    const points = tickHistoryRef.current[selectedSymbol] ?? [];
+    const tickCandles = buildCandlesFromTicks(points, intervalSeconds);
+    if (tickCandles.length >= MIN_HISTORY_CANDLES) {
+      return tickCandles;
+    }
+    return [];
+  }, [selectedSymbol, historyCandles, intervalSeconds, historyKey]);
+
+  useEffect(() => {
+    if (!selectedSymbol || !chartContainerRef.current || !chartContainerReady) return;
+    chartManualZoomRef.current = false;
+    chartBarSpacingRef.current = CHART_BAR_SPACING_DEFAULT;
+    chartRef.current?.remove();
+    const container = chartContainerRef.current;
+    const isDark = document.documentElement.classList.contains("dark");
+    const initialHeight = Math.max(220, Math.floor(container.clientHeight || 260));
+    const chart = createChart(container, {
+      height: initialHeight,
+      layout: {
+        background: { color: "transparent" },
+        textColor: isDark ? "#e2e8f0" : "#0f172a",
+      },
+      handleScroll: {
+        pressedMouseMove: true,
+        horzTouchDrag: true,
+        vertTouchDrag: false,
+        mouseWheel: true,
+      },
+      handleScale: {
+        axisPressedMouseMove: true,
+        mouseWheel: true,
+        pinch: true,
+      },
+      crosshair: {
+        mode: crosshairEnabledRef.current ? 0 : 2,
+      },
+      grid: {
+        vertLines: { color: isDark ? "rgba(51, 65, 85, 0.45)" : "rgba(148, 163, 184, 0.25)" },
+        horzLines: { color: isDark ? "rgba(51, 65, 85, 0.45)" : "rgba(148, 163, 184, 0.25)" },
+      },
+      rightPriceScale: { borderVisible: false },
+      timeScale: {
+        borderVisible: false,
+        timeVisible: chartInterval !== "D",
+        barSpacing: chartBarSpacingRef.current,
+      },
+    });
+    const series = chart.addCandlestickSeries({
+      upColor: "#22C55E",
+      downColor: "#EF4444",
+      wickUpColor: "#22C55E",
+      wickDownColor: "#EF4444",
+      borderVisible: false,
+    });
+    chartRef.current = chart;
+    candleSeriesRef.current = series;
+
+    const handleCrosshairMove = (param: { time?: number; seriesData?: Map<unknown, unknown> }) => {
+      if (!crosshairEnabledRef.current) {
+        chartHoverRef.current = false;
+        updateLegendFromLatest();
+        return;
+      }
+      const seriesData = param?.seriesData;
+      const time = typeof param?.time === "number" ? param.time : null;
+      if (!seriesData || time === null || !candleSeriesRef.current) {
+        chartHoverRef.current = false;
+        updateLegendFromLatest();
+        return;
+      }
+
+      const data = seriesData.get(candleSeriesRef.current) as
+        | { open: number; high: number; low: number; close: number; time?: number }
+        | undefined;
+      if (!data) {
+        chartHoverRef.current = false;
+        updateLegendFromLatest();
+        return;
+      }
+
+      chartHoverRef.current = true;
+      const matched = chartCandlesRef.current.find((candle) => candle.time === time);
+      setChartLegendSafe({
+        time,
+        open: data.open,
+        high: data.high,
+        low: data.low,
+        close: data.close,
+        volume: matched?.volume,
+      });
+    };
+
+    chart.subscribeCrosshairMove(handleCrosshairMove);
+    const handleRangeChange = () => {
+      if (chartFitProgrammaticRef.current) return;
+      chartManualZoomRef.current = true;
+    };
+    chart.timeScale().subscribeVisibleLogicalRangeChange(handleRangeChange);
+
+    const resizeToContainer = () => {
+      const rect = container.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      chart.applyOptions({
+        width: rect.width,
+        height: Math.max(220, Math.floor(rect.height)),
+      });
+      if (!chartManualZoomRef.current) {
+        fitChartToContent();
+      }
+    };
+
+    resizeToContainer();
+    requestAnimationFrame(resizeToContainer);
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      resizeToContainer();
+    });
+    resizeObserver.observe(container);
+
+    return () => {
+      resizeObserver.disconnect();
+      chart.unsubscribeCrosshairMove(handleCrosshairMove);
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(handleRangeChange);
+      chart.remove();
+      chartRef.current = null;
+      candleSeriesRef.current = null;
+    };
+  }, [selectedSymbol, chartInterval, chartContainerReady]);
+
+  useEffect(() => {
+    if (!candleSeriesRef.current) return;
+    const nextKey = historyKey;
+    const sameKey = nextKey && nextKey === chartKeyRef.current;
+    if (seedCandles.length === 0) {
+      if (!sameKey) {
+        candleSeriesRef.current.setData([]);
+        chartCandlesRef.current = [];
+        setHasChartData(false);
+        chartKeyRef.current = nextKey;
+      }
+      return;
+    }
+    candleSeriesRef.current.setData(seedCandles);
+    chartCandlesRef.current = [...seedCandles];
+    chartKeyRef.current = nextKey;
+    lastChartUpdateRef.current = 0;
+    setHasChartData(seedCandles.length > 0);
+    if (!chartManualZoomRef.current) {
+      fitChartToContent();
+    }
+    if (!chartHoverRef.current) {
+      updateLegendFromLatest();
+    }
+  }, [seedCandles, historyKey]);
+
+  useEffect(() => {
+    if (!candleSeriesRef.current || !selectedSymbol) return;
+    const tick = selectedTick;
+    if (!tick) return;
+    const price = getTickPrice(tick);
+    if (price === undefined) return;
+    const time = getTickTimestamp(tick);
+    const bucket = Math.floor(time / intervalSeconds) * intervalSeconds;
+    if (!Number.isFinite(bucket) || bucket <= 0) return;
+
+    const candles = chartCandlesRef.current;
+    if (candles.length === 0) return;
+    const last = candles[candles.length - 1];
+    const nowMs = Date.now();
+    const isNewBucket = !last || bucket > last.time;
+
+    if (!isNewBucket) {
+      if (bucket < (last?.time ?? 0)) return;
+      if (nowMs - lastChartUpdateRef.current < CHART_UPDATE_THROTTLE_MS) return;
+    }
+
+    let updated: HistoryCandle;
+    let shouldReset = false;
+    if (!last || bucket > last.time) {
+      updated = { time: bucket, open: price, high: price, low: price, close: price };
+      candles.push(updated);
+      if (candles.length > HISTORY_CANDLE_COUNT) {
+        candles.splice(0, candles.length - HISTORY_CANDLE_COUNT);
+        shouldReset = true;
+      }
+    } else {
+      updated = {
+        ...last,
+        close: price,
+        high: Math.max(last.high, price),
+        low: Math.min(last.low, price),
+      };
+      candles[candles.length - 1] = updated;
+    }
+
+    chartCandlesRef.current = candles;
+    if (shouldReset) {
+      candleSeriesRef.current.setData(candles);
+    } else {
+      candleSeriesRef.current.update(updated);
+    }
+    if (isNewBucket && !chartManualZoomRef.current) {
+      fitChartToContent();
+    }
+    if (!hasChartData) {
+      setHasChartData(true);
+    }
+    if (!chartHoverRef.current) {
+      updateLegendFromLatest();
+    }
+    lastChartUpdateRef.current = nowMs;
+  }, [selectedTick, selectedSymbol, intervalSeconds, hasChartData]);
+  const refreshWatchlistQueries = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: USER_MARKET_WATCHLISTS_QUERY_KEY }),
+      queryClient.invalidateQueries({ queryKey: USER_WATCHLIST_QUERY_KEY }),
+    ]);
+  };
+
+  const handleCreateWatchlist = async () => {
+    const name = newWatchlistName.trim();
+    if (!name) {
+      toast.error("Watchlist name is required");
+      return;
+    }
+    try {
+      await createWatchlistMutation.mutateAsync({
+        name,
+        setActive: true,
+      });
+      await refreshWatchlistQueries();
+      setNewWatchlistName("");
+      setIsCreateWatchlistOpen(false);
+      toast.success(`${name} created`);
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, "Unable to create watchlist"));
+    }
+  };
+
+  const handleActivateWatchlist = async (watchlistId: string, watchlistName: string) => {
+    if (!watchlistId || watchlistId === activeWatchlistId) return;
+    try {
+      await updateWatchlistMutation.mutateAsync({
+        id: watchlistId,
+        setActive: true,
+      });
+      await refreshWatchlistQueries();
+      setSelectedSymbol(null);
+      toast.success(`${watchlistName} selected`);
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, "Unable to switch watchlist"));
+    }
+  };
+
+  const handleDeleteActiveWatchlist = async () => {
+    if (!activeWatchlist?.id) return;
+    if (userWatchlists.length <= 1) {
+      toast.error("At least one watchlist is required");
+      return;
+    }
+    const proceed =
+      typeof window === "undefined"
+        ? true
+        : window.confirm(
+            `Delete watchlist "${activeWatchlist.name}"? This will remove only this list, not your account.`
+          );
+    if (!proceed) return;
+
+    try {
+      await deleteWatchlistMutation.mutateAsync(activeWatchlist.id);
+      await refreshWatchlistQueries();
+      setSelectedSymbol(null);
+      toast.success("Watchlist deleted");
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, "Unable to delete watchlist"));
+    }
+  };
+
   const handleAddSymbol = async (candidate?: string) => {
     const target = normalizeSymbol(candidate ?? symbolInput);
     if (!target) {
       toast.error("Symbol required");
+      return;
+    }
+    if (!activeWatchlistId) {
+      toast.error("Select or create a watchlist first");
       return;
     }
     if (watchlistSymbols.includes(target)) {
@@ -1122,10 +1816,11 @@ export default function WatchlistPage() {
     }
 
     try {
-      await addMutation.mutateAsync(target);
-      await queryClient.invalidateQueries({
-        queryKey: USER_WATCHLIST_QUERY_KEY,
-      });
+      await addMutation.mutateAsync({ symbol: target, watchlistId: activeWatchlistId });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: USER_WATCHLIST_QUERY_KEY }),
+        queryClient.invalidateQueries({ queryKey: USER_MARKET_WATCHLISTS_QUERY_KEY }),
+      ]);
       setSymbolInput("");
       setSearchQuery("");
       toast.success(`${target} added`);
@@ -1135,12 +1830,17 @@ export default function WatchlistPage() {
   };
 
   const handleRemoveSymbol = async (symbol: string) => {
+    if (!activeWatchlistId) {
+      toast.error("Select or create a watchlist first");
+      return;
+    }
     setRemovingSymbol(symbol);
     try {
-      await removeMutation.mutateAsync(symbol);
-      await queryClient.invalidateQueries({
-        queryKey: USER_WATCHLIST_QUERY_KEY,
-      });
+      await removeMutation.mutateAsync({ symbol, watchlistId: activeWatchlistId });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: USER_WATCHLIST_QUERY_KEY }),
+        queryClient.invalidateQueries({ queryKey: USER_MARKET_WATCHLISTS_QUERY_KEY }),
+      ]);
       toast.success(`${symbol} removed`);
     } catch (error: unknown) {
       toast.error(getErrorMessage(error, "Unable to remove symbol"));
@@ -1159,6 +1859,266 @@ export default function WatchlistPage() {
       : selectedRow.changePercent >= 0
         ? "text-emerald-600 dark:text-emerald-400"
         : "text-rose-600 dark:text-rose-400";
+  const chartLegendDigits = useMemo(() => {
+    const reference = chartLegend?.close ?? chartLegend?.open ?? chartLegend?.high ?? chartLegend?.low;
+    if (selectedRow) return getPriceDigits(selectedRow, reference);
+    if (typeof reference === "number" && Number.isFinite(reference)) {
+      const abs = Math.abs(reference);
+      if (abs > 0 && abs < 1) return 5;
+      if (abs >= 1 && abs < 100) return 3;
+    }
+    return 2;
+  }, [chartLegend, selectedRow]);
+  const setChartLegendSafe = (next: HistoryCandle | null) => {
+    const prev = chartLegendRef.current;
+    if (
+      prev &&
+      next &&
+      prev.time === next.time &&
+      prev.open === next.open &&
+      prev.high === next.high &&
+      prev.low === next.low &&
+      prev.close === next.close &&
+      prev.volume === next.volume
+    ) {
+      return;
+    }
+    chartLegendRef.current = next;
+    setChartLegend(next);
+  };
+  const updateLegendFromLatest = () => {
+    const candles = chartCandlesRef.current;
+    if (!candles.length) {
+      setChartLegendSafe(null);
+      return;
+    }
+    setChartLegendSafe(candles[candles.length - 1]);
+  };
+  const fitChartToContent = () => {
+    if (!chartRef.current) return;
+    chartFitProgrammaticRef.current = true;
+    chartRef.current.timeScale().fitContent();
+    requestAnimationFrame(() => {
+      chartFitProgrammaticRef.current = false;
+    });
+  };
+  const applyChartBarSpacing = (nextSpacing: number) => {
+    chartBarSpacingRef.current = nextSpacing;
+    chartRef.current?.applyOptions({ timeScale: { barSpacing: nextSpacing } });
+  };
+  const handleChartZoom = (direction: "in" | "out") => {
+    const current = chartBarSpacingRef.current;
+    const delta = direction === "in" ? CHART_BAR_SPACING_STEP : -CHART_BAR_SPACING_STEP;
+    const nextSpacing = Math.min(
+      CHART_BAR_SPACING_MAX,
+      Math.max(CHART_BAR_SPACING_MIN, current + delta)
+    );
+    if (nextSpacing === current) return;
+    chartManualZoomRef.current = true;
+    applyChartBarSpacing(nextSpacing);
+  };
+  const handleChartReset = () => {
+    chartManualZoomRef.current = false;
+    applyChartBarSpacing(CHART_BAR_SPACING_DEFAULT);
+    fitChartToContent();
+    chartRef.current?.priceScale("right").applyOptions({ autoScale: true });
+  };
+  useEffect(() => {
+    crosshairEnabledRef.current = crosshairEnabled;
+    chartRef.current?.applyOptions({
+      crosshair: {
+        mode: crosshairEnabled ? 0 : 2,
+      },
+    });
+    if (!crosshairEnabled) {
+      chartHoverRef.current = false;
+      updateLegendFromLatest();
+    }
+  }, [crosshairEnabled]);
+
+  if (chartMode) {
+    const activeSymbol = selectedSymbol || urlSymbol;
+    const chartToolbarClass =
+      "absolute bottom-10 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-full border border-slate-200/80 bg-white/90 px-1 py-0.5 shadow-sm backdrop-blur opacity-0 pointer-events-none transition dark:border-slate-700/70 dark:bg-slate-900/80 group-focus-within:opacity-100 group-focus-within:pointer-events-auto lg:bottom-3 lg:gap-1.5 lg:px-1.5 lg:py-1 lg:opacity-100 lg:pointer-events-auto";
+    const chartToolButtonClass =
+      "inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-200/70 bg-white/90 text-slate-700 transition hover:bg-slate-50 hover:text-slate-900 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-200 dark:hover:bg-slate-800/80 dark:hover:text-white lg:h-8 lg:w-8";
+    return (
+      <div className="h-full bg-slate-50 dark:bg-slate-950">
+        <div className="flex h-full flex-col gap-3 p-2 sm:gap-4 sm:p-4">
+          <header className="flex flex-wrap items-start justify-between gap-2 rounded-2xl border border-slate-200/80 bg-white/90 p-3 shadow-[0_16px_40px_-28px_rgba(15,23,42,0.45)] dark:border-slate-800 dark:bg-slate-950/85 sm:gap-3 sm:p-4">
+            <div>
+              <p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400 sm:text-[10px]">
+                Live Chart
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100 sm:text-2xl">
+                  {activeSymbol || "Select a symbol"}
+                </p>
+                <div className="flex items-center gap-1 rounded-full border border-slate-200/80 bg-slate-100/80 p-1 dark:border-slate-700/70 dark:bg-slate-900/70 sm:hidden">
+                  {CHART_INTERVALS.map((interval) => (
+                    <button
+                      key={interval.value}
+                      type="button"
+                      onClick={() => setChartInterval(interval.value)}
+                      className={cn(
+                        "rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] transition",
+                        chartInterval === interval.value
+                          ? "bg-sky-500 text-white shadow-[0_6px_14px_-10px_rgba(14,165,233,0.9)]"
+                          : "text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white"
+                      )}
+                    >
+                      {interval.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 sm:text-xs">
+                Interval: {chartInterval}
+              </p>
+            </div>
+            <div className="hidden items-center gap-2 sm:flex">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => window.close()}
+                className="h-9 border-slate-300/80 bg-white/90 text-slate-700 dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200"
+              >
+                Close
+              </Button>
+              <Button
+                type="button"
+                onClick={() => {
+                  window.location.href = "/dashboard/watchlist";
+                }}
+                className="h-9 bg-emerald-600 text-white hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-400"
+              >
+                Watchlist
+              </Button>
+            </div>
+            <div className="flex w-full flex-wrap items-center gap-1.5 pt-1 sm:gap-2 sm:pt-2">
+              <div className="hidden items-center gap-1 rounded-full border border-slate-200/80 bg-slate-100/80 p-1 dark:border-slate-700/70 dark:bg-slate-900/70 sm:flex">
+                {CHART_INTERVALS.map((interval) => (
+                  <button
+                    key={interval.value}
+                    type="button"
+                    onClick={() => setChartInterval(interval.value)}
+                    className={cn(
+                      "rounded-full px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.12em] transition sm:px-2.5 sm:text-[10px]",
+                      chartInterval === interval.value
+                        ? "bg-sky-500 text-white shadow-[0_6px_14px_-10px_rgba(14,165,233,0.9)]"
+                        : "text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white"
+                    )}
+                  >
+                    {interval.label}
+                  </button>
+                ))}
+              </div>
+              {!activeSymbol ? (
+                <span className="text-xs text-slate-500 dark:text-slate-400">
+                  Pass `?symbol=SYMBOL` in the URL to load a chart.
+                </span>
+              ) : historyQuery.isFetching ? (
+                <span className="text-xs text-slate-500 dark:text-slate-400">Loading chart data...</span>
+              ) : historyCandles.length === 0 ? (
+                <span className="text-xs text-slate-500 dark:text-slate-400">No chart data available.</span>
+              ) : null}
+            </div>
+          </header>
+
+          <section
+            className="group relative flex-1 min-h-0 overflow-hidden rounded-2xl border border-slate-200/80 bg-white/80 p-2 shadow-[0_16px_40px_-30px_rgba(15,23,42,0.35)] focus:outline-none dark:border-slate-800 dark:bg-slate-950/70"
+            tabIndex={0}
+            onPointerDown={(event) => {
+              event.currentTarget.focus();
+            }}
+          >
+            {chartLegend ? (
+              <div className="pointer-events-none absolute left-3 right-auto top-2 z-10 rounded-xl border border-slate-200/80 bg-white/90 px-1.5 py-0.5 text-[9px] text-slate-600 shadow-sm backdrop-blur dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-300 sm:left-auto sm:right-3 sm:top-3 sm:px-2 sm:py-1 sm:text-[11px]">
+                <div className="flex flex-wrap items-center gap-1 sm:gap-2">
+                  <span>
+                    O{" "}
+                    <span className="font-semibold text-slate-900 dark:text-slate-100">
+                      {formatNumber(chartLegend.open, chartLegendDigits)}
+                    </span>
+                  </span>
+                  <span>
+                    H{" "}
+                    <span className="font-semibold text-slate-900 dark:text-slate-100">
+                      {formatNumber(chartLegend.high, chartLegendDigits)}
+                    </span>
+                  </span>
+                  <span>
+                    L{" "}
+                    <span className="font-semibold text-slate-900 dark:text-slate-100">
+                      {formatNumber(chartLegend.low, chartLegendDigits)}
+                    </span>
+                  </span>
+                  <span>
+                    C{" "}
+                    <span className="font-semibold text-slate-900 dark:text-slate-100">
+                      {formatNumber(chartLegend.close, chartLegendDigits)}
+                    </span>
+                  </span>
+                  <span>
+                    V{" "}
+                    <span className="font-semibold text-slate-900 dark:text-slate-100">
+                      {typeof chartLegend.volume === "number" && chartLegend.volume > 0
+                        ? chartLegend.volume.toLocaleString("en-IN")
+                        : "--"}
+                    </span>
+                  </span>
+                </div>
+              </div>
+            ) : null}
+            <div className={chartToolbarClass}>
+              <button
+                type="button"
+                onClick={() => setCrosshairEnabled((prev) => !prev)}
+                className={cn(
+                  chartToolButtonClass,
+                  crosshairEnabled
+                    ? "border-sky-500/60 text-sky-600 dark:border-sky-400/60 dark:text-sky-300"
+                    : "opacity-80"
+                )}
+                aria-label={crosshairEnabled ? "Hide crosshair" : "Show crosshair"}
+                title={crosshairEnabled ? "Hide crosshair" : "Show crosshair"}
+              >
+                <Crosshair className="h-3 w-3 lg:h-4 lg:w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => handleChartZoom("out")}
+                className={chartToolButtonClass}
+                aria-label="Zoom out"
+                title="Zoom out"
+              >
+                <Minus className="h-3 w-3 lg:h-4 lg:w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => handleChartZoom("in")}
+                className={chartToolButtonClass}
+                aria-label="Zoom in"
+                title="Zoom in"
+              >
+                <Plus className="h-3 w-3 lg:h-4 lg:w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={handleChartReset}
+                className={chartToolButtonClass}
+                aria-label="Reset chart"
+                title="Reset chart"
+              >
+                <RotateCcw className="h-3 w-3 lg:h-4 lg:w-4" />
+              </button>
+            </div>
+            <div ref={setChartContainer} className="h-full w-full" />
+          </section>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5 pb-6">
@@ -1166,6 +2126,98 @@ export default function WatchlistPage() {
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_0%_0%,rgba(14,165,233,0.14),transparent_46%),radial-gradient(circle_at_100%_100%,rgba(16,185,129,0.1),transparent_44%)] dark:bg-[radial-gradient(circle_at_0%_0%,rgba(14,165,233,0.1),transparent_46%),radial-gradient(circle_at_100%_100%,rgba(16,185,129,0.08),transparent_44%)]" />
         <div className="relative space-y-3">
           <div className="grid gap-3">
+            <div className="rounded-xl border border-slate-300/75 bg-white/85 p-3 dark:border-slate-700/70 dark:bg-slate-900/60">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-700 dark:text-slate-300">
+                  <ChevronDown className="h-3.5 w-3.5" />
+                  Watchlists
+                </span>
+                <div className="flex flex-col items-end">
+                  <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400">
+                    {userWatchlists.length} list{userWatchlists.length === 1 ? "" : "s"}
+                  </span>
+                  <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400">
+                    {watchlistSymbols.length} symbol{watchlistSymbols.length === 1 ? "" : "s"}
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid gap-2">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-10 w-full justify-between border-slate-300/80 bg-white/90 text-left text-xs font-semibold text-slate-700 transition-all duration-200 hover:-translate-y-[1px] hover:border-emerald-400/55 hover:bg-[linear-gradient(135deg,rgba(236,253,245,0.92),rgba(240,249,255,0.92))] hover:shadow-[0_10px_22px_-16px_rgba(16,185,129,0.55)] dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200 dark:hover:border-emerald-400/45 dark:hover:bg-emerald-500/[0.1] dark:hover:shadow-[0_12px_24px_-16px_rgba(16,185,129,0.6)]"
+                      disabled={watchlistsQuery.isLoading || watchlistBusy}
+                    >
+                      <span className="truncate">
+                        {activeWatchlist?.name || (watchlistsQuery.isLoading ? "Loading watchlists..." : "Select watchlist")}
+                      </span>
+                      <ChevronDown className="h-4 w-4 opacity-70" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    align="start"
+                    sideOffset={6}
+                    className="max-h-[45vh] w-[min(280px,calc(100vw-2.5rem))] overflow-y-auto border border-slate-300/85 bg-white/95 p-1 dark:border-slate-700/80 dark:bg-slate-950/95"
+                  >
+                    {userWatchlists.length === 0 ? (
+                      <DropdownMenuItem disabled className="text-xs text-slate-500 dark:text-slate-400">
+                        No watchlists available
+                      </DropdownMenuItem>
+                    ) : (
+                      userWatchlists.map((item) => (
+                        <DropdownMenuItem
+                          key={item.id}
+                          onSelect={(event) => {
+                            event.preventDefault();
+                            void handleActivateWatchlist(item.id, item.name);
+                          }}
+                          className={cn(
+                            "flex items-center justify-between gap-3 rounded-md px-2 py-2 text-xs text-slate-700 transition-colors duration-150 hover:bg-emerald-50/90 hover:text-emerald-800 focus:bg-emerald-50/90 focus:text-emerald-800 dark:text-slate-200 dark:hover:bg-emerald-500/[0.16] dark:hover:text-emerald-100 dark:focus:bg-emerald-500/[0.16] dark:focus:text-emerald-100",
+                            item.id === activeWatchlistId &&
+                              "bg-emerald-100/80 text-emerald-900 dark:bg-emerald-500/[0.24] dark:text-emerald-100"
+                          )}
+                        >
+                          <span className="min-w-0 truncate font-semibold">{item.name}</span>
+                          <span className="shrink-0 rounded-full border border-slate-300/80 px-2 py-0.5 text-[10px] text-slate-600 dark:border-slate-700/70 dark:text-slate-300">
+                            {item.symbolCount ?? item.symbols?.length ?? 0}
+                          </span>
+                        </DropdownMenuItem>
+                      ))
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-[auto_auto] sm:justify-start">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-9 border-emerald-500/30 bg-emerald-500/12 text-xs font-semibold text-emerald-700 hover:bg-emerald-500/18 dark:border-emerald-400/35 dark:bg-emerald-500/12 dark:text-emerald-200"
+                    onClick={() => setIsCreateWatchlistOpen(true)}
+                    disabled={watchlistBusy}
+                  >
+                    Create
+                  </Button>
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-9 border-rose-500/30 bg-rose-500/10 text-xs font-semibold text-rose-700 hover:bg-rose-500/16 dark:border-rose-400/35 dark:bg-rose-500/12 dark:text-rose-200"
+                    onClick={() => void handleDeleteActiveWatchlist()}
+                    disabled={watchlistBusy || !activeWatchlistId || userWatchlists.length <= 1}
+                  >
+                    Delete
+                  </Button>
+                </div>
+              </div>
+
+              <p className="mt-2 hidden text-[11px] text-slate-600 dark:text-slate-300 sm:block">
+                Create named watchlists and switch instantly. Signals and dashboard view follow the selected active watchlist.
+              </p>
+            </div>
+
             <div className="rounded-xl border border-slate-300/75 bg-white/85 p-3 dark:border-slate-700/70 dark:bg-slate-900/60">
               <div className="mb-2 flex items-center justify-between">
                 <label
@@ -1213,7 +2265,7 @@ export default function WatchlistPage() {
                       <button
                         key={item.symbol}
                         type="button"
-                        className="group rounded-full border border-slate-300/80 bg-white/90 px-2.5 py-1 text-[11px] text-slate-700 transition-all duration-300 hover:-translate-y-0.5 hover:border-sky-400/75 hover:bg-sky-500/10 hover:text-sky-700 dark:border-slate-700/75 dark:bg-slate-900/75 dark:text-slate-300 dark:hover:border-sky-500/70 dark:hover:text-sky-200"
+                        className="group rounded-full border border-slate-300/80 bg-white/90 px-2.5 py-1 text-[11px] text-slate-700 transition-all duration-300 hover:-translate-y-0.5 hover:border-slate-400/70 hover:bg-slate-100 hover:text-slate-800 dark:border-slate-700/75 dark:bg-slate-900/75 dark:text-slate-300 dark:hover:border-slate-500/65 dark:hover:bg-slate-800/80 dark:hover:text-slate-100"
                         onClick={() => void handleAddSymbol(item.symbol)}
                       >
                         {getSuggestionLabel(item)}
@@ -1247,6 +2299,20 @@ export default function WatchlistPage() {
                   </span>
                 ) : null}
               </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setIsWatchlistEditMode((prev) => !prev)}
+                className={cn(
+                  "h-9 text-xs font-semibold transition-colors md:hidden",
+                  isWatchlistEditMode
+                    ? "border-rose-500/30 bg-rose-500/12 text-rose-700 hover:bg-rose-500/16 dark:border-rose-400/35 dark:bg-rose-500/12 dark:text-rose-200"
+                    : "border-slate-300/80 bg-white/90 text-slate-700 hover:bg-slate-100 dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200 dark:hover:bg-slate-800/80"
+                )}
+              >
+                {isWatchlistEditMode ? "Done" : "Edit Watchlist"}
+              </Button>
             </div>
             <div className="flex w-full items-center gap-2 sm:w-auto">
               <div className="inline-flex flex-1 overflow-hidden rounded-lg border border-slate-300/80 bg-white/90 dark:border-slate-700/70 dark:bg-slate-900/70 sm:flex-none">
@@ -1277,9 +2343,6 @@ export default function WatchlistPage() {
               </div>
               {viewMode === "table" ? (
                 <>
-                  <span className="hidden text-[11px] font-medium text-slate-500 dark:text-slate-400 md:inline-flex">
-                    Drag table headers to reorder
-                  </span>
                   <Button
                     type="button"
                     variant="outline"
@@ -1292,9 +2355,11 @@ export default function WatchlistPage() {
                   </Button>
                 </>
               ) : (
-                <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                  {reorderMutation.isPending ? "Saving card order..." : "Drag card handle to reorder"}
-                </span>
+                reorderMutation.isPending ? (
+                  <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                    Saving card order...
+                  </span>
+                ) : null
               )}
             </div>
           </div>
@@ -1306,12 +2371,14 @@ export default function WatchlistPage() {
           <>
             <div className="md:hidden">
               {showLoading ? (
-                <div className="py-8 text-center text-sm text-slate-500 dark:text-slate-400">Loading watchlist...</div>
+                <div className="flex min-h-[220px] items-center justify-center px-4 text-center text-sm text-slate-500 dark:text-slate-400">
+                  Loading watchlist...
+                </div>
               ) : filteredRows.length === 0 ? (
-                <div className="py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+                <div className="flex min-h-[220px] items-center justify-center px-4 text-center text-sm text-slate-500 dark:text-slate-400">
                   {allRows.length === 0
-                    ? "Watchlist empty. Add your first symbol above."
-                    : "No rows match current filters."}
+                    ? "No records found. Add your first symbol above."
+                    : "No records found for current filters."}
                 </div>
               ) : (
                 <div className="divide-y divide-slate-200/80 dark:divide-slate-800/80">
@@ -1331,43 +2398,60 @@ export default function WatchlistPage() {
                     const askClass = "text-rose-600 dark:text-rose-300";
 
                     return (
-                      <button
+                      <div
                         key={row.symbol}
-                        type="button"
-                        onClick={() => setSelectedSymbol(row.symbol)}
-                        className="w-full px-3 py-2 text-left transition-colors hover:bg-slate-100/70 dark:hover:bg-slate-900/60"
+                        className="flex items-stretch gap-2 px-3 py-2 transition-colors hover:bg-slate-100/70 dark:hover:bg-slate-900/60"
                       >
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-700 dark:text-slate-200">
-                              {row.symbol}
-                            </p>
-                            <p className="mt-0.5 text-[10px] text-slate-500 dark:text-slate-400">
-                              {row.name}
-                            </p>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedSymbol(row.symbol)}
+                          className="min-w-0 flex-1 text-left"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="truncate text-xs font-semibold uppercase tracking-[0.18em] text-slate-700 dark:text-slate-200">
+                                {row.symbol}
+                              </p>
+                              <p className="mt-0.5 truncate text-[10px] text-slate-500 dark:text-slate-400">
+                                {row.name}
+                              </p>
+                            </div>
+                            <div className="text-right">
+                              <p className={cn("text-[15px] font-bold", priceClass)}>
+                                {formatNumber(row.currentPrice, digits)}
+                              </p>
+                              <p className="mt-0.5 text-[10px] text-slate-500 dark:text-slate-400">
+                                <span className={highClass}>H {formatNumber(row.high, digits)}</span>
+                                {" / "}
+                                <span className={lowClass}>L {formatNumber(row.low, digits)}</span>
+                              </p>
+                            </div>
                           </div>
-                          <div className="text-right">
-                            <p className={cn("text-[15px] font-bold", priceClass)}>
-                              {formatNumber(row.currentPrice, digits)}
+                          <div className="mt-1 flex items-center justify-between gap-3 text-[11px]">
+                            <p className={cn("font-semibold", changeClass)}>
+                              {formatPoints(row.points, digits)} ({formatPercent(row.changePercent)})
                             </p>
-                            <p className="mt-0.5 text-[10px] text-slate-500 dark:text-slate-400">
-                              <span className={highClass}>H {formatNumber(row.high, digits)}</span>
+                            <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                              <span className={bidClass}>Bid {formatNumber(row.bid, digits)}</span>
                               {" / "}
-                              <span className={lowClass}>L {formatNumber(row.low, digits)}</span>
+                              <span className={askClass}>Ask {formatNumber(row.ask, digits)}</span>
                             </p>
                           </div>
-                        </div>
-                        <div className="mt-1 flex items-center justify-between gap-3 text-[11px]">
-                          <p className={cn("font-semibold", changeClass)}>
-                            {formatPoints(row.points, digits)} ({formatPercent(row.changePercent)})
-                          </p>
-                          <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                            <span className={bidClass}>Bid {formatNumber(row.bid, digits)}</span>
-                            {" / "}
-                            <span className={askClass}>Ask {formatNumber(row.ask, digits)}</span>
-                          </p>
-                        </div>
-                      </button>
+                        </button>
+                        {isWatchlistEditMode ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void handleRemoveSymbol(row.symbol);
+                            }}
+                            className="inline-flex h-9 w-9 shrink-0 items-center justify-center self-center rounded-lg border border-rose-500/25 bg-rose-500/10 text-rose-700 transition-colors hover:bg-rose-500/16 dark:border-rose-400/35 dark:bg-rose-500/12 dark:text-rose-200"
+                            disabled={removeMutation.isPending && removingSymbol === row.symbol}
+                            aria-label={`Remove ${row.symbol}`}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        ) : null}
+                      </div>
                     );
                   })}
                 </div>
@@ -1386,12 +2470,15 @@ export default function WatchlistPage() {
                   onDrop={handleColumnDrop}
                   onDragEnd={clearColumnDragState}
                   className={cn(
-                    "relative select-none",
+                    "group relative select-none pr-3 transition-colors",
+                    getColumnDividerClass(col),
                     draggedColumn === col &&
                       "bg-sky-100/80 text-sky-700 dark:bg-sky-500/10 dark:text-sky-200",
                     dragOverColumn === col &&
                       draggedColumn !== col &&
                       "bg-sky-50/90 ring-1 ring-inset ring-sky-400/45 dark:bg-sky-500/10 dark:ring-sky-400/45",
+                    resizingColumn === col &&
+                      "bg-sky-50/95 text-sky-700 ring-1 ring-inset ring-sky-400/45 dark:bg-sky-500/12 dark:text-sky-200 dark:ring-sky-300/45",
                     ["current", "high", "low", "close", "changePercent", "points", "bid", "ask", "action"].includes(col)
                       ? "text-right"
                       : ""
@@ -1411,11 +2498,33 @@ export default function WatchlistPage() {
                     <span>{tableHeaderMap[col]}</span>
                   </span>
                   <div
+                    aria-hidden="true"
+                    className={cn(
+                      "pointer-events-none absolute right-0 top-2 bottom-2 w-px rounded-full bg-slate-300/55 transition-all duration-150 dark:bg-slate-600/60",
+                      resizingColumn === col
+                        ? "bg-sky-500/85 shadow-[0_0_0_1px_rgba(14,165,233,0.18)] dark:bg-sky-300/85"
+                        : "group-hover:bg-slate-400/65 dark:group-hover:bg-slate-500/70"
+                    )}
+                  />
+                  <div
                     role="separator"
                     aria-orientation="vertical"
                     onPointerDown={(event) => startResize(col, event)}
-                    className="absolute right-0 top-0 h-full w-2 cursor-col-resize touch-none select-none"
-                  />
+                    className={cn(
+                      "absolute -right-1 top-0 z-10 h-full w-3 cursor-col-resize touch-none select-none",
+                      resizingColumn === col && "z-20"
+                    )}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className={cn(
+                        "pointer-events-none absolute right-1 top-1/2 h-8 w-[2px] -translate-y-1/2 rounded-full bg-slate-300/55 transition-all duration-150 dark:bg-slate-600/65",
+                        resizingColumn === col
+                          ? "h-[calc(100%-10px)] bg-sky-500/85 dark:bg-sky-300/85"
+                          : "group-hover:h-10 group-hover:bg-slate-400/65 dark:group-hover:bg-slate-500/70"
+                      )}
+                    />
+                  </div>
                 </TableHead>
               ))}
             </TableRow>
@@ -1423,16 +2532,16 @@ export default function WatchlistPage() {
           <TableBody>
             {showLoading ? (
               <TableRow>
-                <TableCell colSpan={visibleColumns.length} className="py-8 text-center text-sm text-muted-foreground">
+                <TableCell colSpan={visibleColumns.length} className="h-28 align-middle text-center text-sm text-muted-foreground">
                   Loading watchlist...
                 </TableCell>
               </TableRow>
             ) : filteredRows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={visibleColumns.length} className="py-8 text-center text-sm text-muted-foreground">
+                <TableCell colSpan={visibleColumns.length} className="h-28 align-middle text-center text-sm text-muted-foreground">
                   {allRows.length === 0
-                    ? "Watchlist empty. Add your first symbol above."
-                    : "No rows match current filters."}
+                    ? "No records found. Add your first symbol above."
+                    : "No records found for current filters."}
                 </TableCell>
               </TableRow>
             ) : (
@@ -1540,19 +2649,30 @@ export default function WatchlistPage() {
                   symbol: (
                     <TableCell
                       key="symbol"
-                      className="font-bold tracking-wide text-slate-900 dark:text-slate-100"
+                      className={cn(
+                        "font-bold tracking-wide text-slate-900 dark:text-slate-100",
+                        getColumnDividerClass("symbol")
+                      )}
                       style={getColumnWidthStyle("symbol")}
                     >
                       {row.symbol}
                     </TableCell>
                   ),
                   name: (
-                    <TableCell key="name" className="max-w-44 truncate font-semibold" style={getColumnWidthStyle("name")}>
+                    <TableCell
+                      key="name"
+                      className={cn("max-w-44 truncate font-semibold", getColumnDividerClass("name"))}
+                      style={getColumnWidthStyle("name")}
+                    >
                       {row.name}
                     </TableCell>
                   ),
                   segment: (
-                    <TableCell key="segment" className="font-semibold" style={getColumnWidthStyle("segment")}>
+                    <TableCell
+                      key="segment"
+                      className={cn("font-semibold", getColumnDividerClass("segment"))}
+                      style={getColumnWidthStyle("segment")}
+                    >
                       <Badge
                         variant="outline"
                         className="border-slate-300/80 bg-slate-100/75 text-slate-700 dark:border-slate-700/80 dark:bg-slate-900/75 dark:text-slate-300"
@@ -1562,14 +2682,18 @@ export default function WatchlistPage() {
                     </TableCell>
                   ),
                   exchange: (
-                    <TableCell key="exchange" className="font-semibold" style={getColumnWidthStyle("exchange")}>
+                    <TableCell
+                      key="exchange"
+                      className={cn("font-semibold", getColumnDividerClass("exchange"))}
+                      style={getColumnWidthStyle("exchange")}
+                    >
                       {row.exchange}
                     </TableCell>
                   ),
                   current: (
                     <TableCell
                       key="current"
-                      className="text-right font-bold tabular-nums"
+                      className={cn("text-right font-bold tabular-nums", getColumnDividerClass("current"))}
                       style={getColumnWidthStyle("current")}
                     >
                       <div className="inline-flex min-w-[132px] flex-col items-end">
@@ -1603,7 +2727,7 @@ export default function WatchlistPage() {
                   high: (
                     <TableCell
                       key="high"
-                      className="text-right font-bold tabular-nums"
+                      className={cn("text-right font-bold tabular-nums", getColumnDividerClass("high"))}
                       style={getColumnWidthStyle("high")}
                     >
                       <span
@@ -1625,7 +2749,7 @@ export default function WatchlistPage() {
                   low: (
                     <TableCell
                       key="low"
-                      className="text-right font-bold tabular-nums"
+                      className={cn("text-right font-bold tabular-nums", getColumnDividerClass("low"))}
                       style={getColumnWidthStyle("low")}
                     >
                       <span
@@ -1647,7 +2771,7 @@ export default function WatchlistPage() {
                   close: (
                     <TableCell
                       key="close"
-                      className={cn("text-right font-bold tabular-nums", closeTextClass)}
+                      className={cn("text-right font-bold tabular-nums", closeTextClass, getColumnDividerClass("close"))}
                       style={getColumnWidthStyle("close")}
                     >
                       <span className="inline-flex items-center justify-end gap-1">
@@ -1663,7 +2787,11 @@ export default function WatchlistPage() {
                   changePercent: (
                     <TableCell
                       key="changePercent"
-                      className={cn("text-right font-bold tabular-nums", trendClass)}
+                      className={cn(
+                        "text-right font-bold tabular-nums",
+                        trendClass,
+                        getColumnDividerClass("changePercent")
+                      )}
                       style={getColumnWidthStyle("changePercent")}
                     >
                       <span className="inline-flex items-center justify-end gap-1">
@@ -1679,7 +2807,11 @@ export default function WatchlistPage() {
                   points: (
                     <TableCell
                       key="points"
-                      className={cn("text-right font-bold tabular-nums", trendClass)}
+                      className={cn(
+                        "text-right font-bold tabular-nums",
+                        trendClass,
+                        getColumnDividerClass("points")
+                      )}
                       style={getColumnWidthStyle("points")}
                     >
                       <span className="inline-flex items-center justify-end gap-1">
@@ -1695,7 +2827,7 @@ export default function WatchlistPage() {
                   bid: (
                     <TableCell
                       key="bid"
-                      className={cn("text-right font-bold tabular-nums", bidTextClass)}
+                      className={cn("text-right font-bold tabular-nums", bidTextClass, getColumnDividerClass("bid"))}
                       style={getColumnWidthStyle("bid")}
                     >
                       <span className="inline-flex items-center justify-end gap-1">
@@ -1707,7 +2839,7 @@ export default function WatchlistPage() {
                   ask: (
                     <TableCell
                       key="ask"
-                      className={cn("text-right font-bold tabular-nums", askTextClass)}
+                      className={cn("text-right font-bold tabular-nums", askTextClass, getColumnDividerClass("ask"))}
                       style={getColumnWidthStyle("ask")}
                     >
                       <span className="inline-flex items-center justify-end gap-1">
@@ -1717,12 +2849,16 @@ export default function WatchlistPage() {
                     </TableCell>
                   ),
                   action: (
-                    <TableCell key="action" className="text-right font-semibold" style={getColumnWidthStyle("action")}>
+                    <TableCell
+                      key="action"
+                      className={cn("text-right font-semibold", getColumnDividerClass("action"))}
+                      style={getColumnWidthStyle("action")}
+                    >
                       <Button
                         type="button"
                         variant="ghost"
                         size="sm"
-                        className="h-8 px-2 text-rose-600 hover:bg-rose-500/10 hover:text-rose-700 dark:text-rose-300 dark:hover:text-rose-200"
+                        className="h-8 px-2 text-rose-600 hover:bg-rose-500/[0.07] hover:text-rose-700 dark:text-rose-300 dark:hover:bg-rose-500/[0.14] dark:hover:text-rose-200"
                         onClick={(event) => {
                           event.stopPropagation();
                           void handleRemoveSymbol(row.symbol);
@@ -1754,12 +2890,14 @@ export default function WatchlistPage() {
         ) : (
           <div className="relative overflow-hidden bg-[radial-gradient(circle_at_0%_0%,rgba(56,189,248,0.16),transparent_45%),radial-gradient(circle_at_100%_100%,rgba(16,185,129,0.14),transparent_44%),linear-gradient(140deg,rgba(255,255,255,0.96),rgba(240,249,255,0.92))] p-2.5 dark:bg-[radial-gradient(circle_at_0%_0%,rgba(56,189,248,0.14),transparent_45%),radial-gradient(circle_at_100%_100%,rgba(16,185,129,0.12),transparent_44%),linear-gradient(140deg,rgba(5,11,19,0.98),rgba(5,12,21,0.96))] sm:p-3">
             {showLoading ? (
-              <div className="py-10 text-center text-sm text-slate-500 dark:text-slate-400">Loading watchlist...</div>
+              <div className="flex min-h-[220px] items-center justify-center px-4 text-center text-sm text-slate-500 dark:text-slate-400">
+                Loading watchlist...
+              </div>
             ) : filteredRows.length === 0 ? (
-              <div className="py-10 text-center text-sm text-slate-500 dark:text-slate-400">
+              <div className="flex min-h-[220px] items-center justify-center px-4 text-center text-sm text-slate-500 dark:text-slate-400">
                 {allRows.length === 0
-                  ? "Watchlist empty. Add your first symbol above."
-                  : "No cards match current filters."}
+                  ? "No records found. Add your first symbol above."
+                  : "No records found for current filters."}
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5">
@@ -1800,7 +2938,7 @@ export default function WatchlistPage() {
                       key={row.symbol}
                       data-watchlist-card-symbol={row.symbol}
                       className={cn(
-                        "relative min-h-[94px] overflow-hidden rounded-md border border-slate-200/85 bg-[linear-gradient(160deg,rgba(255,255,255,0.96),rgba(241,245,249,0.88))] px-1.5 py-1.5 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-sky-300/85 hover:bg-white hover:shadow-[0_14px_30px_-18px_rgba(14,165,233,0.78)] dark:border-slate-800/90 dark:bg-[linear-gradient(160deg,rgba(8,17,28,0.98),rgba(11,23,36,0.96))] dark:hover:border-sky-500/60 dark:hover:bg-[linear-gradient(160deg,rgba(10,23,36,0.98),rgba(14,31,48,0.96))] dark:hover:shadow-[0_10px_28px_-18px_rgba(14,165,233,0.8)] sm:min-h-[106px] sm:px-2 sm:py-1.5",
+                        "relative min-h-[94px] overflow-hidden rounded-md border border-slate-200/85 bg-[linear-gradient(160deg,rgba(255,255,255,0.96),rgba(241,245,249,0.88))] px-1.5 py-1.5 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-300/85 hover:bg-white hover:shadow-[0_12px_24px_-18px_rgba(15,23,42,0.32)] dark:border-slate-800/90 dark:bg-[linear-gradient(160deg,rgba(8,17,28,0.98),rgba(11,23,36,0.96))] dark:hover:border-slate-600/70 dark:hover:bg-[linear-gradient(160deg,rgba(10,23,36,0.98),rgba(14,31,48,0.96))] dark:hover:shadow-[0_12px_24px_-18px_rgba(2,6,23,0.75)] sm:min-h-[106px] sm:px-2 sm:py-1.5",
                         "before:absolute before:inset-y-2 before:left-0 before:w-[2px]",
                         accentClass,
                         pulseClass,
@@ -1811,11 +2949,14 @@ export default function WatchlistPage() {
                           "border-sky-400/80 ring-2 ring-sky-500/20 dark:border-sky-400/70 dark:ring-sky-400/20"
                       )}
                     >
-                      <button
-                        type="button"
-                        onClick={() => setSelectedSymbol(row.symbol)}
-                        className="block w-full pr-6 text-left"
-                      >
+                        <button
+                          type="button"
+                          onClick={() => setSelectedSymbol(row.symbol)}
+                          className={cn(
+                            "block w-full pr-7 text-left",
+                            isWatchlistEditMode ? "pb-4" : "md:pb-4"
+                          )}
+                        >
                         <p className="truncate text-[8px] font-semibold uppercase tracking-[0.11em] text-slate-800 dark:text-slate-300 sm:text-[10px]">
                           {row.symbol}
                         </p>
@@ -1838,12 +2979,40 @@ export default function WatchlistPage() {
                           event.preventDefault();
                           event.stopPropagation();
                         }}
-                        className="absolute right-1 top-1 inline-flex h-6 w-6 touch-none cursor-grab items-center justify-center rounded-md border border-slate-200/80 bg-white/90 text-slate-400 transition hover:border-sky-400/70 hover:text-sky-600 active:cursor-grabbing dark:border-slate-700/80 dark:bg-slate-900/85 dark:text-slate-500 dark:hover:border-sky-500/60 dark:hover:text-sky-300"
+                        className="absolute right-1 top-1 inline-flex h-6 w-6 touch-none cursor-grab items-center justify-center rounded-md border border-slate-200/80 bg-white/90 text-slate-400 transition hover:border-slate-400/70 hover:text-slate-600 active:cursor-grabbing dark:border-slate-700/80 dark:bg-slate-900/85 dark:text-slate-500 dark:hover:border-slate-500/70 dark:hover:text-slate-300"
                         aria-label={`Drag to reorder ${row.symbol}`}
                         disabled={reorderMutation.isPending || watchlistSymbols.length < 2}
                       >
                         <GripVertical className="h-3.5 w-3.5" />
                       </button>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          void handleRemoveSymbol(row.symbol);
+                        }}
+                        className="absolute bottom-1 right-1 hidden h-6 w-6 items-center justify-center rounded-md border border-rose-300/80 bg-rose-500/10 text-rose-600 transition hover:border-rose-400/45 hover:bg-rose-500/[0.12] hover:text-rose-700 dark:border-rose-500/50 dark:bg-rose-500/15 dark:text-rose-300 dark:hover:border-rose-400/50 dark:hover:bg-rose-500/[0.18] dark:hover:text-rose-200 md:inline-flex"
+                        aria-label={`Remove ${row.symbol}`}
+                        disabled={removeMutation.isPending && removingSymbol === row.symbol}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                      {isWatchlistEditMode ? (
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            void handleRemoveSymbol(row.symbol);
+                          }}
+                          className="absolute bottom-1 right-1 inline-flex h-6 w-6 items-center justify-center rounded-md border border-rose-300/80 bg-rose-500/10 text-rose-600 transition hover:border-rose-400/45 hover:bg-rose-500/[0.12] hover:text-rose-700 dark:border-rose-500/50 dark:bg-rose-500/15 dark:text-rose-300 dark:hover:border-rose-400/50 dark:hover:bg-rose-500/[0.18] dark:hover:text-rose-200 md:hidden"
+                          aria-label={`Remove ${row.symbol}`}
+                          disabled={removeMutation.isPending && removingSymbol === row.symbol}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      ) : null}
                     </div>
                   );
                 })}
@@ -1852,6 +3021,63 @@ export default function WatchlistPage() {
           </div>
         )}
       </section>
+
+      <Dialog open={isCreateWatchlistOpen} onOpenChange={setIsCreateWatchlistOpen}>
+        <DialogContent className="max-w-[calc(100%-1rem)] border border-slate-200/85 bg-[linear-gradient(170deg,rgba(255,255,255,0.98),rgba(241,245,249,0.95))] p-0 text-slate-900 shadow-[0_28px_70px_-42px_rgba(15,23,42,0.48)] sm:max-w-md dark:border-slate-700/80 dark:bg-[linear-gradient(170deg,rgba(7,16,27,0.98),rgba(6,12,22,0.96))] dark:text-slate-100">
+          <DialogHeader className="border-b border-slate-200/85 bg-[linear-gradient(120deg,rgba(240,249,255,0.9),rgba(255,255,255,0.88))] px-5 py-4 dark:border-slate-800/80 dark:[background-image:none] dark:bg-transparent">
+            <DialogTitle className="text-lg font-bold tracking-tight text-slate-900 dark:text-slate-100">
+              Create Watchlist
+            </DialogTitle>
+            <DialogDescription className="text-slate-600 dark:text-slate-400">
+              Enter a name for your new watchlist. It will become your active watchlist.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 px-5 py-4">
+            <div className="space-y-1">
+              <label
+                htmlFor="new-watchlist-name"
+                className="text-[10px] font-semibold uppercase tracking-[0.13em] text-slate-500 dark:text-slate-400"
+              >
+                Watchlist Name
+              </label>
+              <Input
+                id="new-watchlist-name"
+                value={newWatchlistName}
+                onChange={(event) => setNewWatchlistName(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void handleCreateWatchlist();
+                  }
+                }}
+                placeholder="Example: Swing Setup"
+                className="h-11 border-slate-300/80 bg-white/90 dark:border-slate-700/70 dark:bg-slate-950/65"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setIsCreateWatchlistOpen(false)}
+                className="h-10 border-slate-300/80 bg-white/90 text-slate-700 dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200"
+                disabled={createWatchlistMutation.isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={() => void handleCreateWatchlist()}
+                className="h-10 bg-emerald-600 text-white hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-400"
+                disabled={createWatchlistMutation.isPending}
+              >
+                {createWatchlistMutation.isPending ? "Creating..." : "Create Watchlist"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={isFilterDialogOpen} onOpenChange={setIsFilterDialogOpen}>
         <DialogContent className="max-h-[88vh] max-w-[calc(100%-1rem)] overflow-y-auto border border-slate-200/85 bg-[linear-gradient(170deg,rgba(255,255,255,0.98),rgba(241,245,249,0.95))] p-0 text-slate-900 shadow-[0_28px_70px_-42px_rgba(15,23,42,0.48)] sm:max-h-[82vh] sm:max-w-lg dark:border-slate-700/80 dark:bg-[linear-gradient(170deg,rgba(7,16,27,0.98),rgba(6,12,22,0.96))] dark:text-slate-100">
@@ -1894,7 +3120,7 @@ export default function WatchlistPage() {
                   <DropdownMenuTrigger asChild>
                     <button
                       type="button"
-                      className="flex h-11 w-full items-center justify-between rounded-lg border border-slate-300/85 bg-white/90 px-2.5 text-left text-sm text-slate-700 outline-none transition-colors hover:border-sky-400/70 dark:border-slate-700/70 dark:bg-slate-950/65 dark:text-slate-200 dark:hover:border-sky-500/60"
+                      className="flex h-11 w-full items-center justify-between rounded-lg border border-slate-300/85 bg-white/90 px-2.5 text-left text-sm text-slate-700 outline-none transition-colors hover:border-slate-400/70 dark:border-slate-700/70 dark:bg-slate-950/65 dark:text-slate-200 dark:hover:border-slate-500/70"
                     >
                       <span className="truncate">{segmentFilter}</span>
                       <ChevronDown className="h-4 w-4 text-slate-500 dark:text-slate-400" />
@@ -1928,7 +3154,7 @@ export default function WatchlistPage() {
                   <DropdownMenuTrigger asChild>
                     <button
                       type="button"
-                      className="flex h-11 w-full items-center justify-between rounded-lg border border-slate-300/85 bg-white/90 px-2.5 text-left text-sm text-slate-700 outline-none transition-colors hover:border-sky-400/70 dark:border-slate-700/70 dark:bg-slate-950/65 dark:text-slate-200 dark:hover:border-sky-500/60"
+                      className="flex h-11 w-full items-center justify-between rounded-lg border border-slate-300/85 bg-white/90 px-2.5 text-left text-sm text-slate-700 outline-none transition-colors hover:border-slate-400/70 dark:border-slate-700/70 dark:bg-slate-950/65 dark:text-slate-200 dark:hover:border-slate-500/70"
                     >
                       <span className="truncate">{exchangeFilter}</span>
                       <ChevronDown className="h-4 w-4 text-slate-500 dark:text-slate-400" />
@@ -2075,6 +3301,58 @@ export default function WatchlistPage() {
                       {formatNumber(selectedRow.bid, detailDigits)} / {formatNumber(selectedRow.ask, detailDigits)}
                     </p>
                   </div>
+                </div>
+
+                <div className="rounded-xl border border-slate-200/85 bg-white/90 p-3 shadow-[0_14px_28px_-22px_rgba(15,23,42,0.35)] dark:border-slate-800 dark:bg-[#0a1422] dark:shadow-none">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+                        Chart
+                      </p>
+                      <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                        {selectedRow.symbol} price action
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="flex items-center gap-1 rounded-full border border-slate-200/80 bg-slate-100/80 p-1 dark:border-slate-700/70 dark:bg-slate-900/70">
+                        {CHART_INTERVALS.map((interval) => (
+                          <button
+                            key={interval.value}
+                            type="button"
+                            onClick={() => setChartInterval(interval.value)}
+                            className={cn(
+                              "rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] transition",
+                              chartInterval === interval.value
+                                ? "bg-sky-500 text-white shadow-[0_6px_14px_-10px_rgba(14,165,233,0.9)]"
+                                : "text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white"
+                            )}
+                          >
+                            {interval.label}
+                          </button>
+                        ))}
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => openChartWindow(selectedRow.symbol)}
+                        className="h-8 border-slate-300/80 bg-white/90 px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-700 dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200"
+                      >
+                        Open Full Chart
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 h-[260px] w-full rounded-lg border border-slate-200/80 bg-white/70 p-2 sm:h-[320px] dark:border-slate-700/70 dark:bg-slate-950/60">
+                    <div ref={setChartContainer} className="h-full w-full" />
+                  </div>
+
+                  {historyQuery.isFetching ? (
+                    <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">Loading chart data...</p>
+                  ) : historyCandles.length === 0 ? (
+                    <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                      No chart data available right now.
+                    </p>
+                  ) : null}
                 </div>
 
                 <div className="flex flex-wrap items-center justify-end gap-2">
