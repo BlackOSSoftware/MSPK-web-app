@@ -2206,7 +2206,7 @@ function WatchlistPageContent() {
                     <Button
                       type="button"
                       variant="outline"
-                      className="h-10 w-full justify-between border-slate-300/80 bg-white/90 text-left text-xs font-semibold text-slate-700 transition-all duration-200 hover:-translate-y-[1px] hover:border-emerald-400/55 hover:bg-[linear-gradient(135deg,rgba(236,253,245,0.92),rgba(240,249,255,0.92))] hover:shadow-[0_10px_22px_-16px_rgba(16,185,129,0.55)] dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200 dark:hover:border-emerald-400/45 dark:hover:bg-emerald-500/[0.1] dark:hover:shadow-[0_12px_24px_-16px_rgba(16,185,129,0.6)]"
+                      className="h-10 w-full justify-between border-slate-300/80 bg-white/90 text-left text-xs font-semibold text-slate-700 transition-all duration-200 hover:-translate-y-[1px] hover:border-emerald-400/55 hover:bg-emerald-100/40 hover:shadow-[0_10px_22px_-16px_rgba(16,185,129,0.45)] dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200 dark:hover:border-emerald-400/45 dark:hover:bg-emerald-500/[0.14] dark:hover:shadow-[0_12px_24px_-16px_rgba(16,185,129,0.6)]"
                       disabled={watchlistsQuery.isLoading || watchlistBusy}
                     >
                       <span className="truncate">
@@ -2233,9 +2233,9 @@ function WatchlistPageContent() {
                             void handleActivateWatchlist(item.id, item.name);
                           }}
                           className={cn(
-                            "flex items-center justify-between gap-3 rounded-md px-2 py-2 text-xs text-slate-700 transition-colors duration-150 hover:bg-emerald-50/90 hover:text-emerald-800 focus:bg-emerald-50/90 focus:text-emerald-800 dark:text-slate-200 dark:hover:bg-emerald-500/[0.16] dark:hover:text-emerald-100 dark:focus:bg-emerald-500/[0.16] dark:focus:text-emerald-100",
+                            "flex cursor-pointer items-center justify-between gap-3 rounded-md px-2 py-2 text-xs text-slate-700 transition-colors duration-150 hover:bg-emerald-500/10 hover:text-emerald-800 focus:bg-emerald-500/10 focus:text-emerald-800 data-[highlighted]:bg-emerald-500/10 data-[highlighted]:text-emerald-800 dark:text-slate-200 dark:hover:bg-emerald-500/[0.22] dark:hover:text-emerald-100 dark:focus:bg-emerald-500/[0.22] dark:focus:text-emerald-100 dark:data-[highlighted]:bg-emerald-500/[0.22] dark:data-[highlighted]:text-emerald-100",
                             item.id === activeWatchlistId &&
-                              "bg-emerald-100/80 text-emerald-900 dark:bg-emerald-500/[0.24] dark:text-emerald-100"
+                              "bg-emerald-500/18 text-emerald-900 dark:bg-emerald-500/[0.32] dark:text-emerald-100"
                           )}
                         >
                           <span className="min-w-0 truncate font-semibold">{item.name}</span>
