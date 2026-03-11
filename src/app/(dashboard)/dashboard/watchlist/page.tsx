@@ -888,6 +888,10 @@ function WatchlistPageContent() {
       if (!mountedRef.current || closedByEffect) return;
       if (document.hidden) return;
       if (watchlistSymbolsRef.current.length === 0) return;
+      const existing = wsRef.current;
+      if (existing && (existing.readyState === WebSocket.OPEN || existing.readyState === WebSocket.CONNECTING)) {
+        return;
+      }
       const waitMs = Math.min(6_000, 1_200 + reconnectAttempts.current * 500);
       reconnectAttempts.current += 1;
       reconnectRef.current = window.setTimeout(() => {
@@ -899,6 +903,13 @@ function WatchlistPageContent() {
       if (closedByEffect || !mountedRef.current) return;
       if (document.hidden) return;
       if (watchlistSymbolsRef.current.length === 0) return;
+      const existing = wsRef.current;
+      if (existing && (existing.readyState === WebSocket.OPEN || existing.readyState === WebSocket.CONNECTING)) {
+        return;
+      }
+      if (existing && (existing.readyState === WebSocket.CLOSING || existing.readyState === WebSocket.CLOSED)) {
+        wsRef.current = null;
+      }
       setConnectionState("connecting");
 
       let socketUrl = "";
@@ -913,6 +924,7 @@ function WatchlistPageContent() {
       wsRef.current = socket;
 
       socket.onopen = () => {
+        if (wsRef.current !== socket) return;
         if (closedByEffect || !mountedRef.current) return;
         setConnectionState("connected");
         reconnectAttempts.current = 0;
@@ -928,6 +940,7 @@ function WatchlistPageContent() {
       };
 
       socket.onmessage = (event: MessageEvent<string>) => {
+        if (wsRef.current !== socket) return;
         try {
           const message = JSON.parse(event.data) as {
             type?: string;
@@ -947,11 +960,13 @@ function WatchlistPageContent() {
       };
 
       socket.onerror = () => {
+        if (wsRef.current !== socket) return;
         if (closedByEffect || !mountedRef.current) return;
         setConnectionState("error");
       };
 
       socket.onclose = () => {
+        if (wsRef.current !== socket) return;
         if (closedByEffect || !mountedRef.current) return;
         setConnectionState("disconnected");
         subscribedSymbolsRef.current.clear();
