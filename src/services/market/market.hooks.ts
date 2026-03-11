@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery } from "@tanstack/react-query";
 import {
   getMarketAnalysis,
   getMarketHistory,
@@ -55,7 +55,7 @@ export function useMarketHistoryQuery(params: Record<string, string | number>, e
     queryFn: () => getMarketHistory(params),
     enabled,
     staleTime: 15_000,
-    keepPreviousData: true,
+    placeholderData: keepPreviousData,
     refetchOnWindowFocus: false,
   });
 }

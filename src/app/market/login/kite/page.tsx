@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { postMarketLoginKite } from "@/services/market/market.service";
 import { Button } from "@/components/ui/button";
 
 type StatusState = "idle" | "loading" | "success" | "error";
 
-export default function KiteLoginCallbackPage() {
+function KiteLoginCallbackContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const processedRef = useRef(false);
@@ -69,5 +69,25 @@ export default function KiteLoginCallbackPage() {
         ) : null}
       </div>
     </div>
+  );
+}
+
+function KiteLoginFallback() {
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4">
+      <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900/70 p-5 shadow-[0_20px_60px_-35px_rgba(15,23,42,0.85)]">
+        <p className="text-[10px] uppercase tracking-[0.25em] text-slate-400">Kite Connect</p>
+        <h1 className="mt-2 text-xl font-semibold">Kite Login Callback</h1>
+        <p className="mt-3 text-sm text-slate-300">Loading login details...</p>
+      </div>
+    </div>
+  );
+}
+
+export default function KiteLoginCallbackPage() {
+  return (
+    <Suspense fallback={<KiteLoginFallback />}>
+      <KiteLoginCallbackContent />
+    </Suspense>
   );
 }

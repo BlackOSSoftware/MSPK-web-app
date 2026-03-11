@@ -1,12 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { createChart, type IChartApi, type ISeriesApi } from "lightweight-charts";
+import {
+  createChart,
+  type IChartApi,
+  type ISeriesApi,
+  type MouseEventParams,
+  type UTCTimestamp,
+} from "lightweight-charts";
 import { useSearchParams } from "next/navigation";
 import {
   ArrowDown,
+  ArrowLeft,
   ArrowUp,
   ChevronDown,
   Crosshair,
@@ -67,6 +74,7 @@ const CHART_BAR_SPACING_DEFAULT = 6;
 const CHART_BAR_SPACING_MIN = 2;
 const CHART_BAR_SPACING_MAX = 24;
 const CHART_BAR_SPACING_STEP = 2;
+const PRICE_LINE_CLICK_TOLERANCE_PX = 10;
 
 type SocketTick = {
   symbol: string;
@@ -99,7 +107,7 @@ type WatchlistRow = {
 
 type ChartInterval = "5" | "15" | "60" | "D";
 type HistoryCandle = {
-  time: number;
+  time: UTCTimestamp;
   open: number;
   high: number;
   low: number;
@@ -110,6 +118,8 @@ type TickPoint = {
   time: number;
   price: number;
 };
+
+const toUTCTimestamp = (value: number): UTCTimestamp => value as UTCTimestamp;
 
 const DEFAULT_TABLE_COLUMNS = [
   "symbol",
@@ -189,9 +199,10 @@ function buildCandlesFromTicks(points: TickPoint[], intervalSec: number): Histor
   for (const point of points) {
     if (!Number.isFinite(point.time) || !Number.isFinite(point.price)) continue;
     const bucket = Math.floor(point.time / intervalSec) * intervalSec;
-    if (!current || bucket !== current.time) {
+    const bucketTime = toUTCTimestamp(bucket);
+    if (!current || bucketTime !== current.time) {
       current = {
-        time: bucket,
+        time: bucketTime,
         open: point.price,
         high: point.price,
         low: point.price,
@@ -430,7 +441,7 @@ function mapWatchlistRow(base: MarketTicker, live?: SocketTick): WatchlistRow | 
   };
 }
 
-export default function WatchlistPage() {
+function WatchlistPageContent() {
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
   const chartMode = searchParams.get("chart") === "1";
@@ -466,6 +477,7 @@ export default function WatchlistPage() {
   const [chartInterval, setChartInterval] = useState<ChartInterval>("15");
   const [hasChartData, setHasChartData] = useState(false);
   const [crosshairEnabled, setCrosshairEnabled] = useState(true);
+  const [isAdjustOpen, setIsAdjustOpen] = useState(false);
   const chartBarSpacingRef = useRef(CHART_BAR_SPACING_DEFAULT);
   const chartManualZoomRef = useRef(false);
   const crosshairEnabledRef = useRef(true);
@@ -498,6 +510,7 @@ export default function WatchlistPage() {
     ask: 120,
     action: 130,
   });
+
   const previousPriceRef = useRef<Record<string, number>>({});
   const previousHighRef = useRef<Record<string, number>>({});
   const previousLowRef = useRef<Record<string, number>>({});
@@ -1460,43 +1473,50 @@ export default function WatchlistPage() {
         ? (raw as { candles: unknown[] }).candles
         : [];
 
-    return list
-      .map((item) => {
-        const row = item as Record<string, unknown>;
-        const timeRaw = row.time ?? row.timestamp ?? row.t;
-        let time =
-          typeof timeRaw === "number"
-            ? timeRaw
-            : typeof timeRaw === "string"
-              ? Math.floor(new Date(timeRaw).getTime() / 1000)
-              : undefined;
-        if (typeof time === "number" && time > 10_000_000_000) {
-          time = Math.floor(time / 1000);
-        }
-        const open = toNumber(row.open);
-        let high = toNumber(row.high);
-        let low = toNumber(row.low);
-        const close = toNumber(row.close);
-        if (
-          !time ||
-          open === undefined ||
-          high === undefined ||
-          low === undefined ||
-          close === undefined ||
-          open <= 0 ||
-          high <= 0 ||
-          low <= 0 ||
-          close <= 0
-        ) {
-          return null;
-        }
-        if (high < low) {
-          [high, low] = [low, high];
-        }
-        return { time, open, high, low, close, volume: toNumber(row.volume) ?? undefined };
-      })
-      .filter((item): item is HistoryCandle => Boolean(item))
-      .sort((left, right) => left.time - right.time)
+    const candles: HistoryCandle[] = [];
+
+    for (const item of list) {
+      const row = item as Record<string, unknown>;
+      const timeRaw = row.time ?? row.timestamp ?? row.t;
+      let time =
+        typeof timeRaw === "number"
+          ? timeRaw
+          : typeof timeRaw === "string"
+            ? Math.floor(new Date(timeRaw).getTime() / 1000)
+            : undefined;
+      if (typeof time === "number" && time > 10_000_000_000) {
+        time = Math.floor(time / 1000);
+      }
+      const open = toNumber(row.open);
+      let high = toNumber(row.high);
+      let low = toNumber(row.low);
+      const close = toNumber(row.close);
+      if (
+        !time ||
+        open === undefined ||
+        high === undefined ||
+        low === undefined ||
+        close === undefined ||
+        open <= 0 ||
+        high <= 0 ||
+        low <= 0 ||
+        close <= 0
+      ) {
+        continue;
+      }
+      if (high < low) {
+        [high, low] = [low, high];
+      }
+      const candle: HistoryCandle = { time: toUTCTimestamp(time), open, high, low, close };
+      const volume = toNumber(row.volume);
+      if (typeof volume === "number") {
+        candle.volume = volume;
+      }
+      candles.push(candle);
+    }
+
+    return candles
+      .sort((left, right) => Number(left.time) - Number(right.time))
       .slice(-HISTORY_CANDLE_COUNT);
   }, [historyQuery.data]);
 
@@ -1545,7 +1565,7 @@ export default function WatchlistPage() {
       handleScroll: {
         pressedMouseMove: true,
         horzTouchDrag: true,
-        vertTouchDrag: false,
+        vertTouchDrag: true,
         mouseWheel: true,
       },
       handleScale: {
@@ -1577,14 +1597,14 @@ export default function WatchlistPage() {
     chartRef.current = chart;
     candleSeriesRef.current = series;
 
-    const handleCrosshairMove = (param: { time?: number; seriesData?: Map<unknown, unknown> }) => {
+    const handleCrosshairMove = (param: MouseEventParams) => {
       if (!crosshairEnabledRef.current) {
         chartHoverRef.current = false;
         updateLegendFromLatest();
         return;
       }
       const seriesData = param?.seriesData;
-      const time = typeof param?.time === "number" ? param.time : null;
+    const time = typeof param?.time === "number" ? toUTCTimestamp(param.time) : null;
       if (!seriesData || time === null || !candleSeriesRef.current) {
         chartHoverRef.current = false;
         updateLegendFromLatest();
@@ -1612,7 +1632,26 @@ export default function WatchlistPage() {
       });
     };
 
+    const handleChartClick = (param: MouseEventParams) => {
+      if (!candleSeriesRef.current) return;
+      const candles = chartCandlesRef.current;
+      if (candles.length === 0) return;
+      const last = candles[candles.length - 1];
+      if (!last || !Number.isFinite(last.close)) return;
+      const priceY = candleSeriesRef.current.priceToCoordinate(last.close);
+      if (priceY === null) return;
+      const clickY =
+        param?.point?.y ??
+        (param.sourceEvent ? param.sourceEvent.clientY - container.getBoundingClientRect().top : null);
+      if (clickY === null) return;
+      if (clickY < 0 || clickY > container.clientHeight) return;
+      if (Math.abs(clickY - priceY) <= PRICE_LINE_CLICK_TOLERANCE_PX) {
+        setIsAdjustOpen((prev) => !prev);
+      }
+    };
+
     chart.subscribeCrosshairMove(handleCrosshairMove);
+    chart.subscribeClick(handleChartClick);
     const handleRangeChange = () => {
       if (chartFitProgrammaticRef.current) return;
       chartManualZoomRef.current = true;
@@ -1644,6 +1683,7 @@ export default function WatchlistPage() {
     return () => {
       resizeObserver.disconnect();
       chart.unsubscribeCrosshairMove(handleCrosshairMove);
+      chart.unsubscribeClick(handleChartClick);
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(handleRangeChange);
       chart.remove();
       chartRef.current = null;
@@ -1686,22 +1726,24 @@ export default function WatchlistPage() {
     const time = getTickTimestamp(tick);
     const bucket = Math.floor(time / intervalSeconds) * intervalSeconds;
     if (!Number.isFinite(bucket) || bucket <= 0) return;
+    const bucketTime = toUTCTimestamp(bucket);
 
     const candles = chartCandlesRef.current;
     if (candles.length === 0) return;
     const last = candles[candles.length - 1];
+    const lastTime = last ? Number(last.time) : 0;
     const nowMs = Date.now();
-    const isNewBucket = !last || bucket > last.time;
+    const isNewBucket = !last || bucket > lastTime;
 
     if (!isNewBucket) {
-      if (bucket < (last?.time ?? 0)) return;
+      if (bucket < lastTime) return;
       if (nowMs - lastChartUpdateRef.current < CHART_UPDATE_THROTTLE_MS) return;
     }
 
     let updated: HistoryCandle;
     let shouldReset = false;
-    if (!last || bucket > last.time) {
-      updated = { time: bucket, open: price, high: price, low: price, close: price };
+    if (!last || bucket > lastTime) {
+      updated = { time: bucketTime, open: price, high: price, low: price, close: price };
       candles.push(updated);
       if (candles.length > HISTORY_CANDLE_COUNT) {
         candles.splice(0, candles.length - HISTORY_CANDLE_COUNT);
@@ -1939,7 +1981,7 @@ export default function WatchlistPage() {
   if (chartMode) {
     const activeSymbol = selectedSymbol || urlSymbol;
     const chartToolbarClass =
-      "absolute bottom-10 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-full border border-slate-200/80 bg-white/90 px-1 py-0.5 shadow-sm backdrop-blur opacity-0 pointer-events-none transition dark:border-slate-700/70 dark:bg-slate-900/80 group-focus-within:opacity-100 group-focus-within:pointer-events-auto lg:bottom-3 lg:gap-1.5 lg:px-1.5 lg:py-1 lg:opacity-100 lg:pointer-events-auto";
+      "absolute bottom-12 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-full border border-slate-200/80 bg-white/90 px-1 py-0.5 shadow-sm backdrop-blur transition dark:border-slate-700/70 dark:bg-slate-900/80 sm:bottom-10 lg:bottom-8 lg:gap-1.5 lg:px-1.5 lg:py-1";
     const chartToolButtonClass =
       "inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-200/70 bg-white/90 text-slate-700 transition hover:bg-slate-50 hover:text-slate-900 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-200 dark:hover:bg-slate-800/80 dark:hover:text-white lg:h-8 lg:w-8";
     return (
@@ -1976,23 +2018,16 @@ export default function WatchlistPage() {
                 Interval: {chartInterval}
               </p>
             </div>
-            <div className="hidden items-center gap-2 sm:flex">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => window.close()}
-                className="h-9 border-slate-300/80 bg-white/90 text-slate-700 dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200"
-              >
-                Close
-              </Button>
+            <div className="flex items-center gap-2">
               <Button
                 type="button"
                 onClick={() => {
                   window.location.href = "/dashboard/watchlist";
                 }}
-                className="h-9 bg-emerald-600 text-white hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-400"
+                aria-label="Back to watchlist"
+                className="hidden h-9 w-9 rounded-full border border-slate-300/80 bg-white/80 text-slate-700 hover:bg-slate-100 dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200 dark:hover:bg-slate-800/80 sm:inline-flex"
               >
-                Watchlist
+                <ArrowLeft className="h-4 w-4" />
               </Button>
             </div>
             <div className="flex w-full flex-wrap items-center gap-1.5 pt-1 sm:gap-2 sm:pt-2">
@@ -2026,15 +2061,15 @@ export default function WatchlistPage() {
           </header>
 
           <section
-            className="group relative flex-1 min-h-0 overflow-hidden rounded-2xl border border-slate-200/80 bg-white/80 p-2 shadow-[0_16px_40px_-30px_rgba(15,23,42,0.35)] focus:outline-none dark:border-slate-800 dark:bg-slate-950/70"
+            className="group relative flex-1 min-h-0 overflow-hidden rounded-2xl border border-slate-200/80 bg-white/80 p-2 shadow-[0_16px_40px_-30px_rgba(15,23,42,0.35)] focus:outline-none dark:border-slate-800 dark:bg-slate-950/70 touch-none"
             tabIndex={0}
             onPointerDown={(event) => {
               event.currentTarget.focus();
             }}
           >
             {chartLegend ? (
-              <div className="pointer-events-none absolute left-3 right-auto top-2 z-10 rounded-xl border border-slate-200/80 bg-white/90 px-1.5 py-0.5 text-[9px] text-slate-600 shadow-sm backdrop-blur dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-300 sm:left-auto sm:right-3 sm:top-3 sm:px-2 sm:py-1 sm:text-[11px]">
-                <div className="flex flex-wrap items-center gap-1 sm:gap-2">
+              <div className="pointer-events-none absolute left-3 top-2 z-10 rounded-lg border border-slate-200/80 bg-white/90 px-1 py-0.5 text-[8px] text-slate-600 shadow-sm backdrop-blur dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-300 sm:left-3 sm:top-3 sm:px-1.5 sm:py-0.5 sm:text-[9px]">
+                <div className="flex flex-wrap items-center gap-1 sm:gap-1.5">
                   <span>
                     O{" "}
                     <span className="font-semibold text-slate-900 dark:text-slate-100">
@@ -2059,18 +2094,15 @@ export default function WatchlistPage() {
                       {formatNumber(chartLegend.close, chartLegendDigits)}
                     </span>
                   </span>
-                  <span>
-                    V{" "}
-                    <span className="font-semibold text-slate-900 dark:text-slate-100">
-                      {typeof chartLegend.volume === "number" && chartLegend.volume > 0
-                        ? chartLegend.volume.toLocaleString("en-IN")
-                        : "--"}
-                    </span>
-                  </span>
                 </div>
               </div>
             ) : null}
-            <div className={chartToolbarClass}>
+            <div
+              className={cn(
+                chartToolbarClass,
+                isAdjustOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+              )}
+            >
               <button
                 type="button"
                 onClick={() => setCrosshairEnabled((prev) => !prev)}
@@ -2113,7 +2145,7 @@ export default function WatchlistPage() {
                 <RotateCcw className="h-3 w-3 lg:h-4 lg:w-4" />
               </button>
             </div>
-            <div ref={setChartContainer} className="h-full w-full" />
+            <div ref={setChartContainer} className="h-full w-full touch-none select-none" />
           </section>
         </div>
       </div>
@@ -3386,6 +3418,24 @@ export default function WatchlistPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+function WatchlistPageFallback() {
+  return (
+    <div className="space-y-4 pb-6">
+      <div className="rounded-2xl border border-slate-300/70 bg-white/80 p-5 text-sm text-slate-600 shadow-sm dark:border-slate-700/60 dark:bg-slate-950/70 dark:text-slate-300">
+        Loading watchlist...
+      </div>
+    </div>
+  );
+}
+
+export default function WatchlistPage() {
+  return (
+    <Suspense fallback={<WatchlistPageFallback />}>
+      <WatchlistPageContent />
+    </Suspense>
   );
 }
 
