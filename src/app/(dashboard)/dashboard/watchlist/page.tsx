@@ -8,6 +8,7 @@ import {
   type IChartApi,
   type ISeriesApi,
   type MouseEventParams,
+  TrackingModeExitMode,
   type UTCTimestamp,
 } from "lightweight-charts";
 import { useSearchParams } from "next/navigation";
@@ -15,12 +16,17 @@ import {
   ArrowDown,
   ArrowLeft,
   ArrowUp,
+  BarChart3,
+  CandlestickChart,
   ChevronDown,
   Crosshair,
   GripVertical,
+  LineChart,
   Minus,
   Plus,
+  RefreshCw,
   RotateCcw,
+  ScanSearch,
   Search,
   SlidersHorizontal,
   Trash2,
@@ -69,6 +75,7 @@ type CardPulse = "up" | "down";
 const VIEW_MODE_STORAGE_KEY = "watchlist_view_mode";
 const TABLE_COLUMN_STORAGE_KEY = "watchlist_table_columns_v1";
 const TABLE_COLUMN_WIDTHS_KEY = "watchlist_table_column_widths_v1";
+const CHART_TYPE_STORAGE_KEY = "watchlist_chart_type";
 const SUPPORT_WHATSAPP = "917770039037";
 const USER_WATCHLIST_QUERY_KEY = [...MARKET_QUERY_KEY, "user-watchlist", "active"] as const;
 const CHART_BAR_SPACING_DEFAULT = 6;
@@ -106,7 +113,8 @@ type WatchlistRow = {
   updatedAt?: string;
 };
 
-type ChartInterval = "5" | "15" | "60" | "D";
+type ChartInterval = "1" | "2" | "5" | "10" | "15" | "60" | "D" | "W" | "M";
+type ChartType = "candle" | "heikin";
 type HistoryCandle = {
   time: UTCTimestamp;
   open: number;
@@ -139,10 +147,19 @@ const DEFAULT_TABLE_COLUMNS = [
 ] as const;
 
 const CHART_INTERVALS: { label: string; value: ChartInterval }[] = [
+  { label: "1m", value: "1" },
+  { label: "2m", value: "2" },
   { label: "5m", value: "5" },
+  { label: "10m", value: "10" },
   { label: "15m", value: "15" },
   { label: "1h", value: "60" },
   { label: "1D", value: "D" },
+  { label: "1W", value: "W" },
+  { label: "1M", value: "M" },
+];
+const CHART_TYPES: { label: string; value: ChartType }[] = [
+  { label: "Candles", value: "candle" },
+  { label: "Heikin Ashi", value: "heikin" },
 ];
 
 const MIN_HISTORY_CANDLES = 5;
@@ -150,6 +167,9 @@ const HISTORY_CANDLE_COUNT = 500;
 const MAX_TICK_HISTORY_LENGTH = 5000;
 const TICK_HISTORY_WINDOW_SEC = 12 * 60 * 60;
 const CHART_UPDATE_THROTTLE_MS = 250;
+const INDIA_TIME_ZONE = "Asia/Kolkata";
+const INDIA_TIME_ZONE_OFFSET_SEC = 5.5 * 60 * 60;
+const INDIA_EXCHANGES = new Set(["NSE", "BSE", "NFO", "MCX", "CDS", "BCD"]);
 
 type TableColumnId = (typeof DEFAULT_TABLE_COLUMNS)[number];
 
@@ -163,6 +183,81 @@ function toPositiveNumber(value: unknown): number | undefined {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
 
+function isTouchInteractionDevice(): boolean {
+  if (typeof window === "undefined" || typeof navigator === "undefined") return false;
+  const coarsePointer =
+    typeof window.matchMedia === "function" ? window.matchMedia("(pointer: coarse)").matches : false;
+  return coarsePointer || navigator.maxTouchPoints > 0;
+}
+
+function getChartTypeIcon(type: ChartType) {
+  return type === "heikin" ? LineChart : CandlestickChart;
+}
+
+function isIndianMarketSymbol(row?: Pick<WatchlistRow, "exchange"> | null, symbol?: string | null): boolean {
+  const exchange = String(row?.exchange ?? "").trim().toUpperCase();
+  if (INDIA_EXCHANGES.has(exchange)) return true;
+  const normalizedSymbol = String(symbol ?? "").trim().toUpperCase();
+  return (
+    normalizedSymbol.startsWith("NSE:") ||
+    normalizedSymbol.startsWith("BSE:") ||
+    normalizedSymbol.startsWith("NFO:") ||
+    normalizedSymbol.startsWith("MCX:") ||
+    normalizedSymbol.startsWith("CDS:") ||
+    normalizedSymbol.startsWith("BCD:")
+  );
+}
+
+function normalizeBucketOffset(timeSec: number, intervalSec: number): number {
+  if (!Number.isFinite(timeSec) || !Number.isFinite(intervalSec) || intervalSec <= 0) return 0;
+  const offset = Math.floor(timeSec) % intervalSec;
+  return offset >= 0 ? offset : offset + intervalSec;
+}
+
+function toDateFromChartTime(time: unknown): Date | null {
+  if (typeof time === "number" && Number.isFinite(time)) {
+    return new Date(time * 1000);
+  }
+  if (time && typeof time === "object") {
+    const value = time as { year?: number; month?: number; day?: number };
+    if (
+      typeof value.year === "number" &&
+      typeof value.month === "number" &&
+      typeof value.day === "number"
+    ) {
+      return new Date(Date.UTC(value.year, value.month - 1, value.day));
+    }
+  }
+  return null;
+}
+
+function formatChartTimeLabel(
+  time: unknown,
+  interval: ChartInterval,
+  timeZone?: string,
+  includeDate = false
+): string {
+  const date = toDateFromChartTime(time);
+  if (!date) return "";
+  const intraday = interval !== "D" && interval !== "W" && interval !== "M";
+  const options: Intl.DateTimeFormatOptions = intraday
+    ? {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+        ...(includeDate ? { day: "2-digit", month: "short" } : {}),
+      }
+    : {
+        day: "2-digit",
+        month: "short",
+        year: "2-digit",
+      };
+  if (timeZone) {
+    options.timeZone = timeZone;
+  }
+  return new Intl.DateTimeFormat("en-IN", options).format(date);
+}
+
 function getFirstPositive(...values: Array<unknown>): number | undefined {
   for (const value of values) {
     const parsed = toPositiveNumber(value);
@@ -173,14 +268,24 @@ function getFirstPositive(...values: Array<unknown>): number | undefined {
 
 function intervalToSeconds(interval: ChartInterval): number {
   switch (interval) {
+    case "1":
+      return 1 * 60;
+    case "2":
+      return 2 * 60;
     case "5":
       return 5 * 60;
+    case "10":
+      return 10 * 60;
     case "15":
       return 15 * 60;
     case "60":
       return 60 * 60;
     case "D":
       return 24 * 60 * 60;
+    case "W":
+      return 7 * 24 * 60 * 60;
+    case "M":
+      return 30 * 24 * 60 * 60;
     default:
       return 15 * 60;
   }
@@ -205,21 +310,63 @@ function getTickTimestamp(tick: SocketTick): number {
   return Math.floor(Date.now() / 1000);
 }
 
-function buildCandlesFromTicks(points: TickPoint[], intervalSec: number): HistoryCandle[] {
+function getBucketStart(
+  timeSec: number,
+  interval: ChartInterval,
+  intervalSec: number,
+  bucketOffsetSec = 0,
+  timezoneOffsetSec = 0
+): UTCTimestamp {
+  if (interval === "D" || interval === "W" || interval === "M") {
+    const safeZoneOffset = Number.isFinite(timezoneOffsetSec) ? timezoneOffsetSec : 0;
+    const date = new Date((timeSec + safeZoneOffset) * 1000);
+    if (interval === "D") {
+      date.setUTCHours(0, 0, 0, 0);
+    } else if (interval === "W") {
+      const day = date.getUTCDay();
+      const diff = date.getUTCDate() - day + (day === 0 ? -6 : 1);
+      date.setUTCDate(diff);
+      date.setUTCHours(0, 0, 0, 0);
+    } else {
+      date.setUTCDate(1);
+      date.setUTCHours(0, 0, 0, 0);
+    }
+    return toUTCTimestamp(Math.floor(date.getTime() / 1000) - safeZoneOffset);
+  }
+
+  const safeBucketOffset = normalizeBucketOffset(bucketOffsetSec, intervalSec);
+  const bucket = Math.floor((timeSec - safeBucketOffset) / intervalSec) * intervalSec + safeBucketOffset;
+  return toUTCTimestamp(bucket);
+}
+
+function buildCandlesFromTicks(
+  points: TickPoint[],
+  interval: ChartInterval,
+  intervalSec: number,
+  isIndianMarket = false
+): HistoryCandle[] {
   if (intervalSec <= 0 || points.length === 0) return [];
+  const bucketOffsetSec = normalizeBucketOffset(points[0].time, intervalSec);
   const candles: HistoryCandle[] = [];
   let current: HistoryCandle | null = null;
+  let previousClose: number | null = null;
 
   for (const point of points) {
     if (!Number.isFinite(point.time) || !Number.isFinite(point.price)) continue;
-    const bucket = Math.floor(point.time / intervalSec) * intervalSec;
-    const bucketTime = toUTCTimestamp(bucket);
+    const bucketTime = getBucketStart(
+      point.time,
+      interval,
+      intervalSec,
+      bucketOffsetSec,
+      isIndianMarket ? INDIA_TIME_ZONE_OFFSET_SEC : 0
+    );
     if (!current || bucketTime !== current.time) {
+      const seededOpen: number = previousClose ?? point.price;
       current = {
         time: bucketTime,
-        open: point.price,
-        high: point.price,
-        low: point.price,
+        open: seededOpen,
+        high: Math.max(seededOpen, point.price),
+        low: Math.min(seededOpen, point.price),
         close: point.price,
       };
       candles.push(current);
@@ -228,9 +375,34 @@ function buildCandlesFromTicks(points: TickPoint[], intervalSec: number): Histor
       current.low = Math.min(current.low, point.price);
       current.close = point.price;
     }
+    previousClose = current.close;
   }
 
   return candles;
+}
+
+function calculateHeikinAshi(candles: HistoryCandle[]): HistoryCandle[] {
+  if (candles.length === 0) return [];
+  const haCandles: HistoryCandle[] = [];
+  const first = candles[0];
+  haCandles.push({ ...first });
+  for (let i = 1; i < candles.length; i += 1) {
+    const curr = candles[i];
+    const prev = haCandles[i - 1];
+    const haClose = (curr.open + curr.high + curr.low + curr.close) / 4;
+    const haOpen = (prev.open + prev.close) / 2;
+    const haHigh = Math.max(curr.high, haOpen, haClose);
+    const haLow = Math.min(curr.low, haOpen, haClose);
+    haCandles.push({
+      time: curr.time,
+      open: haOpen,
+      high: haHigh,
+      low: haLow,
+      close: haClose,
+      volume: curr.volume,
+    });
+  }
+  return haCandles;
 }
 
 function normalizeSymbol(symbol: string): string {
@@ -499,14 +671,17 @@ function WatchlistPageContent() {
   const [removingSymbol, setRemovingSymbol] = useState<string | null>(null);
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   const [chartInterval, setChartInterval] = useState<ChartInterval>("15");
+  const [chartType, setChartType] = useState<ChartType>("candle");
   const [hasChartData, setHasChartData] = useState(false);
   const [crosshairEnabled, setCrosshairEnabled] = useState(true);
   const [isAdjustOpen, setIsAdjustOpen] = useState(false);
+  const [showChartToolbar, setShowChartToolbar] = useState(false);
   const chartBarSpacingRef = useRef(CHART_BAR_SPACING_DEFAULT);
   const chartManualZoomRef = useRef(false);
   const crosshairEnabledRef = useRef(true);
   const chartFitProgrammaticRef = useRef(false);
   const chartHoverRef = useRef(false);
+  const hideToolbarTimerRef = useRef<number | null>(null);
   const [chartLegend, setChartLegend] = useState<HistoryCandle | null>(null);
   const chartLegendRef = useRef<HistoryCandle | null>(null);
   const [cardPulseMap, setCardPulseMap] = useState<Record<string, CardPulse>>({});
@@ -548,6 +723,8 @@ function WatchlistPageContent() {
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const touchCrosshairPointerIdRef = useRef<number | null>(null);
+  const chartRawCandlesRef = useRef<HistoryCandle[]>([]);
   const chartCandlesRef = useRef<HistoryCandle[]>([]);
   const lastChartUpdateRef = useRef(0);
   const historyCacheRef = useRef<Record<string, HistoryCandle[]>>({});
@@ -627,10 +804,28 @@ function WatchlistPageContent() {
   useEffect(() => {
     if (!urlInterval) return;
     const normalized = urlInterval.toUpperCase();
-    if (normalized === "5" || normalized === "15" || normalized === "60" || normalized === "D") {
+    if (
+      normalized === "1" ||
+      normalized === "2" ||
+      normalized === "5" ||
+      normalized === "10" ||
+      normalized === "15" ||
+      normalized === "60" ||
+      normalized === "D" ||
+      normalized === "W" ||
+      normalized === "M"
+    ) {
       setChartInterval(normalized as ChartInterval);
     }
   }, [urlInterval]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = window.localStorage.getItem(CHART_TYPE_STORAGE_KEY);
+    if (stored === "candle" || stored === "heikin") {
+      setChartType(stored);
+    }
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -673,6 +868,11 @@ function WatchlistPageContent() {
     if (typeof window === "undefined") return;
     window.localStorage.setItem(VIEW_MODE_STORAGE_KEY, viewMode);
   }, [viewMode]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(CHART_TYPE_STORAGE_KEY, chartType);
+  }, [chartType]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1453,6 +1653,10 @@ function WatchlistPageContent() {
   }, [selectedRow]);
   const selectedTick = selectedSymbol ? ticks[selectedSymbol] : undefined;
   const intervalSeconds = useMemo(() => intervalToSeconds(chartInterval), [chartInterval]);
+  const isIndianChartMarket = useMemo(
+    () => isIndianMarketSymbol(selectedRow, selectedSymbol ?? urlSymbol),
+    [selectedRow, selectedSymbol, urlSymbol]
+  );
   const whatsappUrl = useMemo(() => {
     if (!selectedRow) return "";
     const message = [
@@ -1580,12 +1784,17 @@ function WatchlistPageContent() {
       }
     }
     const points = tickHistoryRef.current[selectedSymbol] ?? [];
-    const tickCandles = buildCandlesFromTicks(points, intervalSeconds);
+    const tickCandles = buildCandlesFromTicks(
+      points,
+      chartInterval,
+      intervalSeconds,
+      isIndianChartMarket
+    );
     if (tickCandles.length >= MIN_HISTORY_CANDLES) {
       return tickCandles;
     }
     return [];
-  }, [selectedSymbol, historyCandles, intervalSeconds, historyKey]);
+  }, [selectedSymbol, historyCandles, intervalSeconds, historyKey, isIndianChartMarket]);
 
   useEffect(() => {
     if (!selectedSymbol || !chartContainerRef.current || !chartContainerReady) return;
@@ -1595,16 +1804,25 @@ function WatchlistPageContent() {
     const container = chartContainerRef.current;
     const isDark = document.documentElement.classList.contains("dark");
     const initialHeight = Math.max(220, Math.floor(container.clientHeight || 260));
+    const touchCrosshairMode = isTouchInteractionDevice() && crosshairEnabledRef.current;
+    const chartTimeZone = isIndianChartMarket ? INDIA_TIME_ZONE : undefined;
     const chart = createChart(container, {
       height: initialHeight,
       layout: {
         background: { color: "transparent" },
         textColor: isDark ? "#e2e8f0" : "#0f172a",
       },
+      localization: chartTimeZone
+        ? {
+            locale: "en-IN",
+            timeFormatter: (time: unknown) =>
+              formatChartTimeLabel(time, chartInterval, chartTimeZone, true),
+          }
+        : undefined,
       handleScroll: {
         pressedMouseMove: true,
-        horzTouchDrag: true,
-        vertTouchDrag: true,
+        horzTouchDrag: !touchCrosshairMode,
+        vertTouchDrag: !touchCrosshairMode,
         mouseWheel: true,
       },
       handleScale: {
@@ -1612,8 +1830,21 @@ function WatchlistPageContent() {
         mouseWheel: true,
         pinch: true,
       },
+      trackingMode: {
+        exitMode: TrackingModeExitMode.OnNextTap,
+      },
       crosshair: {
         mode: crosshairEnabledRef.current ? 0 : 2,
+        vertLine: {
+          visible: true,
+          labelVisible: true,
+          color: isDark ? "rgba(148, 163, 184, 0.85)" : "rgba(15, 23, 42, 0.45)",
+        },
+        horzLine: {
+          visible: true,
+          labelVisible: true,
+          color: isDark ? "rgba(148, 163, 184, 0.85)" : "rgba(15, 23, 42, 0.45)",
+        },
       },
       grid: {
         vertLines: { color: isDark ? "rgba(51, 65, 85, 0.45)" : "rgba(148, 163, 184, 0.25)" },
@@ -1622,8 +1853,11 @@ function WatchlistPageContent() {
       rightPriceScale: { borderVisible: false },
       timeScale: {
         borderVisible: false,
-        timeVisible: chartInterval !== "D",
+        timeVisible: chartInterval !== "D" && chartInterval !== "W" && chartInterval !== "M",
         barSpacing: chartBarSpacingRef.current,
+        tickMarkFormatter: chartTimeZone
+          ? (time: unknown) => formatChartTimeLabel(time, chartInterval, chartTimeZone, false)
+          : undefined,
       },
     });
     const series = chart.addCandlestickSeries({
@@ -1688,6 +1922,51 @@ function WatchlistPageContent() {
         setIsAdjustOpen((prev) => !prev);
       }
     };
+    const updateCrosshairFromTouchPoint = (clientX: number, clientY: number) => {
+      if (!crosshairEnabledRef.current || !chartRef.current || !candleSeriesRef.current) return;
+      const rect = container.getBoundingClientRect();
+      const x = clientX - rect.left;
+      const y = clientY - rect.top;
+      if (x < 0 || x > rect.width || y < 0 || y > rect.height) return;
+      const time = chart.timeScale().coordinateToTime(x);
+      const price = candleSeriesRef.current.coordinateToPrice(y);
+      if (time === null || price === null) return;
+      chartRef.current.setCrosshairPosition(price, time as UTCTimestamp, candleSeriesRef.current);
+    };
+    const handleTouchPointerDown = (event: PointerEvent) => {
+      if (!isTouchInteractionDevice() || event.pointerType !== "touch" || !crosshairEnabledRef.current) {
+        return;
+      }
+      touchCrosshairPointerIdRef.current = event.pointerId;
+      if (typeof container.setPointerCapture === "function") {
+        container.setPointerCapture(event.pointerId);
+      }
+      updateCrosshairFromTouchPoint(event.clientX, event.clientY);
+      event.preventDefault();
+    };
+    const handleTouchPointerMove = (event: PointerEvent) => {
+      if (
+        !isTouchInteractionDevice() ||
+        event.pointerType !== "touch" ||
+        touchCrosshairPointerIdRef.current !== event.pointerId ||
+        !crosshairEnabledRef.current
+      ) {
+        return;
+      }
+      updateCrosshairFromTouchPoint(event.clientX, event.clientY);
+      event.preventDefault();
+    };
+    const handleTouchPointerEnd = (event: PointerEvent) => {
+      if (touchCrosshairPointerIdRef.current !== event.pointerId) return;
+      touchCrosshairPointerIdRef.current = null;
+      if (
+        typeof container.hasPointerCapture === "function" &&
+        typeof container.releasePointerCapture === "function" &&
+        container.hasPointerCapture(event.pointerId)
+      ) {
+        container.releasePointerCapture(event.pointerId);
+      }
+    };
 
     chart.subscribeCrosshairMove(handleCrosshairMove);
     chart.subscribeClick(handleChartClick);
@@ -1696,6 +1975,10 @@ function WatchlistPageContent() {
       chartManualZoomRef.current = true;
     };
     chart.timeScale().subscribeVisibleLogicalRangeChange(handleRangeChange);
+    container.addEventListener("pointerdown", handleTouchPointerDown, { capture: true, passive: false });
+    container.addEventListener("pointermove", handleTouchPointerMove, { capture: true, passive: false });
+    container.addEventListener("pointerup", handleTouchPointerEnd, true);
+    container.addEventListener("pointercancel", handleTouchPointerEnd, true);
 
     const resizeToContainer = () => {
       const rect = container.getBoundingClientRect();
@@ -1724,11 +2007,15 @@ function WatchlistPageContent() {
       chart.unsubscribeCrosshairMove(handleCrosshairMove);
       chart.unsubscribeClick(handleChartClick);
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(handleRangeChange);
+      container.removeEventListener("pointerdown", handleTouchPointerDown, true);
+      container.removeEventListener("pointermove", handleTouchPointerMove, true);
+      container.removeEventListener("pointerup", handleTouchPointerEnd, true);
+      container.removeEventListener("pointercancel", handleTouchPointerEnd, true);
       chart.remove();
       chartRef.current = null;
       candleSeriesRef.current = null;
     };
-  }, [selectedSymbol, chartInterval, chartContainerReady]);
+  }, [selectedSymbol, chartInterval, chartContainerReady, isIndianChartMarket]);
 
   useEffect(() => {
     if (!candleSeriesRef.current) return;
@@ -1737,14 +2024,17 @@ function WatchlistPageContent() {
     if (seedCandles.length === 0) {
       if (!sameKey) {
         candleSeriesRef.current.setData([]);
+        chartRawCandlesRef.current = [];
         chartCandlesRef.current = [];
         setHasChartData(false);
         chartKeyRef.current = nextKey;
       }
       return;
     }
-    candleSeriesRef.current.setData(seedCandles);
-    chartCandlesRef.current = [...seedCandles];
+    const displayCandles = chartType === "heikin" ? calculateHeikinAshi(seedCandles) : seedCandles;
+    candleSeriesRef.current.setData(displayCandles);
+    chartRawCandlesRef.current = [...seedCandles];
+    chartCandlesRef.current = [...displayCandles];
     chartKeyRef.current = nextKey;
     lastChartUpdateRef.current = 0;
     setHasChartData(seedCandles.length > 0);
@@ -1757,52 +2047,126 @@ function WatchlistPageContent() {
   }, [seedCandles, historyKey]);
 
   useEffect(() => {
+    if (!candleSeriesRef.current) return;
+    const rawCandles = chartRawCandlesRef.current;
+    if (rawCandles.length === 0) return;
+    const displayCandles = chartType === "heikin" ? calculateHeikinAshi(rawCandles) : rawCandles;
+    candleSeriesRef.current.setData(displayCandles);
+    chartCandlesRef.current = [...displayCandles];
+    if (!chartHoverRef.current) {
+      updateLegendFromLatest();
+    }
+  }, [chartType]);
+
+  useEffect(() => {
     if (!candleSeriesRef.current || !selectedSymbol) return;
     const tick = selectedTick;
     if (!tick) return;
     const price = getTickPrice(tick);
     if (price === undefined) return;
     const time = getTickTimestamp(tick);
-    const bucket = Math.floor(time / intervalSeconds) * intervalSeconds;
-    if (!Number.isFinite(bucket) || bucket <= 0) return;
-    const bucketTime = toUTCTimestamp(bucket);
-
-    const candles = chartCandlesRef.current;
-    if (candles.length === 0) return;
-    const last = candles[candles.length - 1];
-    const lastTime = last ? Number(last.time) : 0;
+    const rawCandles = chartRawCandlesRef.current;
+    if (rawCandles.length === 0) return;
+    const bucketOffsetSec = normalizeBucketOffset(Number(rawCandles[0].time), intervalSeconds);
+    const bucketTime = getBucketStart(
+      time,
+      chartInterval,
+      intervalSeconds,
+      bucketOffsetSec,
+      isIndianChartMarket ? INDIA_TIME_ZONE_OFFSET_SEC : 0
+    );
+    if (!Number.isFinite(bucketTime) || bucketTime <= 0) return;
+    const lastRaw = rawCandles[rawCandles.length - 1];
+    const lastTime = lastRaw ? Number(lastRaw.time) : 0;
     const nowMs = Date.now();
-    const isNewBucket = !last || bucket > lastTime;
+    const isNewBucket = !lastRaw || bucketTime > lastTime;
 
     if (!isNewBucket) {
-      if (bucket < lastTime) return;
+      if (bucketTime < lastTime) return;
       if (nowMs - lastChartUpdateRef.current < CHART_UPDATE_THROTTLE_MS) return;
     }
 
-    let updated: HistoryCandle;
+    let updatedRaw: HistoryCandle;
     let shouldReset = false;
-    if (!last || bucket > lastTime) {
-      updated = { time: bucketTime, open: price, high: price, low: price, close: price };
-      candles.push(updated);
-      if (candles.length > HISTORY_CANDLE_COUNT) {
-        candles.splice(0, candles.length - HISTORY_CANDLE_COUNT);
+    if (!lastRaw || bucketTime > lastTime) {
+      const seededOpen: number = lastRaw?.close ?? price;
+      updatedRaw = {
+        time: bucketTime,
+        open: seededOpen,
+        high: Math.max(seededOpen, price),
+        low: Math.min(seededOpen, price),
+        close: price,
+      };
+      rawCandles.push(updatedRaw);
+      if (rawCandles.length > HISTORY_CANDLE_COUNT) {
+        rawCandles.splice(0, rawCandles.length - HISTORY_CANDLE_COUNT);
         shouldReset = true;
       }
     } else {
-      updated = {
-        ...last,
+      updatedRaw = {
+        ...lastRaw,
         close: price,
-        high: Math.max(last.high, price),
-        low: Math.min(last.low, price),
+        high: Math.max(lastRaw.high, price),
+        low: Math.min(lastRaw.low, price),
       };
-      candles[candles.length - 1] = updated;
+      rawCandles[rawCandles.length - 1] = updatedRaw;
     }
 
-    chartCandlesRef.current = candles;
-    if (shouldReset) {
-      candleSeriesRef.current.setData(candles);
+    chartRawCandlesRef.current = rawCandles;
+
+    if (chartType === "heikin") {
+      let displayCandles = chartCandlesRef.current;
+      if (shouldReset || displayCandles.length === 0 || displayCandles.length !== rawCandles.length) {
+        displayCandles = calculateHeikinAshi(rawCandles);
+        candleSeriesRef.current.setData(displayCandles);
+      } else {
+        let displayUpdated: HistoryCandle;
+        if (isNewBucket) {
+          const prevHa = displayCandles[displayCandles.length - 1];
+          if (!prevHa) {
+            displayUpdated = { ...updatedRaw };
+          } else {
+            const haOpen = (prevHa.open + prevHa.close) / 2;
+            const haClose = (updatedRaw.open + updatedRaw.high + updatedRaw.low + updatedRaw.close) / 4;
+            const haHigh = Math.max(updatedRaw.high, haOpen, haClose);
+            const haLow = Math.min(updatedRaw.low, haOpen, haClose);
+            displayUpdated = {
+              time: updatedRaw.time,
+              open: haOpen,
+              high: haHigh,
+              low: haLow,
+              close: haClose,
+              volume: updatedRaw.volume,
+            };
+          }
+          displayCandles = [...displayCandles, displayUpdated];
+        } else {
+          const currentHa = displayCandles[displayCandles.length - 1];
+          const haOpen = currentHa ? currentHa.open : updatedRaw.open;
+          const haClose = (updatedRaw.open + updatedRaw.high + updatedRaw.low + updatedRaw.close) / 4;
+          const haHigh = Math.max(updatedRaw.high, haOpen, haClose);
+          const haLow = Math.min(updatedRaw.low, haOpen, haClose);
+          displayUpdated = {
+            time: updatedRaw.time,
+            open: haOpen,
+            high: haHigh,
+            low: haLow,
+            close: haClose,
+            volume: updatedRaw.volume,
+          };
+          displayCandles = [...displayCandles];
+          displayCandles[displayCandles.length - 1] = displayUpdated;
+        }
+        candleSeriesRef.current.update(displayUpdated);
+      }
+      chartCandlesRef.current = displayCandles;
     } else {
-      candleSeriesRef.current.update(updated);
+      chartCandlesRef.current = rawCandles;
+      if (shouldReset) {
+        candleSeriesRef.current.setData(rawCandles);
+      } else {
+        candleSeriesRef.current.update(updatedRaw);
+      }
     }
     if (isNewBucket && !chartManualZoomRef.current) {
       fitChartToContent();
@@ -1814,7 +2178,7 @@ function WatchlistPageContent() {
       updateLegendFromLatest();
     }
     lastChartUpdateRef.current = nowMs;
-  }, [selectedTick, selectedSymbol, intervalSeconds, hasChartData]);
+  }, [selectedTick, selectedSymbol, intervalSeconds, hasChartData, chartType, isIndianChartMarket]);
   const refreshWatchlistQueries = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: USER_MARKET_WATCHLISTS_QUERY_KEY }),
@@ -2004,60 +2368,228 @@ function WatchlistPageContent() {
     fitChartToContent();
     chartRef.current?.priceScale("right").applyOptions({ autoScale: true });
   };
-  useEffect(() => {
-    crosshairEnabledRef.current = crosshairEnabled;
-    chartRef.current?.applyOptions({
+  const syncChartInteractionMode = useCallback(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    const touchCrosshairMode = isTouchInteractionDevice() && crosshairEnabledRef.current;
+    chart.applyOptions({
       crosshair: {
-        mode: crosshairEnabled ? 0 : 2,
+        mode: crosshairEnabledRef.current ? 0 : 2,
+      },
+      handleScroll: {
+        pressedMouseMove: true,
+        horzTouchDrag: !touchCrosshairMode,
+        vertTouchDrag: !touchCrosshairMode,
+        mouseWheel: true,
+      },
+      trackingMode: {
+        exitMode: TrackingModeExitMode.OnNextTap,
       },
     });
+  }, []);
+  const handleChartRefresh = useCallback(async () => {
+    if (!chartParams) return;
+    if (historyKey) {
+      delete historyCacheRef.current[historyKey];
+    }
+    const result = await historyQuery.refetch();
+    if (result.error) {
+      toast.error("Failed to refresh chart data");
+    }
+  }, [chartParams, historyKey, historyQuery]);
+  useEffect(() => {
+    crosshairEnabledRef.current = crosshairEnabled;
+    syncChartInteractionMode();
     if (!crosshairEnabled) {
       chartHoverRef.current = false;
+      touchCrosshairPointerIdRef.current = null;
+      chartRef.current?.clearCrosshairPosition();
       updateLegendFromLatest();
     }
-  }, [crosshairEnabled]);
+  }, [crosshairEnabled, syncChartInteractionMode]);
+
+  const triggerChartToolbar = useCallback(() => {
+    if (!chartMode) return;
+    setShowChartToolbar(true);
+    if (hideToolbarTimerRef.current) {
+      window.clearTimeout(hideToolbarTimerRef.current);
+    }
+    hideToolbarTimerRef.current = window.setTimeout(() => {
+      setShowChartToolbar(false);
+    }, 3000);
+  }, [chartMode]);
+
+  useEffect(() => {
+    if (!chartMode) return;
+    triggerChartToolbar();
+    return () => {
+      if (hideToolbarTimerRef.current) {
+        window.clearTimeout(hideToolbarTimerRef.current);
+        hideToolbarTimerRef.current = null;
+      }
+    };
+  }, [chartMode, triggerChartToolbar]);
+
+  const ActiveChartTypeIcon = getChartTypeIcon(chartType);
 
   if (chartMode) {
     const activeSymbol = selectedSymbol || urlSymbol;
+    const activeIntervalLabel =
+      CHART_INTERVALS.find((interval) => interval.value === chartInterval)?.label ?? chartInterval;
     const chartToolbarClass =
       "absolute bottom-12 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-full border border-slate-200/80 bg-white/90 px-1 py-0.5 shadow-sm backdrop-blur transition dark:border-slate-700/70 dark:bg-slate-900/80 sm:bottom-10 lg:bottom-8 lg:gap-1.5 lg:px-1.5 lg:py-1";
     const chartToolButtonClass =
-      "inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-200/70 bg-white/90 text-slate-700 transition hover:bg-slate-50 hover:text-slate-900 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-200 dark:hover:bg-slate-800/80 dark:hover:text-white lg:h-8 lg:w-8";
+      "inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-200/70 bg-white/90 text-slate-700 transition hover:bg-slate-50 hover:text-slate-900 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-200 dark:hover:bg-slate-800/80 dark:hover:text-white sm:h-6 sm:w-6";
     return (
       <div className="h-full bg-slate-50 dark:bg-slate-950">
         <div className="flex h-full flex-col gap-3 p-2 sm:gap-4 sm:p-4">
-          <header className="flex flex-wrap items-start justify-between gap-2 rounded-2xl border border-slate-200/80 bg-white/90 p-3 shadow-[0_16px_40px_-28px_rgba(15,23,42,0.45)] dark:border-slate-800 dark:bg-slate-950/85 sm:gap-3 sm:p-4">
+          <header className="flex flex-wrap items-start justify-between gap-2 rounded-2xl border border-slate-200/80 bg-white/90 p-2 shadow-[0_16px_40px_-28px_rgba(15,23,42,0.45)] dark:border-slate-800 dark:bg-slate-950/85 sm:gap-3 sm:p-4">
             <div>
-              <p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400 sm:text-[10px]">
+              <p className="inline-flex items-center gap-1.5 text-[8px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400 sm:text-[10px] sm:tracking-[0.16em]">
+                <BarChart3 className="h-3 w-3" />
                 Live Chart
               </p>
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100 sm:text-2xl">
+              <div className="flex flex-wrap items-center gap-2 sm:gap-2">
+                <p className="text-lg font-bold tracking-tight text-slate-900 dark:text-slate-100 sm:text-2xl">
                   {activeSymbol || "Select a symbol"}
                 </p>
-                <div className="flex items-center gap-1 rounded-full border border-slate-200/80 bg-slate-100/80 p-1 dark:border-slate-700/70 dark:bg-slate-900/70 sm:hidden">
-                  {CHART_INTERVALS.map((interval) => (
-                    <button
-                      key={interval.value}
-                      type="button"
-                      onClick={() => setChartInterval(interval.value)}
-                      className={cn(
-                        "rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] transition",
-                        chartInterval === interval.value
-                          ? "bg-sky-500 text-white shadow-[0_6px_14px_-10px_rgba(14,165,233,0.9)]"
-                          : "text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white"
-                      )}
+                <div className="flex items-center gap-1.5 rounded-full bg-slate-100/80 p-0.5 dark:bg-slate-900/70 sm:hidden">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-6 min-w-[56px] justify-between gap-1 border-0 bg-white/85 px-2 text-[8px] font-semibold uppercase tracking-[0.12em] text-slate-700 shadow-none dark:bg-slate-900/70 dark:text-slate-200"
+                      >
+                        <span>{activeIntervalLabel}</span>
+                        <ChevronDown className="h-3 w-3 opacity-70" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align="start"
+                      sideOffset={6}
+                      className="max-h-[45vh] w-36 overflow-y-auto border border-slate-300/85 bg-white/95 p-1 dark:border-slate-700/80 dark:bg-slate-950/95"
                     >
-                      {interval.label}
-                    </button>
-                  ))}
+                      {CHART_INTERVALS.map((interval) => (
+                        <DropdownMenuItem
+                          key={interval.value}
+                          onSelect={(event) => {
+                            event.preventDefault();
+                            setChartInterval(interval.value);
+                          }}
+                          className={cn(
+                            "flex cursor-pointer items-center justify-between gap-2 rounded-md px-2 py-1.5 text-[10px] font-semibold text-slate-700 transition-colors hover:bg-sky-500/10 hover:text-sky-700 focus:bg-sky-500/10 focus:text-sky-700 data-[highlighted]:bg-sky-500/10 data-[highlighted]:text-sky-700 dark:text-slate-200 dark:hover:bg-sky-500/20 dark:hover:text-slate-100 dark:focus:bg-sky-500/20 dark:focus:text-slate-100 dark:data-[highlighted]:bg-sky-500/20 dark:data-[highlighted]:text-slate-100",
+                            chartInterval === interval.value &&
+                              "bg-sky-500/10 text-sky-700 dark:bg-sky-500/20 dark:text-slate-100"
+                          )}
+                        >
+                          <span>{interval.label}</span>
+                          {chartInterval === interval.value ? (
+                            <span className="h-1.5 w-1.5 rounded-full bg-sky-500 shadow-[0_0_8px_rgba(14,165,233,0.8)]" />
+                          ) : null}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-6 min-w-[90px] justify-between gap-1 border-0 bg-white/85 px-2 text-[8px] font-semibold uppercase tracking-[0.12em] text-slate-700 shadow-none dark:bg-slate-900/70 dark:text-slate-200"
+                      >
+                        <span className="inline-flex items-center gap-1">
+                          <ActiveChartTypeIcon className="h-3 w-3" />
+                          {chartType === "heikin" ? "HA" : "Candle"}
+                        </span>
+                        <ChevronDown className="h-3 w-3 opacity-70" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align="end"
+                      sideOffset={6}
+                      className="w-32 border border-slate-300/85 bg-white/95 p-1 dark:border-slate-700/80 dark:bg-slate-950/95"
+                    >
+                      {CHART_TYPES.map((type) => (
+                        <DropdownMenuItem
+                          key={type.value}
+                          onSelect={(event) => {
+                            event.preventDefault();
+                            setChartType(type.value);
+                          }}
+                          className={cn(
+                            "flex cursor-pointer items-center justify-between gap-2 rounded-md px-2 py-1.5 text-[10px] font-semibold text-slate-700 transition-colors hover:bg-sky-500/10 hover:text-sky-700 focus:bg-sky-500/10 focus:text-sky-700 data-[highlighted]:bg-sky-500/10 data-[highlighted]:text-sky-700 dark:text-slate-200 dark:hover:bg-sky-500/20 dark:hover:text-slate-100 dark:focus:bg-sky-500/20 dark:focus:text-slate-100 dark:data-[highlighted]:bg-sky-500/20 dark:data-[highlighted]:text-slate-100",
+                            chartType === type.value &&
+                              "bg-sky-500/10 text-sky-700 dark:bg-sky-500/20 dark:text-slate-100"
+                          )}
+                        >
+                          <span className="inline-flex items-center gap-1.5">
+                            {(() => {
+                              const TypeIcon = getChartTypeIcon(type.value);
+                              return <TypeIcon className="h-3.5 w-3.5 opacity-80" />;
+                            })()}
+                            {type.label}
+                          </span>
+                          {chartType === type.value ? (
+                            <span className="h-1.5 w-1.5 rounded-full bg-sky-500 shadow-[0_0_8px_rgba(14,165,233,0.8)]" />
+                          ) : null}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
               </div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 sm:text-xs">
-                Interval: {chartInterval}
-              </p>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400 sm:text-xs" aria-hidden="true" />
             </div>
             <div className="flex items-center gap-2">
+              <div className="hidden sm:block">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-9 w-[120px] justify-between border-slate-300/80 bg-white/80 px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-700 transition dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200"
+                    >
+                      <span className="inline-flex items-center gap-1.5">
+                        <ActiveChartTypeIcon className="h-3.5 w-3.5" />
+                        {chartType === "heikin" ? "Heikin Ashi" : "Candles"}
+                      </span>
+                      <ChevronDown className="ml-1.5 h-3 w-3 opacity-70" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    align="end"
+                    sideOffset={6}
+                    className="w-40 border border-slate-300/85 bg-white/95 p-1 dark:border-slate-700/80 dark:bg-slate-950/95"
+                  >
+                    {CHART_TYPES.map((type) => (
+                      <DropdownMenuItem
+                        key={type.value}
+                        onSelect={(event) => {
+                          event.preventDefault();
+                          setChartType(type.value);
+                        }}
+                        className={cn(
+                          "flex cursor-pointer items-center justify-between gap-2 rounded-md px-2 py-2 text-[11px] font-semibold text-slate-700 transition-colors hover:bg-sky-500/10 hover:text-sky-700 focus:bg-sky-500/10 focus:text-sky-700 data-[highlighted]:bg-sky-500/10 data-[highlighted]:text-sky-700 dark:text-slate-200 dark:hover:bg-sky-500/20 dark:hover:text-slate-100 dark:focus:bg-sky-500/20 dark:focus:text-slate-100 dark:data-[highlighted]:bg-sky-500/20 dark:data-[highlighted]:text-slate-100",
+                          chartType === type.value &&
+                            "bg-sky-500/10 text-sky-700 dark:bg-sky-500/20 dark:text-slate-100"
+                        )}
+                      >
+                        <span className="inline-flex items-center gap-1.5">
+                          {(() => {
+                            const TypeIcon = getChartTypeIcon(type.value);
+                            return <TypeIcon className="h-3.5 w-3.5 opacity-80" />;
+                          })()}
+                          {type.label}
+                        </span>
+                        {chartType === type.value ? (
+                          <span className="h-1.5 w-1.5 rounded-full bg-sky-500 shadow-[0_0_8px_rgba(14,165,233,0.8)]" />
+                        ) : null}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
               <Button
                 type="button"
                 onClick={() => {
@@ -2106,11 +2638,14 @@ function WatchlistPageContent() {
             tabIndex={0}
             onPointerDown={(event) => {
               event.currentTarget.focus();
+              triggerChartToolbar();
             }}
+            onPointerMove={triggerChartToolbar}
+            onMouseEnter={triggerChartToolbar}
           >
             {chartLegend ? (
-              <div className="pointer-events-none absolute left-3 top-2 z-10 rounded-lg border border-slate-200/80 bg-white/90 px-1 py-0.5 text-[8px] text-slate-600 shadow-sm backdrop-blur dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-300 sm:left-3 sm:top-3 sm:px-1.5 sm:py-0.5 sm:text-[9px]">
-                <div className="flex flex-wrap items-center gap-1 sm:gap-1.5">
+              <div className="pointer-events-none absolute left-3 top-2 z-10 max-w-[calc(100%-1.5rem)] rounded-lg border border-slate-200/80 bg-white/90 px-1.5 py-1 text-[10px] text-slate-600 shadow-sm backdrop-blur dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-300 sm:left-3 sm:top-3 sm:px-2 sm:py-1 sm:text-[11px]">
+                <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 sm:flex sm:flex-wrap sm:items-center sm:gap-2">
                   <span>
                     O{" "}
                     <span className="font-semibold text-slate-900 dark:text-slate-100">
@@ -2141,8 +2676,12 @@ function WatchlistPageContent() {
             <div
               className={cn(
                 chartToolbarClass,
-                isAdjustOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+                isAdjustOpen || showChartToolbar
+                  ? "opacity-100 pointer-events-auto"
+                  : "opacity-0 pointer-events-none",
+                "sm:opacity-90"
               )}
+              onPointerDown={triggerChartToolbar}
             >
               <button
                 type="button"
@@ -2175,6 +2714,24 @@ function WatchlistPageContent() {
                 title="Zoom in"
               >
                 <Plus className="h-3 w-3 lg:h-4 lg:w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  triggerChartToolbar();
+                  void handleChartRefresh();
+                }}
+                className={cn(chartToolButtonClass, historyQuery.isFetching && "opacity-80")}
+                aria-label="Refresh chart"
+                title="Refresh chart"
+                disabled={historyQuery.isFetching}
+              >
+                <RefreshCw
+                  className={cn(
+                    "h-3 w-3 lg:h-4 lg:w-4",
+                    historyQuery.isFetching && "animate-spin"
+                  )}
+                />
               </button>
               <button
                 type="button"
@@ -3381,7 +3938,8 @@ function WatchlistPageContent() {
                 <div className="rounded-xl border border-slate-200/85 bg-white/90 p-3 shadow-[0_14px_28px_-22px_rgba(15,23,42,0.35)] dark:border-slate-800 dark:bg-[#0a1422] dark:shadow-none">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
-                      <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+                      <p className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+                        <BarChart3 className="h-3.5 w-3.5" />
                         Chart
                       </p>
                       <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
@@ -3406,12 +3964,71 @@ function WatchlistPageContent() {
                           </button>
                         ))}
                       </div>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-8 w-[120px] justify-between border-slate-300/80 bg-white/90 px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-700 dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200"
+                        >
+                          <span className="inline-flex items-center gap-1.5">
+                            <ActiveChartTypeIcon className="h-3.5 w-3.5" />
+                            {chartType === "heikin" ? "Heikin Ashi" : "Candles"}
+                          </span>
+                          <ChevronDown className="ml-1.5 h-3 w-3 opacity-70" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent
+                          align="end"
+                          sideOffset={6}
+                          className="w-40 border border-slate-300/85 bg-white/95 p-1 dark:border-slate-700/80 dark:bg-slate-950/95"
+                        >
+                          {CHART_TYPES.map((type) => (
+                            <DropdownMenuItem
+                              key={type.value}
+                              onSelect={(event) => {
+                                event.preventDefault();
+                                setChartType(type.value);
+                              }}
+                              className={cn(
+                                "flex cursor-pointer items-center justify-between gap-2 rounded-md px-2 py-2 text-[11px] font-semibold text-slate-700 transition-colors hover:bg-sky-500/10 hover:text-sky-700 focus:bg-sky-500/10 focus:text-sky-700 data-[highlighted]:bg-sky-500/10 data-[highlighted]:text-sky-700 dark:text-slate-200 dark:hover:bg-sky-500/20 dark:hover:text-slate-100 dark:focus:bg-sky-500/20 dark:focus:text-slate-100 dark:data-[highlighted]:bg-sky-500/20 dark:data-[highlighted]:text-slate-100",
+                                chartType === type.value &&
+                                  "bg-sky-500/10 text-sky-700 dark:bg-sky-500/20 dark:text-slate-100"
+                              )}
+                            >
+                              <span className="inline-flex items-center gap-1.5">
+                                {(() => {
+                                  const TypeIcon = getChartTypeIcon(type.value);
+                                  return <TypeIcon className="h-3.5 w-3.5 opacity-80" />;
+                                })()}
+                                {type.label}
+                              </span>
+                              {chartType === type.value ? (
+                                <span className="h-1.5 w-1.5 rounded-full bg-sky-500 shadow-[0_0_8px_rgba(14,165,233,0.8)]" />
+                              ) : null}
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => void handleChartRefresh()}
+                        disabled={historyQuery.isFetching}
+                        className="h-8 border-slate-300/80 bg-white/90 px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-700 dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200"
+                      >
+                        <RefreshCw
+                          className={cn("mr-1.5 h-3.5 w-3.5", historyQuery.isFetching && "animate-spin")}
+                        />
+                        Refresh
+                      </Button>
                       <Button
                         type="button"
                         variant="outline"
                         onClick={() => openChartWindow(selectedRow.symbol)}
                         className="h-8 border-slate-300/80 bg-white/90 px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-700 dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200"
                       >
+                        <ScanSearch className="mr-1.5 h-3.5 w-3.5" />
                         Open Full Chart
                       </Button>
                     </div>
