@@ -179,12 +179,7 @@ export default function ProfilePage() {
                 </div>
                 <div className="min-w-0">
                   <div className="text-base font-semibold text-foreground truncate">{profile.name}</div>
-                  {profile.username && (
-                    <div className="text-[11px] text-muted-foreground truncate inline-flex items-center gap-1.5">
-                      <AtSign size={12} className="text-muted-foreground/80" />
-                      <span className="truncate">{profile.username}</span>
-                    </div>
-                  )}
+                  
                   <div className="text-[11px] text-muted-foreground truncate inline-flex items-center gap-1.5">
                     <Mail size={12} className="text-muted-foreground/80" />
                     <span className="truncate">{profile.email}</span>
@@ -195,9 +190,6 @@ export default function ProfilePage() {
                 <div className="text-[10px] uppercase tracking-wider text-muted-foreground inline-flex items-center justify-end gap-1.5">
                   <Crown size={12} className="text-amber-500/80" />
                   <span>{profile.planLabel}</span>
-                </div>
-                <div className="text-sm font-semibold text-amber-500">
-                  {typeof profile.wallet === "number" ? `INR ${numberFormatter.format(profile.wallet)}` : "--"}
                 </div>
               </div>
             </div>

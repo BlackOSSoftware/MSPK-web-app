@@ -78,7 +78,7 @@ const socialLinks = [
   },
   { label: "Telegram", href: "https://t.me/Mspktradesolution", Icon: Send },
   { label: "YouTube", href: "https://youtube.com/@mspktradesolution?si=1_U7FF2PehnzFh_z", Icon: Youtube },
-  { label: "Facebook", href: "https://www.facebook.com/share/198XcXtc6n/", Icon: Facebook },
+  { label: "Facebook", href: "https://www.facebook.com/share/18BV74A6dD/", Icon: Facebook },
   { label: "X (Twitter)", href: null, Icon: Twitter },
   { label: "Instagram", href: "https://www.instagram.com/mspk_tradesolutions/", Icon: Instagram },
 ];

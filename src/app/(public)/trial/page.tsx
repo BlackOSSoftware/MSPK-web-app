@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
@@ -37,31 +37,7 @@ function TrialPageContent() {
         tradingViewId: '',
         referralCode: '',
     });
-    const segmentOptions = useMemo(
-        () => [
-            { id: 'all', label: 'All' },
-            { id: 'nse', label: 'NSE' },
-            { id: 'options', label: 'Options' },
-            { id: 'mcx', label: 'MCX' },
-            { id: 'forex', label: 'Forex' },
-            { id: 'crypto', label: 'Crypto' },
-        ],
-        []
-    );
-    const [segments, setSegments] = useState<string[]>([]);
-    const toggleSegment = (id: string) => {
-        setSegments((prev) => {
-            const isSelected = prev.includes(id);
-            if (id === 'all') {
-                return isSelected ? [] : ['all'];
-            }
-            if (isSelected) {
-                return prev.filter((item) => item !== id);
-            }
-            const next = prev.filter((item) => item !== 'all');
-            return [...next, id];
-        });
-    };
+    const segments = ['all'];
     const registerMutation = useRegisterMutation();
     const sendOtpMutation = useSendOtpMutation();
     const verifyOtpMutation = useVerifyOtpMutation();
@@ -159,7 +135,6 @@ function TrialPageContent() {
                 tradingViewId: '',
                 referralCode: '',
             });
-            setSegments([]);
         } catch (error) {
             setFormError(getErrorMessage(error, 'Registration failed. Please try again.'));
         } finally {
@@ -485,29 +460,6 @@ function TrialPageContent() {
                                                     placeholder="ABC123"
                                                     className="h-10 sm:h-11 rounded-xl bg-slate-50 dark:bg-black/40 border-slate-200 dark:border-white/10 focus:ring-primary/20 focus:border-primary px-4"
                                                 />
-                                            </div>
-                                        </div>
-
-                                        <div className="space-y-2">
-                                            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground ml-1">Preferred Segments</Label>
-                                            <div className="flex flex-wrap gap-1.5 sm:gap-2">
-                                                {segmentOptions.map((segment) => {
-                                                    const active = segments.includes(segment.id);
-                                                    return (
-                                                        <button
-                                                            key={segment.id}
-                                                            type="button"
-                                                            onClick={() => toggleSegment(segment.id)}
-                                                            className={`h-8 sm:h-9 rounded-full px-3 text-[11px] sm:text-xs font-semibold transition-all border ${
-                                                                active
-                                                                    ? "bg-primary text-black border-primary shadow-[0_10px_30px_-18px_rgba(59,130,246,0.7)]"
-                                                                    : "bg-white/70 dark:bg-white/5 border-slate-200 dark:border-white/10 text-muted-foreground hover:text-foreground"
-                                                            }`}
-                                                        >
-                                                            {segment.label}
-                                                        </button>
-                                                    );
-                                                })}
                                             </div>
                                         </div>
 

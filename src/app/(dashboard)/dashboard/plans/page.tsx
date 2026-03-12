@@ -9,7 +9,7 @@ import { useSubscriptionStatusQuery } from "@/services/subscriptions/subscriptio
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Check, Star, ArrowLeft, ArrowRight, ShieldCheck, Crown, CalendarDays, Wallet, Sparkles } from "lucide-react";
-import { useCallback, useEffect, useMemo, type MouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type MouseEvent } from "react";
 import { useQueries } from "@tanstack/react-query";
 import { getHasAccess } from "@/services/subscriptions/subscription.service";
 import { useSwipeCards } from "@/hooks/use-swipe-cards";
@@ -76,10 +76,16 @@ function formatDurationLabel(durationDays?: number) {
 export default function PlansPage() {
     const { data: me } = useMeQuery();
     const planId = me?.planId ?? "";
-    const { data: currentPlan } = usePlanQuery(planId, Boolean(planId));
     const { data: plans = [] } = usePlansQuery();
+    const currentPlanFromList = useMemo(
+        () => (planId ? plans.find((plan) => plan._id === planId) : undefined),
+        [plans, planId]
+    );
+    const { data: fetchedPlan } = usePlanQuery(planId, Boolean(planId) && !currentPlanFromList);
+    const currentPlan = currentPlanFromList ?? fetchedPlan ?? null;
     const { data: segments = [] } = useSegmentsQuery();
     const { data: subscriptionStatus } = useSubscriptionStatusQuery();
+    const [accessReady, setAccessReady] = useState(false);
     const visiblePlans = useMemo(() => {
         return plans.filter((plan) => !plan.isDemo && !plan.isCustom);
     }, [plans]);
@@ -109,7 +115,8 @@ export default function PlansPage() {
         queries: segmentCards.map((segment) => ({
             queryKey: ["subscription", "access", segment.segment_code],
             queryFn: () => getHasAccess(segment.segment_code),
-            enabled: Boolean(segment.segment_code),
+            enabled: accessReady && Boolean(segment.segment_code),
+            staleTime: 5 * 60 * 1000,
         })),
     });
 
@@ -138,6 +145,11 @@ export default function PlansPage() {
         if (visiblePlans.length <= 1) return;
         scrollToIndex(visiblePlans.length, "auto");
     }, [visiblePlans.length, scrollToIndex]);
+
+    useEffect(() => {
+        const timer = window.setTimeout(() => setAccessReady(true), 150);
+        return () => window.clearTimeout(timer);
+    }, []);
 
     useEffect(() => {
         if (visiblePlans.length <= 1) return;
