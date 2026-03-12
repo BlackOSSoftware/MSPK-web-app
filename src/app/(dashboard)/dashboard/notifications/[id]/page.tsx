@@ -35,7 +35,10 @@ export default function NotificationDetailPage({
                   <Button
                     variant="outline"
                     className="rounded-xl"
-                    onClick={() => window.open(data.data.whatsappLink, "_blank", "noopener,noreferrer")}
+                    onClick={() => {
+                      const link = typeof data?.data?.whatsappLink === "string" ? data.data.whatsappLink : "";
+                      if (link) window.open(link, "_blank", "noopener,noreferrer");
+                    }}
                   >
                     Chat on WhatsApp
                   </Button>
