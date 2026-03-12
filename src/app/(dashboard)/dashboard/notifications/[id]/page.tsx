@@ -4,6 +4,7 @@ import Link from "next/link";
 import { use } from "react";
 import { useNotificationQuery } from "@/services/notifications/notification.hooks";
 import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 
 export default function NotificationDetailPage({
   params,
@@ -29,6 +30,17 @@ export default function NotificationDetailPage({
               <div className="text-xs uppercase tracking-wider text-muted-foreground">
                 {data?.createdAt ? new Date(data.createdAt).toLocaleString() : ""}
               </div>
+              {data?.data?.whatsappLink ? (
+                <div className="pt-3">
+                  <Button
+                    variant="outline"
+                    className="rounded-xl"
+                    onClick={() => window.open(data.data.whatsappLink, "_blank", "noopener,noreferrer")}
+                  >
+                    Chat on WhatsApp
+                  </Button>
+                </div>
+              ) : null}
             </>
           )}
         </CardContent>
