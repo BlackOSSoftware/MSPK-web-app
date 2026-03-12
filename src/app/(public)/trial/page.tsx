@@ -462,20 +462,7 @@ function TrialPageContent() {
                                                 />
                                             </div>
                                         </div>
-
-                                        <Button
-                                            type="submit"
-                                            className="w-full h-10 sm:h-12 rounded-xl text-sm sm:text-base font-bold bg-primary text-black hover:bg-primary/90 shadow-lg shadow-primary/20 hover:scale-[1.02] transition-all duration-200 mt-1"
-                                            disabled={loading}
-                                        >
-                                            {loading ? (
-                                                <><Loader2 className="w-5 h-5 mr-2 animate-spin" /> Processing...</>
-                                            ) : (
-                                                'Create Account'
-                                            )}
-                                        </Button>
-
-                                        <label className="mt-2 flex items-start gap-2 text-[11px] text-muted-foreground">
+                                         <label className="mt-2 flex items-start gap-2 text-[11px] text-muted-foreground">
                                             <input
                                                 type="checkbox"
                                                 className="mt-0.5 h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary/40"
@@ -494,6 +481,19 @@ function TrialPageContent() {
                                                 .
                                             </span>
                                         </label>
+                                        <Button
+                                            type="submit"
+                                            className="w-full h-10 sm:h-12 rounded-xl text-sm sm:text-base font-bold bg-primary text-black hover:bg-primary/90 shadow-lg shadow-primary/20 hover:scale-[1.02] transition-all duration-200 mt-1"
+                                            disabled={loading}
+                                        >
+                                            {loading ? (
+                                                <><Loader2 className="w-5 h-5 mr-2 animate-spin" /> Processing...</>
+                                            ) : (
+                                                'Create Account'
+                                            )}
+                                        </Button>
+
+                                       
                                         <p className="text-[11px] text-center text-muted-foreground">
                                             By continuing, you agree to our Terms of Service.
                                         </p>
