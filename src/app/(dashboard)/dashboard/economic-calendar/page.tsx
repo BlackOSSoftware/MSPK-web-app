@@ -20,17 +20,47 @@ import {
 const LIMIT_OPTIONS = [10, 20] as const;
 type LimitOption = (typeof LIMIT_OPTIONS)[number];
 type ImpactOption = "all" | "important" | "high" | "medium" | "low";
+type RangePreset = "today" | "thisWeek" | "next7Days" | "thisMonth" | "custom";
 
-const getTodayDateInput = () => {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
+const formatDateInput = (value: Date) => {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 };
 
-const TODAY_DATE = getTodayDateInput();
-const INITIAL_FILTERS = { from: TODAY_DATE, to: TODAY_DATE };
+const getRangeValues = (preset: RangePreset) => {
+  const now = new Date();
+  const start = new Date(now);
+  const end = new Date(now);
+
+  if (preset === "thisWeek") {
+    const day = now.getDay();
+    const mondayOffset = day === 0 ? -6 : 1 - day;
+    start.setDate(now.getDate() + mondayOffset);
+    end.setDate(start.getDate() + 6);
+  } else if (preset === "next7Days") {
+    end.setDate(now.getDate() + 6);
+  } else if (preset === "thisMonth") {
+    start.setDate(1);
+    end.setMonth(now.getMonth() + 1, 0);
+  }
+
+  return {
+    from: formatDateInput(start),
+    to: formatDateInput(end),
+  };
+};
+
+const DEFAULT_RANGE_PRESET: RangePreset = "thisWeek";
+const INITIAL_FILTERS = getRangeValues(DEFAULT_RANGE_PRESET);
+
+const RANGE_PRESETS: Array<{ id: Exclude<RangePreset, "custom">; label: string }> = [
+  { id: "today", label: "Today" },
+  { id: "thisWeek", label: "This Week" },
+  { id: "next7Days", label: "Next 7 Days" },
+  { id: "thisMonth", label: "This Month" },
+];
 
 function formatDateParts(value?: string) {
   if (!value) return { dateLabel: "-", timeLabel: "-" };
@@ -102,8 +132,9 @@ export default function EconomicCalendarPage() {
   const [draftImpact, setDraftImpact] = useState<ImpactOption>("all");
   const [appliedFilters, setAppliedFilters] = useState(INITIAL_FILTERS);
   const [appliedImpact, setAppliedImpact] = useState<ImpactOption>("all");
+  const [selectedPreset, setSelectedPreset] = useState<RangePreset>(DEFAULT_RANGE_PRESET);
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState<LimitOption>(10);
+  const [limit, setLimit] = useState<LimitOption>(20);
 
   const dateRangeInvalid = useMemo(() => {
     if (!draftFrom || !draftTo) return false;
@@ -149,19 +180,37 @@ export default function EconomicCalendarPage() {
     return items;
   }, [currentPage, totalPages]);
 
+  const appliedRangeLabel = useMemo(() => {
+    if (!appliedFilters.from && !appliedFilters.to) return "Flexible Range";
+    if (appliedFilters.from === appliedFilters.to) return appliedFilters.from;
+    return `${appliedFilters.from} to ${appliedFilters.to}`;
+  }, [appliedFilters.from, appliedFilters.to]);
+
+  const applyPreset = (preset: Exclude<RangePreset, "custom">) => {
+    const nextRange = getRangeValues(preset);
+    setSelectedPreset(preset);
+    setDraftFrom(nextRange.from);
+    setDraftTo(nextRange.to);
+    setAppliedFilters(nextRange);
+    setPage(1);
+  };
+
   const applyFilters = () => {
     if (dateRangeInvalid) return;
     setAppliedFilters({ from: draftFrom, to: draftTo });
     setAppliedImpact(draftImpact);
+    setSelectedPreset("custom");
     setPage(1);
   };
 
   const resetFilters = () => {
-    setDraftFrom(INITIAL_FILTERS.from);
-    setDraftTo(INITIAL_FILTERS.to);
+    const resetRange = getRangeValues(DEFAULT_RANGE_PRESET);
+    setDraftFrom(resetRange.from);
+    setDraftTo(resetRange.to);
     setDraftImpact("all");
-    setAppliedFilters(INITIAL_FILTERS);
+    setAppliedFilters(resetRange);
     setAppliedImpact("all");
+    setSelectedPreset(DEFAULT_RANGE_PRESET);
     setPage(1);
   };
 
@@ -206,17 +255,40 @@ export default function EconomicCalendarPage() {
 
       <Card className="rounded-[1.5rem] border border-slate-300/60 dark:border-primary/20 bg-white/70 dark:bg-slate-950/45">
         <CardContent className="p-4 sm:p-6">
+          <div className="mb-4 flex flex-wrap gap-2">
+            {RANGE_PRESETS.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                onClick={() => applyPreset(preset.id)}
+                className={`rounded-full px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] transition ${
+                  selectedPreset === preset.id
+                    ? "bg-primary text-primary-foreground shadow-[0_10px_25px_-16px_rgba(14,165,233,0.95)]"
+                    : "border border-slate-300/70 bg-white/80 text-slate-700 hover:border-primary/35 hover:text-primary dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-200"
+                }`}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+
           <div className="grid gap-3 md:grid-cols-[1fr_1fr_170px_170px_auto_auto]">
             <input
               type="date"
               value={draftFrom}
-              onChange={(event) => setDraftFrom(event.target.value)}
+              onChange={(event) => {
+                setSelectedPreset("custom");
+                setDraftFrom(event.target.value);
+              }}
               className="h-11 rounded-xl border border-slate-300/70 dark:border-slate-700 bg-background/75 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/25"
             />
             <input
               type="date"
               value={draftTo}
-              onChange={(event) => setDraftTo(event.target.value)}
+              onChange={(event) => {
+                setSelectedPreset("custom");
+                setDraftTo(event.target.value);
+              }}
               className="h-11 rounded-xl border border-slate-300/70 dark:border-slate-700 bg-background/75 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/25"
             />
             <select
@@ -258,6 +330,9 @@ export default function EconomicCalendarPage() {
             <span className="inline-flex items-center gap-1.5">
               <CalendarDays className="h-3.5 w-3.5" />
               Total Events: {totalResults.toLocaleString("en-IN")}
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-sky-500/30 bg-sky-500/10 px-2.5 py-1 text-sky-700 dark:text-sky-200">
+              Range: {appliedRangeLabel}
             </span>
             <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-300/70 dark:border-slate-700 px-2.5 py-1">
               Impact: {appliedImpact.charAt(0).toUpperCase() + appliedImpact.slice(1)}
@@ -313,7 +388,7 @@ export default function EconomicCalendarPage() {
               ) : events.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="px-4 py-10 text-center text-sm text-muted-foreground">
-                    No events found for selected filters.
+                    No events found in this range. Try `This Week`, `Next 7 Days`, or reset filters.
                   </td>
                 </tr>
               ) : (

@@ -36,6 +36,7 @@ import {
   Search,
   SlidersHorizontal,
   Trash2,
+  Type,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -45,6 +46,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -78,6 +81,8 @@ import type { SignalItem } from "@/services/signals/signal.types";
 type ConnectionState = "connecting" | "connected" | "disconnected" | "error";
 type ViewMode = "table" | "cards";
 type CardPulse = "up" | "down";
+type WatchlistAppearanceFont = "outfit" | "space" | "inter" | "oswald";
+type WatchlistTextSize = "compact" | "default" | "comfortable" | "large";
 
 const VIEW_MODE_STORAGE_KEY = "watchlist_view_mode";
 const TABLE_COLUMN_STORAGE_KEY = "watchlist_table_columns_v1";
@@ -85,6 +90,8 @@ const TABLE_COLUMN_WIDTHS_KEY = "watchlist_table_column_widths_v1";
 const CHART_TYPE_STORAGE_KEY = "watchlist_chart_type";
 const CHART_VISIBILITY_STORAGE_KEY = "watchlist_chart_visibility_v1";
 const WATCHLIST_ROW_ORDER_STORAGE_KEY = "watchlist_row_order_v1";
+const WATCHLIST_APPEARANCE_STORAGE_KEY = "watchlist_appearance_font_v1";
+const WATCHLIST_TEXT_SIZE_STORAGE_KEY = "watchlist_text_size_v1";
 const SUPPORT_WHATSAPP = "917770039037";
 const USER_WATCHLIST_QUERY_KEY = [...MARKET_QUERY_KEY, "user-watchlist", "active"] as const;
 const CHART_BAR_SPACING_DEFAULT = 6;
@@ -222,6 +229,68 @@ const CHART_INTERVALS: { label: string; value: ChartInterval }[] = [
 const CHART_TYPES: { label: string; value: ChartType }[] = [
   { label: "Candles", value: "candle" },
   { label: "Heikin Ashi", value: "heikin" },
+];
+const WATCHLIST_FONT_OPTIONS: Array<{
+  value: WatchlistAppearanceFont;
+  label: string;
+  family: string;
+  shellClass: string;
+}> = [
+  {
+    value: "outfit",
+    label: "Outfit",
+    family: "Outfit, var(--font-geist-sans), sans-serif",
+    shellClass: "[&_button]:tracking-[0.01em]",
+  },
+  {
+    value: "space",
+    label: "Space",
+    family: "'Space Grotesk', var(--font-geist-sans), sans-serif",
+    shellClass: "[&_button]:tracking-[0.015em]",
+  },
+  {
+    value: "inter",
+    label: "Inter",
+    family: "Inter, var(--font-geist-sans), sans-serif",
+    shellClass: "",
+  },
+  {
+    value: "oswald",
+    label: "Bold",
+    family: "Oswald, var(--font-geist-sans), sans-serif",
+    shellClass:
+      "[&_button]:font-bold [&_th]:font-extrabold [&_.watchlist-symbol-text]:font-bold [&_.watchlist-price-text]:font-black [&_.watchlist-section-label]:font-bold",
+  },
+];
+const WATCHLIST_TEXT_SIZE_OPTIONS: Array<{
+  value: WatchlistTextSize;
+  label: string;
+  shellClass: string;
+}> = [
+  {
+    value: "compact",
+    label: "Compact",
+    shellClass:
+      "[&_button]:!text-[10px] [&_input]:!text-[12px] [&_label]:!text-[10px] [&_th]:!text-[11px] [&_td]:!text-[11px] [&_.watchlist-section-label]:!text-[10px] [&_.watchlist-symbol-text]:!text-[11px] [&_.watchlist-name-text]:!text-[10px] [&_.watchlist-price-text]:!text-[14px] [&_.watchlist-subtext]:!text-[10px]",
+  },
+  {
+    value: "default",
+    label: "Default",
+    shellClass:
+      "[&_button]:!text-[11px] [&_input]:!text-[13px] [&_label]:!text-[11px] [&_th]:!text-[12px] [&_td]:!text-[12px] [&_.watchlist-section-label]:!text-[11px] [&_.watchlist-symbol-text]:!text-xs [&_.watchlist-name-text]:!text-[10px] [&_.watchlist-price-text]:!text-[15px] [&_.watchlist-subtext]:!text-[10px]",
+  },
+  {
+    value: "comfortable",
+    label: "Comfort",
+    shellClass:
+      "[&_button]:!text-[12px] [&_input]:!text-[14px] [&_label]:!text-[12px] [&_th]:!text-[13px] [&_td]:!text-[13px] [&_.watchlist-section-label]:!text-[12px] [&_.watchlist-symbol-text]:!text-[13px] [&_.watchlist-name-text]:!text-[11px] [&_.watchlist-price-text]:!text-[16px] [&_.watchlist-subtext]:!text-[11px]",
+  },
+  {
+    value: "large",
+    label: "Large",
+    shellClass:
+      "[&_button]:!text-[13px] [&_input]:!text-[15px] [&_label]:!text-[13px] [&_th]:!text-[14px] [&_td]:!text-[14px] [&_.watchlist-section-label]:!text-[13px] [&_.watchlist-symbol-text]:!text-[14px] [&_.watchlist-name-text]:!text-[12px] [&_.watchlist-price-text]:!text-[17px] [&_.watchlist-subtext]:!text-[12px]",
+  },
 ];
 
 const MIN_HISTORY_CANDLES = 5;
@@ -899,6 +968,10 @@ function WatchlistPageContent() {
   const [chartVisibility, setChartVisibility] = useState<ChartVisibilitySettings>(
     DEFAULT_CHART_VISIBILITY_SETTINGS
   );
+  const [watchlistAppearanceFont, setWatchlistAppearanceFont] =
+    useState<WatchlistAppearanceFont>("outfit");
+  const [watchlistTextSize, setWatchlistTextSize] =
+    useState<WatchlistTextSize>("default");
   const [hasChartData, setHasChartData] = useState(false);
   const [crosshairEnabled, setCrosshairEnabled] = useState(true);
   const [isAdjustOpen, setIsAdjustOpen] = useState(false);
@@ -999,6 +1072,26 @@ function WatchlistPageContent() {
       .map((item) => (item.symbol ? normalizeSymbol(item.symbol) : ""))
       .filter(Boolean);
   }, [chartMode, selectedSymbol, watchlistQuery.data]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const savedFont = window.localStorage.getItem(WATCHLIST_APPEARANCE_STORAGE_KEY);
+    const savedTextSize = window.localStorage.getItem(WATCHLIST_TEXT_SIZE_STORAGE_KEY);
+
+    if (savedFont && WATCHLIST_FONT_OPTIONS.some((option) => option.value === savedFont)) {
+      setWatchlistAppearanceFont(savedFont as WatchlistAppearanceFont);
+    }
+    if (savedTextSize && WATCHLIST_TEXT_SIZE_OPTIONS.some((option) => option.value === savedTextSize)) {
+      setWatchlistTextSize(savedTextSize as WatchlistTextSize);
+    }
+  }, []);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(WATCHLIST_APPEARANCE_STORAGE_KEY, watchlistAppearanceFont);
+  }, [watchlistAppearanceFont]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(WATCHLIST_TEXT_SIZE_STORAGE_KEY, watchlistTextSize);
+  }, [watchlistTextSize]);
   const userWatchlists = useMemo(
     () => watchlistsQuery.data?.watchlists ?? [],
     [watchlistsQuery.data]
@@ -1010,6 +1103,18 @@ function WatchlistPageContent() {
     if (explicitActive) return explicitActive;
     return userWatchlists[0]?.id || "";
   }, [watchlistsQuery.data, userWatchlists]);
+  const selectedWatchlistFontOption = useMemo(
+    () =>
+      WATCHLIST_FONT_OPTIONS.find((option) => option.value === watchlistAppearanceFont) ??
+      WATCHLIST_FONT_OPTIONS[0],
+    [watchlistAppearanceFont]
+  );
+  const selectedWatchlistTextSizeOption = useMemo(
+    () =>
+      WATCHLIST_TEXT_SIZE_OPTIONS.find((option) => option.value === watchlistTextSize) ??
+      WATCHLIST_TEXT_SIZE_OPTIONS[1],
+    [watchlistTextSize]
+  );
   const activeWatchlist = useMemo(
     () => userWatchlists.find((item) => item.id === activeWatchlistId) ?? null,
     [userWatchlists, activeWatchlistId]
@@ -3474,22 +3579,29 @@ function WatchlistPageContent() {
   }
 
   return (
-    <div className="space-y-5 pb-6">
+    <div
+      className={cn(
+        "watchlist-appearance-shell space-y-5 pb-6",
+        selectedWatchlistFontOption.shellClass,
+        selectedWatchlistTextSizeOption.shellClass
+      )}
+      style={{ fontFamily: selectedWatchlistFontOption.family }}
+    >
       <section className="relative overflow-hidden rounded-2xl border border-slate-300/70 bg-[linear-gradient(145deg,rgba(255,255,255,0.95),rgba(239,246,255,0.92))] p-3 shadow-[0_16px_45px_-30px_rgba(15,23,42,0.35)] dark:border-slate-700/60 dark:bg-[linear-gradient(145deg,rgba(2,7,18,0.95),rgba(5,12,24,0.92))] sm:p-4">
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_0%_0%,rgba(14,165,233,0.14),transparent_46%),radial-gradient(circle_at_100%_100%,rgba(16,185,129,0.1),transparent_44%)] dark:bg-[radial-gradient(circle_at_0%_0%,rgba(14,165,233,0.1),transparent_46%),radial-gradient(circle_at_100%_100%,rgba(16,185,129,0.08),transparent_44%)]" />
         <div className="relative space-y-3">
           <div className="grid gap-3">
             <div className="rounded-xl border border-slate-300/75 bg-white/85 p-3 dark:border-slate-700/70 dark:bg-slate-900/60">
               <div className="mb-2 flex items-center justify-between gap-2">
-                <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-700 dark:text-slate-300">
+                <span className="watchlist-section-label inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-700 dark:text-slate-300">
                   <ChevronDown className="h-3.5 w-3.5" />
                   Watchlists
                 </span>
                 <div className="flex flex-col items-end">
-                  <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400">
+                  <span className="watchlist-subtext text-[10px] font-medium text-slate-500 dark:text-slate-400">
                     {userWatchlists.length} list{userWatchlists.length === 1 ? "" : "s"}
                   </span>
-                  <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400">
+                  <span className="watchlist-subtext text-[10px] font-medium text-slate-500 dark:text-slate-400">
                     {watchlistSymbols.length} symbol{watchlistSymbols.length === 1 ? "" : "s"}
                   </span>
                 </div>
@@ -3575,12 +3687,12 @@ function WatchlistPageContent() {
               <div className="mb-2 flex items-center justify-between">
                 <label
                   htmlFor="watchlist-symbol"
-                  className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-700 dark:text-slate-300"
+                  className="watchlist-section-label inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-700 dark:text-slate-300"
                 >
                   <Plus className="h-3.5 w-3.5" />
                   Add Instrument
                 </label>
-                <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400">Quick add</span>
+                <span className="watchlist-subtext text-[10px] font-medium text-slate-500 dark:text-slate-400">Quick add</span>
               </div>
 
               <div>
@@ -3667,7 +3779,76 @@ function WatchlistPageContent() {
                 {isWatchlistEditMode ? "Done" : "Edit Watchlist"}
               </Button>
             </div>
-            <div className="flex w-full items-center gap-2 sm:w-auto">
+            <div className="flex w-full flex-wrap items-center gap-2 min-[320px]:justify-end sm:w-auto">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-9 w-full justify-between border-slate-300/80 bg-white/90 px-3 text-slate-700 dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200 min-[360px]:w-auto"
+                  >
+                    <span className="inline-flex min-w-0 items-center gap-1.5">
+                      <Type className="h-4 w-4 shrink-0" />
+                      <span className="truncate">Appearance</span>
+                    </span>
+                    <span className="truncate text-[10px] uppercase tracking-[0.12em] opacity-70">
+                      {selectedWatchlistFontOption.label} / {selectedWatchlistTextSizeOption.label}
+                    </span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="end"
+                  sideOffset={8}
+                  className="w-[min(20rem,calc(100vw-1.25rem))] border border-slate-300/85 bg-white/95 p-1.5 dark:border-slate-700/80 dark:bg-slate-950/95"
+                >
+                  <DropdownMenuLabel className="px-2 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+                    Font Style
+                  </DropdownMenuLabel>
+                  {WATCHLIST_FONT_OPTIONS.map((option) => (
+                    <DropdownMenuItem
+                      key={option.value}
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        setWatchlistAppearanceFont(option.value);
+                      }}
+                      className="flex cursor-pointer items-center justify-between gap-3 rounded-md px-2 py-2 text-slate-700 data-[highlighted]:bg-sky-500/10 data-[highlighted]:text-sky-700 dark:text-slate-200 dark:data-[highlighted]:bg-sky-500/20 dark:data-[highlighted]:text-slate-100"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate font-semibold" style={{ fontFamily: option.family }}>
+                          {option.label}
+                        </p>
+                        <p className="truncate text-[10px] text-slate-500 dark:text-slate-400" style={{ fontFamily: option.family }}>
+                          Watchlist preview
+                        </p>
+                      </div>
+                      {watchlistAppearanceFont === option.value ? <Check className="h-4 w-4 shrink-0" /> : null}
+                    </DropdownMenuItem>
+                  ))}
+                  <DropdownMenuSeparator className="my-1 bg-slate-200/80 dark:bg-slate-800/80" />
+                  <DropdownMenuLabel className="px-2 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+                    Text Size
+                  </DropdownMenuLabel>
+                  {WATCHLIST_TEXT_SIZE_OPTIONS.map((option) => (
+                    <DropdownMenuItem
+                      key={option.value}
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        setWatchlistTextSize(option.value);
+                      }}
+                      className="flex cursor-pointer items-center justify-between gap-3 rounded-md px-2 py-2 text-slate-700 data-[highlighted]:bg-emerald-500/10 data-[highlighted]:text-emerald-700 dark:text-slate-200 dark:data-[highlighted]:bg-emerald-500/20 dark:data-[highlighted]:text-slate-100"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate font-semibold">{option.label}</p>
+                        <p className="truncate text-[10px] text-slate-500 dark:text-slate-400">
+                          Readability for 320px to desktop
+                        </p>
+                      </div>
+                      {watchlistTextSize === option.value ? <Check className="h-4 w-4 shrink-0" /> : null}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
               <div className="inline-flex flex-1 overflow-hidden rounded-lg border border-slate-300/80 bg-white/90 dark:border-slate-700/70 dark:bg-slate-900/70 sm:flex-none">
                 <button
                   type="button"
@@ -3762,29 +3943,29 @@ function WatchlistPageContent() {
                         >
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
-                              <p className="truncate text-xs font-semibold uppercase tracking-[0.18em] text-slate-700 dark:text-slate-200">
+                              <p className="watchlist-symbol-text truncate text-xs font-semibold uppercase tracking-[0.18em] text-slate-700 dark:text-slate-200">
                                 {row.symbol}
                               </p>
-                              <p className="mt-0.5 truncate text-[10px] text-slate-500 dark:text-slate-400">
+                              <p className="watchlist-name-text mt-0.5 truncate text-[10px] text-slate-500 dark:text-slate-400">
                                 {row.name}
                               </p>
                             </div>
                             <div className="text-right">
-                              <p className={cn("text-[15px] font-bold", priceClass)}>
+                              <p className={cn("watchlist-price-text text-[15px] font-bold", priceClass)}>
                                 {formatNumber(row.currentPrice, digits)}
                               </p>
-                              <p className="mt-0.5 text-[10px] text-slate-500 dark:text-slate-400">
+                              <p className="watchlist-subtext mt-0.5 text-[10px] text-slate-500 dark:text-slate-400">
                                 <span className={highClass}>H {formatNumber(row.high, digits)}</span>
                                 {" / "}
                                 <span className={lowClass}>L {formatNumber(row.low, digits)}</span>
                               </p>
                             </div>
                           </div>
-                          <div className="mt-1 flex items-center justify-between gap-3 text-[11px]">
+                          <div className="watchlist-subtext mt-1 flex items-center justify-between gap-3 text-[11px]">
                             <p className={cn("font-semibold", changeClass)}>
                               {formatPoints(row.points, digits)} ({formatPercent(row.changePercent)})
                             </p>
-                            <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                            <p className="watchlist-subtext text-[10px] text-slate-500 dark:text-slate-400">
                               <span className={bidClass}>Bid {formatNumber(row.bid, digits)}</span>
                               {" / "}
                               <span className={askClass}>Ask {formatNumber(row.ask, digits)}</span>
@@ -4661,16 +4842,30 @@ function WatchlistPageContent() {
 
               <div className="min-w-0 space-y-3 px-3 py-3 sm:space-y-4 sm:px-5 sm:py-4">
                 <div className="rounded-xl border border-slate-200/85 bg-[linear-gradient(145deg,rgba(255,255,255,0.95),rgba(224,242,254,0.7))] p-3 shadow-[0_10px_24px_-18px_rgba(14,165,233,0.65)] dark:border-slate-800 dark:[background-image:none] dark:bg-[#0b1726] dark:shadow-none sm:p-4">
-                  <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Bid / Ask</p>
-                  <p className="mt-1 text-xl font-black tracking-tight text-slate-900 dark:text-slate-100 min-[360px]:text-2xl sm:text-3xl">
-                    {formatNumber(selectedRow.bid, detailDigits)} / {formatNumber(selectedRow.ask, detailDigits)}
-                  </p>
-                  <p className={cn("mt-1 text-xs font-semibold sm:text-sm", detailTrendClass)}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Bid / Ask</p>
+                      <p className="mt-1 text-xl font-black tracking-tight text-slate-900 dark:text-slate-100 min-[360px]:text-2xl sm:text-3xl">
+                        {formatNumber(selectedRow.bid, detailDigits)} / {formatNumber(selectedRow.ask, detailDigits)}
+                      </p>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">LTP</p>
+                      <p className="mt-1 text-sm font-black tracking-tight text-slate-900 dark:text-slate-100 min-[360px]:text-xl sm:text-xl">
+                        {formatNumber(selectedRow.currentPrice, detailDigits)}
+                      </p>
+                    </div>
+                  </div>
+                  <p className={cn("mt-2 text-xs font-semibold sm:text-sm", detailTrendClass)}>
                     {formatPoints(selectedRow.points, detailDigits)} ({formatPercent(selectedRow.changePercent)})
                   </p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
+                  <div className="rounded-lg border border-slate-200/85 bg-white/90 px-2.5 py-2 dark:border-slate-800 dark:bg-[#0a1422] sm:px-3 sm:py-2.5">
+                    <p className="text-[10px] uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">Open</p>
+                    <p className="mt-1 text-xs font-semibold sm:text-sm">{formatNumber(selectedRow.open, detailDigits)}</p>
+                  </div>
                   <div className="rounded-lg border border-slate-200/85 bg-white/90 px-2.5 py-2 dark:border-slate-800 dark:bg-[#0a1422] sm:px-3 sm:py-2.5">
                     <p className="text-[10px] uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">High</p>
                     <p className="mt-1 text-xs font-semibold sm:text-sm">{formatNumber(selectedRow.high, detailDigits)}</p>
@@ -4680,14 +4875,8 @@ function WatchlistPageContent() {
                     <p className="mt-1 text-xs font-semibold sm:text-sm">{formatNumber(selectedRow.low, detailDigits)}</p>
                   </div>
                   <div className="rounded-lg border border-slate-200/85 bg-white/90 px-2.5 py-2 dark:border-slate-800 dark:bg-[#0a1422] sm:px-3 sm:py-2.5">
-                    <p className="text-[10px] uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">Current Price</p>
-                    <p className="mt-1 text-xs font-semibold sm:text-sm">{formatNumber(selectedRow.currentPrice, detailDigits)}</p>
-                  </div>
-                  <div className="rounded-lg border border-slate-200/85 bg-white/90 px-2.5 py-2 dark:border-slate-800 dark:bg-[#0a1422] sm:px-3 sm:py-2.5">
-                    <p className="text-[10px] uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">Bid / Ask</p>
-                    <p className="mt-1 text-xs font-semibold sm:text-sm">
-                      {formatNumber(selectedRow.bid, detailDigits)} / {formatNumber(selectedRow.ask, detailDigits)}
-                    </p>
+                    <p className="text-[10px] uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">Close</p>
+                    <p className="mt-1 text-xs font-semibold sm:text-sm">{formatNumber(selectedRow.close, detailDigits)}</p>
                   </div>
                 </div>
 

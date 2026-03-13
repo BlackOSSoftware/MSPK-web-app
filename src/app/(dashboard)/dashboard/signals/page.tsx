@@ -1,5 +1,5 @@
 "use client";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSignalsQuery } from "@/services/signals/signal.hooks";
 import type { SignalItem } from "@/services/signals/signal.types";
 import { Button } from "@/components/ui/button";
@@ -21,7 +21,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock3,
-  Filter,
   Layers3,
   Radio,
   RefreshCw,
@@ -31,6 +30,7 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { getAuthToken } from "@/lib/auth/session";
 
 const numberFormatter = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 });
 type SignalRuntimeShape = SignalItem & {
@@ -40,6 +40,19 @@ type SignalRuntimeShape = SignalItem & {
   exit_price?: unknown;
   total_points?: unknown;
   trade_type?: string;
+};
+
+type LiveSignalTick = {
+  symbol: string;
+  price?: number;
+  bid?: number;
+  ask?: number;
+  high?: number;
+  low?: number;
+  close?: number;
+  change?: number;
+  changePercent?: number;
+  timestamp?: string;
 };
 
 function toFiniteNumber(value: unknown) {
@@ -217,6 +230,134 @@ function formatTimeframe(value?: string | null) {
   return raw;
 }
 
+function getMarketSocketUrl(token: string): string {
+  const override = process.env.NEXT_PUBLIC_MARKET_WS_URL;
+  if (override) {
+    const url = new URL(override);
+    url.searchParams.set("token", token);
+    url.searchParams.set("autoSubscribe", "false");
+    return url.toString();
+  }
+
+  const apiBase = process.env.NEXT_PUBLIC_API_URL;
+  if (!apiBase) {
+    throw new Error("Missing NEXT_PUBLIC_API_URL");
+  }
+
+  const url = new URL(apiBase);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  url.pathname = "/";
+  url.search = "";
+  url.hash = "";
+  url.searchParams.set("token", token);
+  url.searchParams.set("autoSubscribe", "false");
+  return url.toString();
+}
+
+function normalizeSignalSymbol(symbol?: string | null) {
+  return String(symbol || "").trim().toUpperCase();
+}
+
+function getUsdUsdtAlias(symbol?: string | null) {
+  const normalized = normalizeSignalSymbol(symbol);
+  if (!normalized) return "";
+
+  const withSuffix = normalized.match(/^([A-Z0-9]+?)(USDT|USD)([.:/_-][A-Z0-9._:-]*)?$/);
+  if (withSuffix) {
+    const [, base, quote, suffix = ""] = withSuffix;
+    return `${base}${quote === "USDT" ? "USD" : "USDT"}${suffix}`;
+  }
+
+  if (normalized.endsWith("USDT")) {
+    return normalized.slice(0, -1);
+  }
+
+  if (normalized.endsWith("USD")) {
+    return `${normalized}T`;
+  }
+
+  return "";
+}
+
+function areEquivalentSignalSymbols(left?: string | null, right?: string | null) {
+  const normalizedLeft = normalizeSignalSymbol(left);
+  const normalizedRight = normalizeSignalSymbol(right);
+  if (!normalizedLeft || !normalizedRight) return false;
+  if (normalizedLeft === normalizedRight) return true;
+  return getUsdUsdtAlias(normalizedLeft) === normalizedRight || getUsdUsdtAlias(normalizedRight) === normalizedLeft;
+}
+
+function getBestLiveSignalPrice(tick?: LiveSignalTick | null) {
+  if (!tick) return undefined;
+
+  const candidates = [
+    tick.price,
+    tick.close,
+    typeof tick.bid === "number" && typeof tick.ask === "number" && tick.bid > 0 && tick.ask > 0
+      ? (tick.bid + tick.ask) / 2
+      : undefined,
+    tick.bid,
+    tick.ask,
+    tick.high,
+    tick.low,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "number" && Number.isFinite(candidate) && candidate > 0) {
+      return candidate;
+    }
+  }
+
+  return undefined;
+}
+
+function mapSignalSocketTick(payload: Record<string, unknown>): LiveSignalTick | null {
+  const symbolRaw = payload.symbol;
+  if (typeof symbolRaw !== "string" || !symbolRaw.trim()) return null;
+
+  const ohlc =
+    payload.ohlc && typeof payload.ohlc === "object"
+      ? (payload.ohlc as Record<string, unknown>)
+      : undefined;
+  const depth =
+    payload.depth && typeof payload.depth === "object"
+      ? (payload.depth as Record<string, unknown>)
+      : undefined;
+  const bidFromDepth = Array.isArray((depth as { buy?: unknown[] } | undefined)?.buy)
+    ? ((depth as { buy?: Array<Record<string, unknown>> }).buy?.[0]?.price as unknown)
+    : undefined;
+  const askFromDepth = Array.isArray((depth as { sell?: unknown[] } | undefined)?.sell)
+    ? ((depth as { sell?: Array<Record<string, unknown>> }).sell?.[0]?.price as unknown)
+    : undefined;
+
+  return {
+    symbol: normalizeSignalSymbol(symbolRaw),
+    price: toFiniteNumber(
+      payload.price ??
+        payload.last_price ??
+        payload.lastPrice ??
+        payload.last ??
+        payload.ltp ??
+        payload.currentPrice ??
+        payload.close ??
+        ohlc?.close
+    ),
+    bid: toFiniteNumber(payload.bid ?? payload.bestBid ?? bidFromDepth),
+    ask: toFiniteNumber(payload.ask ?? payload.bestAsk ?? askFromDepth),
+    high: toFiniteNumber(payload.high ?? ohlc?.high),
+    low: toFiniteNumber(payload.low ?? ohlc?.low),
+    close: toFiniteNumber(payload.close ?? payload.prevClose ?? ohlc?.close),
+    change: toFiniteNumber(payload.change),
+    changePercent: toFiniteNumber(payload.changePercent ?? payload.change_percent),
+    timestamp:
+      typeof payload.timestamp === "string"
+        ? payload.timestamp
+        : payload.timestamp instanceof Date
+          ? payload.timestamp.toISOString()
+          : undefined,
+  };
+}
+
 function getChartIntervalFromTimeframe(value?: string | null) {
   const raw = String(value || "").trim();
   if (!raw) return "15";
@@ -303,7 +444,7 @@ function HeaderCell({ icon: Icon, label }: { icon: typeof Activity; label: strin
   );
 }
 
-type StatHoverKey = "total" | "active" | "closed";
+type StatHoverKey = "total" | "today" | "month" | "plan";
 type SignalStatusFilter = "all" | "active" | "partial" | "target" | "stop" | "closed";
 
 const SIGNAL_STATUS_FILTERS: Array<{ value: SignalStatusFilter; label: string }> = [
@@ -315,21 +456,20 @@ const SIGNAL_STATUS_FILTERS: Array<{ value: SignalStatusFilter; label: string }>
   { value: "closed", label: "Closed" },
 ];
 
+const SIGNAL_STATUS_QUERY_MAP: Record<SignalStatusFilter, string | undefined> = {
+  all: undefined,
+  active: "Active",
+  partial: "Partial Profit Book",
+  target: "Target Hit",
+  stop: "Stoploss Hit",
+  closed: "Closed",
+};
+
 function getPointsTone(points?: number) {
   if (typeof points !== "number") return "text-slate-500 dark:text-slate-400";
   if (points > 0) return "text-emerald-700 dark:text-emerald-200";
   if (points < 0) return "text-rose-700 dark:text-rose-200";
   return "text-slate-600 dark:text-slate-300";
-}
-
-function getStatusBucket(signal: SignalItem): SignalStatusFilter {
-  const normalized = getDisplayStatus(signal).toLowerCase();
-  if (normalized.includes("active") || normalized.includes("open")) return "active";
-  if (normalized.includes("partial")) return "partial";
-  if (normalized.includes("target") || normalized.includes("profit")) return "target";
-  if (normalized.includes("stop")) return "stop";
-  if (normalized.includes("close") || normalized.includes("history")) return "closed";
-  return "all";
 }
 
 function useAnimatedCount(value: number, trigger: number) {
@@ -368,66 +508,140 @@ function SignalsPageContent() {
   const [selectedKey, setSelectedKey] = useState("");
   const [statusFilter, setStatusFilter] = useState<SignalStatusFilter>("all");
   const [isDetailOpen, setIsDetailOpen] = useState(false);
+  const [liveTick, setLiveTick] = useState<LiveSignalTick | null>(null);
   const [statHoverPulse, setStatHoverPulse] = useState<Record<StatHoverKey, number>>({
     total: 0,
-    active: 0,
-    closed: 0,
+    today: 0,
+    month: 0,
+    plan: 0,
   });
+  const liveSocketRef = useRef<WebSocket | null>(null);
   const activeTab = searchParams.get("tab") === "scripts" ? "scripts" : "feed";
+  const backendStatusFilter = SIGNAL_STATUS_QUERY_MAP[statusFilter];
 
-  const { data, isLoading, isFetching, error, refetch } = useSignalsQuery({ page, limit: 12 });
+  const { data, isLoading, isFetching, error, refetch } = useSignalsQuery({
+    page,
+    limit: 12,
+    status: backendStatusFilter,
+  });
 
   const signals = useMemo(() => data?.results ?? [], [data?.results]);
   const pagination = data?.pagination;
-  const filteredSignals = useMemo(() => {
-    if (statusFilter === "all") return signals;
-    return signals.filter((signal) => getStatusBucket(signal) === statusFilter);
-  }, [signals, statusFilter]);
+  const filteredSignals = signals;
   const hasFilteredSignals = filteredSignals.length > 0;
-  const filterHasNoResults = signals.length > 0 && !hasFilteredSignals;
-  const entriesLabel =
-    statusFilter === "all"
-      ? `${pagination?.totalResults ?? signals.length} entries`
-      : `${filteredSignals.length} shown`;
+  const filterHasNoResults = !isLoading && !hasFilteredSignals;
+  const entriesLabel = `${pagination?.totalResults ?? filteredSignals.length} entries`;
   const focusSignal = useMemo(() => {
-    if (signals.length === 0) return undefined;
-    if (!selectedKey) return signals[0];
-    return signals.find((item) => getSignalKey(item) === selectedKey) ?? signals[0];
-  }, [signals, selectedKey]);
+    if (filteredSignals.length === 0) return undefined;
+    if (!selectedKey) return filteredSignals[0];
+    return filteredSignals.find((item) => getSignalKey(item) === selectedKey) ?? filteredSignals[0];
+  }, [filteredSignals, selectedKey]);
   const activeSignalKey = focusSignal ? getSignalKey(focusSignal) : "";
-  const latestSignalKey = signals.length > 0 ? getSignalKey(signals[0]) : "";
+  const latestSignalKey = filteredSignals.length > 0 ? getSignalKey(filteredSignals[0]) : "";
   const isFocusLatest = Boolean(activeSignalKey && activeSignalKey === latestSignalKey);
   const focusIsBuy = focusSignal ? isBuySignal(focusSignal) : true;
   const focusStatus = focusSignal ? getDisplayStatus(focusSignal) : "-";
   const detailSignal = useMemo(() => {
     if (!selectedKey) return null;
-    return signals.find((item) => getSignalKey(item) === selectedKey) ?? null;
-  }, [signals, selectedKey]);
+    return filteredSignals.find((item) => getSignalKey(item) === selectedKey) ?? null;
+  }, [filteredSignals, selectedKey]);
+  const isDetailVisible = isDetailOpen && Boolean(detailSignal);
+  const detailExitPrice = detailSignal ? getExit(detailSignal) : undefined;
+  const detailLivePrice = getBestLiveSignalPrice(liveTick) ?? detailExitPrice;
+  const detailBid = typeof liveTick?.bid === "number" ? liveTick.bid : undefined;
+  const detailAsk = typeof liveTick?.ask === "number" ? liveTick.ask : undefined;
+
+  useEffect(() => {
+    const symbol = normalizeSignalSymbol(detailSignal?.symbol);
+    const token = getAuthToken();
+
+    if (!isDetailVisible || !symbol || !token) {
+      const existing = liveSocketRef.current;
+      liveSocketRef.current = null;
+      if (existing) {
+        try {
+          if (existing.readyState === WebSocket.OPEN) {
+            existing.send(JSON.stringify({ type: "unsubscribe", payload: symbol }));
+          }
+        } catch {}
+        existing.close();
+      }
+      return;
+    }
+
+    let closedByEffect = false;
+    let socketUrl = "";
+
+    try {
+      socketUrl = getMarketSocketUrl(token);
+    } catch {
+      return;
+    }
+
+    const socket = new WebSocket(socketUrl);
+    liveSocketRef.current = socket;
+
+    socket.onopen = () => {
+      if (closedByEffect || liveSocketRef.current !== socket) return;
+      socket.send(JSON.stringify({ type: "subscribe", payload: symbol }));
+    };
+
+    socket.onmessage = (event: MessageEvent<string>) => {
+      if (closedByEffect || liveSocketRef.current !== socket) return;
+      try {
+        const message = JSON.parse(event.data) as { type?: string; payload?: unknown };
+        if (message.type !== "tick" || !message.payload || typeof message.payload !== "object") return;
+        const tick = mapSignalSocketTick(message.payload as Record<string, unknown>);
+        if (!tick || !areEquivalentSignalSymbols(tick.symbol, symbol)) return;
+        setLiveTick(tick);
+      } catch {}
+    };
+
+    return () => {
+      closedByEffect = true;
+      if (liveSocketRef.current === socket) {
+        liveSocketRef.current = null;
+      }
+      try {
+        if (socket.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({ type: "unsubscribe", payload: symbol }));
+        }
+      } catch {}
+      socket.close();
+    };
+  }, [detailSignal?.symbol, isDetailVisible]);
 
   const stats = useMemo(() => {
-    const total = data?.stats?.totalSignals ?? pagination?.totalResults ?? signals.length;
-    const active =
-      data?.stats?.activeSignals ??
-      signals.filter((s) => s.status?.toLowerCase() === "active").length;
-    const closed =
-      data?.stats?.closedSignals ??
-      signals.filter((s) => {
-        const normalized = getDisplayStatus(s).toLowerCase();
-        return normalized.includes("close") || normalized.includes("target") || normalized.includes("stop") || normalized.includes("partial");
-      }).length;
-    return { total, active, closed };
-  }, [signals, pagination, data?.stats]);
+    const total = pagination?.totalResults ?? signals.length;
+    return { total };
+  }, [signals.length, pagination?.totalResults]);
+  const periodStats = useMemo(
+    () => ({
+      today: data?.periodStats?.todaySignals ?? 0,
+      month: data?.periodStats?.monthlySignals ?? 0,
+      plan: data?.periodStats?.planSignals ?? data?.stats?.totalSignals ?? 0,
+    }),
+    [data?.periodStats, data?.stats?.totalSignals]
+  );
+  const planSinceLabel = useMemo(() => {
+    const raw = data?.access?.signalVisibleFrom;
+    if (!raw) return "Plan Signals";
+    const date = new Date(raw);
+    if (Number.isNaN(date.getTime())) return "Plan Signals";
+    return `Plan Since ${date.toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}`;
+  }, [data?.access?.signalVisibleFrom]);
 
   const totalPages = Math.max(1, pagination?.totalPages ?? 1);
   const currentPage = pagination?.page ?? page;
   const bumpStatHover = (key: StatHoverKey) =>
     setStatHoverPulse((prev) => ({ ...prev, [key]: prev[key] + 1 }));
   const animatedTotal = useAnimatedCount(stats.total, statHoverPulse.total);
-  const animatedActive = useAnimatedCount(stats.active, statHoverPulse.active);
-  const animatedClosed = useAnimatedCount(stats.closed, statHoverPulse.closed);
-  const isDetailVisible = isDetailOpen && Boolean(detailSignal);
+  const animatedToday = useAnimatedCount(periodStats.today, statHoverPulse.today);
+  const animatedMonth = useAnimatedCount(periodStats.month, statHoverPulse.month);
+  const animatedPlan = useAnimatedCount(periodStats.plan, statHoverPulse.plan);
 
   const openSignalDetail = (signal: SignalItem) => {
+    setLiveTick(null);
     setSelectedKey(getSignalKey(signal));
     setIsDetailOpen(true);
   };
@@ -445,6 +659,7 @@ function SignalsPageContent() {
   };
 
   const selectSignal = (signal: SignalItem) => {
+    setLiveTick(null);
     setSelectedKey(getSignalKey(signal));
     setIsDetailOpen(false);
   };
@@ -578,7 +793,7 @@ function SignalsPageContent() {
         </div>
 
         <TabsContent value="feed" className="space-y-4 sm:space-y-6">
-      <section className="relative grid grid-cols-3 gap-2 sm:gap-3 xl:grid-cols-3">
+      <section className="relative grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
         <div
           className="group relative overflow-hidden rounded-xl sm:rounded-2xl border border-slate-300/70 dark:border-amber-300/18 bg-[linear-gradient(145deg,rgba(248,250,252,0.95),rgba(226,232,240,0.92))] dark:bg-[linear-gradient(145deg,rgba(15,23,42,0.84),rgba(30,41,59,0.66))] p-2.5 sm:p-5 transition-all duration-300 hover:-translate-y-1 hover:border-amber-400/45 dark:hover:border-amber-300/40 dark:shadow-[0_0_0_1px_rgba(148,163,184,0.12),0_20px_34px_-22px_rgba(96,165,250,0.5)]"
           onMouseEnter={() => bumpStatHover("total")}
@@ -600,39 +815,64 @@ function SignalsPageContent() {
         </div>
 
         <div
-          className="group relative overflow-hidden rounded-xl sm:rounded-2xl border border-slate-300/70 dark:border-emerald-300/18 bg-[linear-gradient(145deg,rgba(240,253,250,0.95),rgba(209,250,229,0.92))] dark:bg-[linear-gradient(145deg,rgba(10,25,19,0.84),rgba(17,65,49,0.62))] p-2.5 sm:p-5 transition-all duration-300 hover:-translate-y-1 hover:border-emerald-500/45 dark:hover:border-emerald-300/40 dark:shadow-[0_0_0_1px_rgba(148,163,184,0.12),0_20px_34px_-22px_rgba(96,165,250,0.5)]"
-          onMouseEnter={() => bumpStatHover("active")}
-          onTouchStart={() => bumpStatHover("active")}
+          className="group relative overflow-hidden rounded-xl sm:rounded-2xl border border-slate-300/70 dark:border-sky-300/18 bg-[linear-gradient(145deg,rgba(240,249,255,0.95),rgba(224,242,254,0.92))] dark:bg-[linear-gradient(145deg,rgba(8,24,37,0.84),rgba(12,56,84,0.62))] p-2.5 sm:p-5 transition-all duration-300 hover:-translate-y-1 hover:border-sky-500/45 dark:hover:border-sky-300/40 dark:shadow-[0_0_0_1px_rgba(148,163,184,0.12),0_20px_34px_-22px_rgba(96,165,250,0.5)]"
+          onMouseEnter={() => bumpStatHover("today")}
+          onTouchStart={() => bumpStatHover("today")}
         >
-          <div className="pointer-events-none absolute -right-16 -top-16 h-28 w-28 rounded-full bg-emerald-300/22 blur-2xl opacity-60 transition duration-500 group-hover:scale-125 group-hover:opacity-95" />
+          <div className="pointer-events-none absolute -right-16 -top-16 h-28 w-28 rounded-full bg-sky-300/22 blur-2xl opacity-60 transition duration-500 group-hover:scale-125 group-hover:opacity-95" />
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_25%_0%,rgba(147,197,253,0.18),transparent_55%)] opacity-70 dark:opacity-100" />
           <div className="relative z-10">
-            <div className="inline-flex h-7 w-7 sm:h-9 sm:w-9 items-center justify-center rounded-lg sm:rounded-xl border border-emerald-600/35 bg-emerald-500/12 dark:border-emerald-200/30 dark:bg-emerald-200/12">
-              <Target className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-emerald-700 dark:text-emerald-100" />
+            <div className="inline-flex h-7 w-7 sm:h-9 sm:w-9 items-center justify-center rounded-lg sm:rounded-xl border border-sky-600/35 bg-sky-500/12 dark:border-sky-200/30 dark:bg-sky-200/12">
+              <CalendarClock className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-sky-700 dark:text-sky-100" />
             </div>
-            <div className="mt-2 sm:mt-3 text-[9px] sm:text-[10px] uppercase tracking-[0.16em] sm:tracking-[0.2em] text-emerald-700/80 dark:text-emerald-100/70">
-              Active
+            <div className="mt-2 sm:mt-3 text-[9px] sm:text-[10px] uppercase tracking-[0.16em] sm:tracking-[0.2em] text-sky-700/80 dark:text-sky-100/70">
+              Today
             </div>
-            <div className="mt-0.5 sm:mt-1 text-base sm:text-3xl font-semibold tabular-nums text-emerald-700 dark:text-emerald-200 transition-colors duration-300 group-hover:text-emerald-600 dark:group-hover:text-emerald-300 group-hover:animate-pulse">
-              {animatedActive.toLocaleString("en-IN")}
+            <div className="mt-0.5 sm:mt-1 text-base sm:text-3xl font-semibold tabular-nums text-sky-700 dark:text-sky-200 transition-colors duration-300 group-hover:text-sky-600 dark:group-hover:text-sky-300 group-hover:animate-pulse">
+              {animatedToday.toLocaleString("en-IN")}
             </div>
           </div>
         </div>
 
         <div
-          className="group relative overflow-hidden rounded-xl sm:rounded-2xl border border-slate-300/70 dark:border-cyan-300/18 bg-[linear-gradient(145deg,rgba(240,249,255,0.95),rgba(224,242,254,0.92))] dark:bg-[linear-gradient(145deg,rgba(8,24,37,0.84),rgba(12,56,84,0.62))] p-2.5 sm:p-5 transition-all duration-300 hover:-translate-y-1 hover:border-cyan-500/45 dark:hover:border-cyan-300/40 dark:shadow-[0_0_0_1px_rgba(148,163,184,0.12),0_20px_34px_-22px_rgba(96,165,250,0.5)]"
-          onMouseEnter={() => bumpStatHover("closed")}
-          onTouchStart={() => bumpStatHover("closed")}
+          className="group relative overflow-hidden rounded-xl sm:rounded-2xl border border-slate-300/70 dark:border-violet-300/18 bg-[linear-gradient(145deg,rgba(250,245,255,0.95),rgba(243,232,255,0.92))] dark:bg-[linear-gradient(145deg,rgba(28,16,45,0.84),rgba(58,28,92,0.62))] p-2.5 sm:p-5 transition-all duration-300 hover:-translate-y-1 hover:border-violet-500/45 dark:hover:border-violet-300/40 dark:shadow-[0_0_0_1px_rgba(148,163,184,0.12),0_20px_34px_-22px_rgba(96,165,250,0.5)]"
+          onMouseEnter={() => bumpStatHover("month")}
+          onTouchStart={() => bumpStatHover("month")}
         >
-          <div className="pointer-events-none absolute -right-16 -top-16 h-28 w-28 rounded-full bg-cyan-300/20 blur-2xl opacity-60 transition duration-500 group-hover:scale-125 group-hover:opacity-95" />
+          <div className="pointer-events-none absolute -right-16 -top-16 h-28 w-28 rounded-full bg-violet-300/20 blur-2xl opacity-60 transition duration-500 group-hover:scale-125 group-hover:opacity-95" />
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_25%_0%,rgba(147,197,253,0.18),transparent_55%)] opacity-70 dark:opacity-100" />
           <div className="relative z-10">
-            <div className="inline-flex h-7 w-7 sm:h-9 sm:w-9 items-center justify-center rounded-lg sm:rounded-xl border border-cyan-600/35 bg-cyan-500/12 dark:border-cyan-200/30 dark:bg-cyan-200/12">
-              <Clock3 className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-cyan-700 dark:text-cyan-100" />
+            <div className="inline-flex h-7 w-7 sm:h-9 sm:w-9 items-center justify-center rounded-lg sm:rounded-xl border border-violet-600/35 bg-violet-500/12 dark:border-violet-200/30 dark:bg-violet-200/12">
+              <Layers3 className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-violet-700 dark:text-violet-100" />
             </div>
-            <div className="mt-2 sm:mt-3 text-[9px] sm:text-[10px] uppercase tracking-[0.16em] sm:tracking-[0.2em] text-cyan-700/80 dark:text-cyan-100/70">Closed</div>
-            <div className="mt-0.5 sm:mt-1 text-base sm:text-3xl font-semibold tabular-nums text-cyan-700 dark:text-cyan-200 transition-colors duration-300 group-hover:text-cyan-600 dark:group-hover:text-cyan-300 group-hover:animate-pulse">
-              {animatedClosed.toLocaleString("en-IN")}
+            <div className="mt-2 sm:mt-3 text-[9px] sm:text-[10px] uppercase tracking-[0.16em] sm:tracking-[0.2em] text-violet-700/80 dark:text-violet-100/70">
+              Monthly
+            </div>
+            <div className="mt-0.5 sm:mt-1 text-base sm:text-3xl font-semibold tabular-nums text-violet-700 dark:text-violet-200 transition-colors duration-300 group-hover:text-violet-600 dark:group-hover:text-violet-300 group-hover:animate-pulse">
+              {animatedMonth.toLocaleString("en-IN")}
+            </div>
+          </div>
+        </div>
+
+        <div
+          className="group relative overflow-hidden rounded-xl sm:rounded-2xl border border-slate-300/70 dark:border-emerald-300/18 bg-[linear-gradient(145deg,rgba(240,253,250,0.95),rgba(209,250,229,0.92))] dark:bg-[linear-gradient(145deg,rgba(10,25,19,0.84),rgba(17,65,49,0.62))] p-2.5 sm:p-5 transition-all duration-300 hover:-translate-y-1 hover:border-emerald-500/45 dark:hover:border-emerald-300/40 dark:shadow-[0_0_0_1px_rgba(148,163,184,0.12),0_20px_34px_-22px_rgba(96,165,250,0.5)] col-span-2 sm:col-span-1"
+          onMouseEnter={() => bumpStatHover("plan")}
+          onTouchStart={() => bumpStatHover("plan")}
+        >
+          <div className="pointer-events-none absolute -right-16 -top-16 h-28 w-28 rounded-full bg-emerald-300/22 blur-2xl opacity-60 transition duration-500 group-hover:scale-125 group-hover:opacity-95" />
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_25%_0%,rgba(147,197,253,0.18),transparent_55%)] opacity-70 dark:opacity-100" />
+          <div className="relative z-10">
+            <div className="inline-flex h-7 w-7 sm:h-9 sm:w-9 items-center justify-center rounded-lg sm:rounded-xl border border-emerald-600/35 bg-emerald-500/12 dark:border-emerald-200/30 dark:bg-emerald-200/12">
+              <Sparkles className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-emerald-700 dark:text-emerald-100" />
+            </div>
+            <div className="mt-2 sm:mt-3 text-[9px] sm:text-[10px] uppercase tracking-[0.16em] sm:tracking-[0.2em] text-emerald-700/80 dark:text-emerald-100/70">
+              Current Plan
+            </div>
+            <div className="mt-0.5 sm:mt-1 text-base sm:text-3xl font-semibold tabular-nums text-emerald-700 dark:text-emerald-200 transition-colors duration-300 group-hover:text-emerald-600 dark:group-hover:text-emerald-300 group-hover:animate-pulse">
+              {animatedPlan.toLocaleString("en-IN")}
+            </div>
+            <div className="mt-1 text-[10px] font-medium text-emerald-700/80 dark:text-emerald-100/70">
+              {planSinceLabel}
             </div>
           </div>
         </div>
@@ -674,17 +914,15 @@ function SignalsPageContent() {
                 Signal Ledger
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <label
-                  htmlFor="signal-status-filter"
-                  className="inline-flex items-center gap-1.5 rounded-full border border-slate-300/80 bg-white/75 px-3 py-1 text-[10px] uppercase tracking-[0.16em] text-slate-700 dark:border-slate-500/45 dark:bg-slate-900/55 dark:text-slate-200"
-                >
-                  <Filter className="h-3.5 w-3.5 text-amber-700 dark:text-amber-100" />
-                  Status
-                </label>
+                
                 <select
                   id="signal-status-filter"
                   value={statusFilter}
-                  onChange={(event) => setStatusFilter(event.target.value as SignalStatusFilter)}
+                  onChange={(event) => {
+                    setStatusFilter(event.target.value as SignalStatusFilter);
+                    setPage(1);
+                    setSelectedKey("");
+                  }}
                   className="h-8 rounded-full border border-slate-300/80 bg-white/80 px-3 text-xs font-medium text-slate-700 outline-none transition-colors hover:border-slate-400/80 focus:border-primary/50 dark:border-slate-500/45 dark:bg-slate-900/55 dark:text-slate-100"
                 >
                   {SIGNAL_STATUS_FILTERS.map((item) => (
@@ -975,7 +1213,15 @@ function SignalsPageContent() {
             </Button>
           </section>
 
-          <Dialog open={isDetailVisible} onOpenChange={setIsDetailOpen}>
+          <Dialog
+            open={isDetailVisible}
+            onOpenChange={(open) => {
+              setIsDetailOpen(open);
+              if (!open) {
+                setLiveTick(null);
+              }
+            }}
+          >
             <DialogContent className="max-h-[92vh] overflow-y-auto border-slate-300/70 bg-[linear-gradient(160deg,rgba(248,250,252,0.98),rgba(226,232,240,0.96))] p-0 text-slate-900 shadow-[0_30px_90px_-45px_rgba(15,23,42,0.7)] dark:border-primary/25 dark:bg-[linear-gradient(165deg,rgba(5,12,24,0.98),rgba(14,23,38,0.96))] dark:text-slate-100 sm:max-w-3xl">
               {detailSignal ? (
                 <>
@@ -1052,10 +1298,15 @@ function SignalsPageContent() {
                       <div className="rounded-2xl border border-slate-300/65 bg-white/85 p-4 dark:border-primary/25 dark:bg-slate-950/55">
                         <div className="inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.18em] text-slate-600 dark:text-slate-300">
                           <ArrowDownRight className="h-3.5 w-3.5 text-primary" />
-                          Exit
+                          Live Price
                         </div>
                         <div className="mt-2 text-lg font-semibold text-slate-900 dark:text-slate-100">
-                          {formatPrice(getExit(detailSignal))}
+                          {formatPrice(detailLivePrice)}
+                        </div>
+                        <div className="mt-2 text-[11px] text-slate-600 dark:text-slate-300">
+                          Bid: <span className="font-semibold text-slate-900 dark:text-slate-100">{formatPrice(detailBid)}</span>
+                          {"  "}
+                          Ask: <span className="font-semibold text-slate-900 dark:text-slate-100">{formatPrice(detailAsk)}</span>
                         </div>
                       </div>
 
@@ -1144,15 +1395,6 @@ function SignalsPageContent() {
                         </div>
                       </div>
 
-                      <div className="rounded-[1.4rem] border border-slate-300/65 bg-white/80 p-4 dark:border-primary/25 dark:bg-slate-950/55">
-                        <div className="inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.18em] text-slate-600 dark:text-slate-300">
-                          <ShieldCheck className="h-3.5 w-3.5 text-amber-700 dark:text-amber-100" />
-                          Signal ID
-                        </div>
-                        <div className="mt-2 break-all text-sm font-semibold text-slate-900 dark:text-slate-100">
-                          {detailSignal.uniqueId || detailSignal.webhookId || getSignalId(detailSignal) || "-"}
-                        </div>
-                      </div>
                     </div>
                   </div>
                 </>

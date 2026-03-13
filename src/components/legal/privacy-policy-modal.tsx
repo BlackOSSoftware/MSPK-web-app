@@ -12,7 +12,7 @@ export function PrivacyPolicyModal({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[80vh] max-w-[calc(100%-2rem)] overflow-y-auto rounded-2xl border border-slate-200/80 bg-white/95 p-5 text-slate-900 shadow-[0_24px_60px_-40px_rgba(15,23,42,0.55)] dark:border-slate-700/70 dark:bg-slate-950/95 dark:text-slate-100 sm:max-w-lg">
+      <DialogContent className="max-h-[85vh] max-w-[calc(100%-1.5rem)] overflow-y-auto rounded-[1.75rem] border border-slate-200/80 bg-white/95 p-5 text-slate-900 shadow-[0_24px_60px_-40px_rgba(15,23,42,0.55)] dark:border-slate-700/70 dark:bg-slate-950/95 dark:text-slate-100 sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle className="text-lg font-semibold">Privacy Policy</DialogTitle>
         </DialogHeader>

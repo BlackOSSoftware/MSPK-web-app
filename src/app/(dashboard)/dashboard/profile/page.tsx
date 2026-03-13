@@ -1,7 +1,8 @@
 "use client";
 
+import { Capacitor } from "@capacitor/core";
+import { Share } from "@capacitor/share";
 import {
-  AtSign,
   BadgeCheck,
   BadgePercent,
   ChevronRight,
@@ -20,8 +21,6 @@ import { useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { useMeQuery } from "@/hooks/use-auth";
-
-const numberFormatter = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 });
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -109,6 +108,16 @@ export default function ProfilePage() {
       `Start your free trial here: ${trialUrl}`,
     ].join(" ");
     try {
+      if (Capacitor.isNativePlatform()) {
+        await Share.share({
+          title: "MSPK Trade Solutions",
+          text,
+          url: trialUrl,
+          dialogTitle: "Share MSPK Trade Solutions",
+        });
+        return;
+      }
+
       if (navigator.share) {
         let files: File[] | undefined;
         try {

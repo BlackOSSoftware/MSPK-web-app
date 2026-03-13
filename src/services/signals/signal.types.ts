@@ -45,6 +45,7 @@ export type SignalListResponse = {
     planName?: string | null;
     planExpiry?: string | null;
     selectedSymbolCount?: number;
+    signalVisibleFrom?: string | null;
     message?: string | null;
   };
   results?: SignalItem[];
@@ -61,6 +62,12 @@ export type SignalListResponse = {
     targetHit?: number;
     stoplossHit?: number;
     successRate?: number;
+  };
+  periodStats?: {
+    todaySignals?: number;
+    weeklySignals?: number;
+    monthlySignals?: number;
+    planSignals?: number;
   };
 };
 

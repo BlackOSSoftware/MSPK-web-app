@@ -2,7 +2,16 @@
 
 export function PrivacyPolicyContent() {
   return (
-    <div className="space-y-4 text-sm leading-relaxed text-slate-700 dark:text-slate-300">
+    <div className="space-y-5 text-[13px] leading-6 text-slate-700 dark:text-slate-300">
+      <div className="rounded-2xl bg-slate-100/80 px-4 py-3 text-[12px] text-slate-700 shadow-sm dark:bg-slate-900/70 dark:text-slate-300">
+        <p className="font-semibold text-slate-900 dark:text-slate-100">Last updated: March 14, 2026</p>
+        <p className="mt-1">
+          This policy is intended to explain how MSPK Trade Solutions handles platform data, access, and
+          educational content. It should be read together with any applicable terms, plan details, and support
+          communications shown inside the app or website.
+        </p>
+      </div>
+
       <p>
         MSPK Trade Solutions respects your privacy. This policy explains how we collect, use, and protect
         information when you use our website, app, signal services, and related tools. Our platform is designed
@@ -36,6 +45,38 @@ export function PrivacyPolicyContent() {
           decisions, risk management, and compliance with applicable laws in your jurisdiction. If you are
           unsure, seek advice from a qualified professional before making any financial decisions.
         </p>
+        <p>
+          No statement, notification, chart, report, watchlist, alert, or signal on the platform should be
+          understood as individualized advice, portfolio guidance, execution support, or an assurance that any
+          trade setup is appropriate for your capital, risk appetite, leverage, tax position, or experience
+          level. Every action you take remains voluntary and independent.
+        </p>
+        <p>
+          You acknowledge that any position opened, modified, scaled, hedged, or closed by you is done under
+          your own authority and at your own discretion. MSPK does not direct your broker, does not control
+          your trading account, and does not assume responsibility for slippage, execution quality, margin use,
+          spread widening, swap charges, or market gaps.
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">User Autonomy and Independent Decision-Making</h3>
+        <p>
+          You remain fully responsible for deciding whether to observe, ignore, analyze, paper trade, or
+          execute any setup shown on the platform. MSPK does not force, authorize, supervise, or verify the
+          trades that you place with any broker, exchange, dealer, or financial intermediary.
+        </p>
+        <p>
+          If you choose to act on information presented through MSPK, you confirm that you have independently
+          evaluated the relevant risks, including volatility, leverage, drawdown, liquidity conditions, news
+          impact, broker terms, execution delays, and your own financial capacity to absorb losses.
+        </p>
+        <p>
+          You also agree that you will not represent MSPK materials as personal advice given to you, will not
+          rely exclusively on platform content for critical financial decisions, and will seek qualified
+          professional guidance whenever legal, financial, tax, accounting, or regulatory interpretation is
+          required.
+        </p>
       </div>
 
       <div className="space-y-2">
@@ -57,6 +98,12 @@ export function PrivacyPolicyContent() {
           to fulfill those requests. Such data is handled according to this policy and applicable provider
           terms.
         </p>
+        <p>
+          We may also maintain internal records relating to account status, support history, plan lifecycle,
+          access logs, authentication events, trial usage, device sessions, notification delivery, and feature
+          engagement where reasonably necessary to operate the service, investigate problems, reduce abuse, and
+          maintain platform integrity.
+        </p>
       </div>
 
       <div className="space-y-2">
@@ -75,6 +122,12 @@ export function PrivacyPolicyContent() {
         <p>
           We may analyze aggregated usage patterns to improve accuracy, platform responsiveness, and the
           quality of educational materials. Such analyses do not identify individual users.
+        </p>
+        <p>
+          In limited cases, we may review logs, tickets, or account events to investigate fraud, service
+          misuse, suspicious access, billing disputes, repeated errors, policy violations, or technical issues.
+          Such review is carried out only to the extent reasonably necessary for legitimate business, safety,
+          or compliance purposes.
         </p>
       </div>
 
@@ -98,6 +151,12 @@ export function PrivacyPolicyContent() {
           We may also use session identifiers and analytics tags to understand feature usage and improve the
           overall user experience.
         </p>
+        <p>
+          Where device-level permissions are available in mobile environments, some functions may depend on
+          local storage, push notification tokens, or app session metadata to provide login continuity,
+          alerting, and feature reliability. Blocking those capabilities may limit the availability of some
+          features.
+        </p>
       </div>
 
       <div className="space-y-2">
@@ -119,6 +178,12 @@ export function PrivacyPolicyContent() {
           You are responsible for maintaining the confidentiality of your account credentials. Please notify
           us immediately if you suspect unauthorized access. We may suspend access for security reasons or if
           we detect abnormal activity.
+        </p>
+        <p>
+          You must not share your login with unauthorized users, attempt to bypass plan restrictions, probe
+          system vulnerabilities, scrape protected data, automate abuse, or misuse support and communication
+          systems. We may log, investigate, rate-limit, restrict, or terminate access where necessary to
+          protect the platform and other users.
         </p>
       </div>
 
@@ -145,6 +210,12 @@ export function PrivacyPolicyContent() {
           We may also share aggregated or anonymized data that cannot reasonably identify you, for research,
           analytics, or service improvement purposes.
         </p>
+        <p>
+          If required to protect rights, property, users, systems, or legal interests, we may disclose
+          relevant information to advisors, auditors, courts, law enforcement, regulators, payment partners,
+          hosting partners, or other authorized recipients where such disclosure is reasonably necessary and
+          permitted by applicable law.
+        </p>
       </div>
 
       <div className="space-y-2">
@@ -169,12 +240,17 @@ export function PrivacyPolicyContent() {
         <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">App Store Compliance</h3>
         <p>
           This policy applies to our website and mobile app. We do not promote guaranteed profits or
-          ask users to trade. Any use of signals or market insights is at the user's sole discretion and risk.
+          ask users to trade. Any use of signals or market insights is at the user&apos;s sole discretion and risk.
         </p>
         <p>
           If any allegation or complaint arises regarding content, signals, or outcomes, you acknowledge that
           MSPK only provides educational information and does not control or execute user trades. Your use of
           the platform constitutes acceptance of this policy and its disclaimers.
+        </p>
+        <p>
+          Nothing in the app should be interpreted as a promise of gain, a guarantee of performance, a managed
+          account service, or a substitute for regulated advisory services. Users remain solely accountable for
+          any market action they decide to take after reviewing in-app content.
         </p>
       </div>
 
@@ -187,7 +263,7 @@ export function PrivacyPolicyContent() {
       </div>
 
       <div className="space-y-2">
-        <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Children's Privacy</h3>
+        <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Children&apos;s Privacy</h3>
         <p>
           Our services are intended for adults. We do not knowingly collect personal information from anyone
           under the age of 18. If you believe a minor has provided personal data, please contact us and we will
@@ -213,6 +289,56 @@ export function PrivacyPolicyContent() {
           incidental, special, or consequential damages arising from the use of information, signals, or tools
           provided through the service. You assume full responsibility for any trading activity you choose to
           undertake.
+        </p>
+        <p>
+          This includes, without limitation, claims relating to missed trades, missed alerts, delayed data,
+          technical interruptions, incorrect assumptions, misunderstood content, platform downtime, stale
+          prices, chart discrepancies, broker-side execution issues, connectivity failures, or any business,
+          financial, or reputational impact resulting from your reliance on the service.
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">No Warranty and Accuracy Limitations</h3>
+        <p>
+          The platform, signals, educational commentary, analytics, summaries, and related materials are
+          provided on an &quot;as is&quot; and &quot;as available&quot; basis. We do not warrant uninterrupted access,
+          absolute accuracy, continuous availability, or fitness for any specific trading purpose.
+        </p>
+        <p>
+          Market data may be sourced, aggregated, transformed, or delayed by upstream providers and technical
+          systems. Numbers shown on the platform may occasionally differ from your broker, exchange, charting
+          vendor, or execution venue due to latency, formatting, timezone handling, source variance, or feed
+          interruptions.
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Compliance With Local Laws</h3>
+        <p>
+          You are responsible for determining whether access to or use of the service is lawful in your
+          jurisdiction and whether your personal circumstances require any registrations, approvals,
+          disclosures, tax filings, or regulatory compliance steps before using market-related information.
+        </p>
+        <p>
+          MSPK does not represent that the service is appropriate, legal, or available in every territory.
+          Access from locations where such use is restricted is undertaken at the user&apos;s own initiative and
+          responsibility.
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Platform Abuse, Enforcement, and Recordkeeping</h3>
+        <p>
+          To protect users and business operations, we may maintain records of plan status, authentication
+          activity, device sessions, support actions, disputes, suspicious requests, and feature access logs.
+          We may use these records to investigate fraud, account misuse, impersonation, payment abuse, or
+          technical incidents.
+        </p>
+        <p>
+          We reserve the right to block, suspend, or remove access where we reasonably believe that continued
+          access may harm users, violate law, create security risk, interfere with service stability, or
+          breach the platform&apos;s rules or fair-use expectations.
         </p>
       </div>
 
@@ -262,6 +388,11 @@ export function PrivacyPolicyContent() {
           By continuing to use MSPK Trade Solutions, you acknowledge that all signals, insights, and examples
           are educational only, and you accept full responsibility for any trading outcomes, whether gains or
           losses.
+        </p>
+        <p>
+          You further acknowledge that the platform may include model outputs, summarized market views,
+          historical references, scenario analysis, or educational examples that are incomplete or simplified
+          for learning purposes. Such material should not be treated as a complete decision framework.
         </p>
         <p>
           To avoid any doubt, this platform is intended to help users learn how markets behave and how trading
