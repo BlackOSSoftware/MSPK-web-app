@@ -6,8 +6,11 @@ import { toast } from "sonner";
 import {
   createChart,
   type IChartApi,
+  type IPriceLine,
   type ISeriesApi,
+  type LineWidth,
   type MouseEventParams,
+  LineStyle,
   TrackingModeExitMode,
   type UTCTimestamp,
 } from "lightweight-charts";
@@ -18,8 +21,11 @@ import {
   ArrowUp,
   BarChart3,
   CandlestickChart,
+  Check,
   ChevronDown,
   Crosshair,
+  Eye,
+  EyeOff,
   GripVertical,
   LineChart,
   Minus,
@@ -67,7 +73,8 @@ import {
   useMarketUserWatchlistUpdateMutation,
 } from "@/services/market/market.hooks";
 import type { MarketSearchItem, MarketTicker } from "@/services/market/market.types";
-
+import { useSignalsQuery } from "@/services/signals/signal.hooks";
+import type { SignalItem } from "@/services/signals/signal.types";
 type ConnectionState = "connecting" | "connected" | "disconnected" | "error";
 type ViewMode = "table" | "cards";
 type CardPulse = "up" | "down";
@@ -76,6 +83,7 @@ const VIEW_MODE_STORAGE_KEY = "watchlist_view_mode";
 const TABLE_COLUMN_STORAGE_KEY = "watchlist_table_columns_v1";
 const TABLE_COLUMN_WIDTHS_KEY = "watchlist_table_column_widths_v1";
 const CHART_TYPE_STORAGE_KEY = "watchlist_chart_type";
+const CHART_VISIBILITY_STORAGE_KEY = "watchlist_chart_visibility_v1";
 const WATCHLIST_ROW_ORDER_STORAGE_KEY = "watchlist_row_order_v1";
 const SUPPORT_WHATSAPP = "917770039037";
 const USER_WATCHLIST_QUERY_KEY = [...MARKET_QUERY_KEY, "user-watchlist", "active"] as const;
@@ -129,7 +137,58 @@ type TickPoint = {
   time: number;
   price: number;
 };
+type SignalRuntimeShape = SignalItem & {
+  trade_type?: string;
+  entry_price?: unknown;
+  stop_loss?: unknown;
+};
+type ChartVisibilitySettings = {
+  showOhlc: boolean;
+  showSignalSummary: boolean;
+  showEntryLine: boolean;
+  showStopLossLine: boolean;
+  showTargetLines: boolean;
+};
 
+const DEFAULT_CHART_VISIBILITY_SETTINGS: ChartVisibilitySettings = {
+  showOhlc: true,
+  showSignalSummary: true,
+  showEntryLine: true,
+  showStopLossLine: true,
+  showTargetLines: true,
+};
+
+const CHART_VISIBILITY_OPTIONS: Array<{
+  key: keyof ChartVisibilitySettings;
+  label: string;
+  description: string;
+}> = [
+  {
+    key: "showOhlc",
+    label: "OHLC values",
+    description: "Open, high, low, close values shown on top of the chart.",
+  },
+  {
+    key: "showSignalSummary",
+    label: "Signal summary",
+    description: "Current signal with entry, SL, and targets in the top info box.",
+  },
+  {
+    key: "showEntryLine",
+    label: "Entry line",
+    description: "Horizontal line for the signal entry price.",
+  },
+  {
+    key: "showStopLossLine",
+    label: "Stop loss line",
+    description: "Horizontal line for the stop loss price.",
+  },
+  {
+    key: "showTargetLines",
+    label: "Target lines",
+    description: "Horizontal lines for TP1, TP2, and TP3.",
+  },
+];
 const toUTCTimestamp = (value: number): UTCTimestamp => value as UTCTimestamp;
 
 const DEFAULT_TABLE_COLUMNS = [
@@ -172,6 +231,8 @@ const TICK_HISTORY_WINDOW_SEC = 12 * 60 * 60;
 const CHART_UPDATE_THROTTLE_MS = 250;
 const INDIA_TIME_ZONE = "Asia/Kolkata";
 const INDIA_TIME_ZONE_OFFSET_SEC = 5.5 * 60 * 60;
+const INDIA_MARKET_OPEN_LOCAL_SEC = 9 * 60 * 60 + 15 * 60;
+const INDIA_MARKET_OPEN_UTC_SEC = INDIA_MARKET_OPEN_LOCAL_SEC - INDIA_TIME_ZONE_OFFSET_SEC;
 const INDIA_EXCHANGES = new Set(["NSE", "BSE", "NFO", "MCX", "CDS", "BCD"]);
 
 type TableColumnId = (typeof DEFAULT_TABLE_COLUMNS)[number];
@@ -184,6 +245,119 @@ function toNumber(value: unknown): number | undefined {
 function toPositiveNumber(value: unknown): number | undefined {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function getSignalDirection(signal: SignalItem | null): "BUY" | "SELL" | null {
+  if (!signal) return null;
+  const runtimeSignal = signal as SignalRuntimeShape;
+  const rawType = String(signal.type || runtimeSignal.trade_type || "").trim().toUpperCase();
+  if (rawType === "SELL" || rawType === "EXIT_SELL") return "SELL";
+  if (rawType === "BUY" || rawType === "EXIT_BUY") return "BUY";
+  return null;
+}
+
+function getCurrentSignalLabel(signal: SignalItem | null): string | null {
+  if (!signal) return null;
+  const normalizedStatus = String(signal.status || "").trim().toLowerCase();
+
+  if (normalizedStatus.includes("target")) return "TARGET HIT";
+  if (normalizedStatus.includes("partial")) return "PARTIAL";
+  if (normalizedStatus.includes("stop")) return "STOPLOSS";
+  if (normalizedStatus.includes("close")) return "CLOSED";
+
+  return getSignalDirection(signal);
+}
+
+function getCurrentSignalEntry(signal: SignalItem | null): number | undefined {
+  if (!signal) return undefined;
+  const runtimeSignal = signal as SignalRuntimeShape;
+  return toNumber(signal.entry ?? runtimeSignal.entry_price ?? signal.entryPrice);
+}
+
+function getCurrentSignalStopLoss(signal: SignalItem | null): number | undefined {
+  if (!signal) return undefined;
+  const runtimeSignal = signal as SignalRuntimeShape;
+  return toNumber(signal.stoploss ?? runtimeSignal.stop_loss ?? signal.stopLoss);
+}
+
+function getCurrentSignalTargets(signal: SignalItem | null): number[] {
+  if (!signal?.targets) return [];
+  if (Array.isArray(signal.targets)) {
+    return signal.targets
+      .map((value) => toNumber(value))
+      .filter((value): value is number => typeof value === "number");
+  }
+
+  const { target1, target2, target3, t1, t2, t3 } = signal.targets;
+  return [target1 ?? t1, target2 ?? t2, target3 ?? t3]
+    .map((value) => toNumber(value))
+    .filter((value): value is number => typeof value === "number");
+}
+
+function getCurrentSignalAchievedTargetLevels(signal: SignalItem | null): number[] {
+  if (!signal) return [];
+
+  const achievedLevels = new Set<number>();
+  const markAchievedThrough = (level: number) => {
+    for (let index = 1; index <= level; index += 1) {
+      achievedLevels.add(index);
+    }
+  };
+
+  const normalizedNotes = String(signal.notes || "").trim().toUpperCase();
+  if (normalizedNotes) {
+    if (normalizedNotes.includes("TP3") || normalizedNotes.includes("T3")) {
+      markAchievedThrough(3);
+    } else if (normalizedNotes.includes("TP2") || normalizedNotes.includes("T2")) {
+      markAchievedThrough(2);
+    } else if (normalizedNotes.includes("TP1") || normalizedNotes.includes("T1")) {
+      markAchievedThrough(1);
+    }
+  }
+
+  const normalizedStatus = String(signal.status || "").trim().toUpperCase();
+  const signalTargets = getCurrentSignalTargets(signal);
+  const exitPrice = toNumber(signal.exitPrice);
+  const matchedTargetLevel =
+    typeof exitPrice === "number"
+      ? signalTargets.findIndex((target) => Math.abs(target - exitPrice) < 0.01) + 1
+      : 0;
+
+  if (matchedTargetLevel > 0) {
+    markAchievedThrough(matchedTargetLevel);
+  } else if (normalizedStatus.includes("TARGET")) {
+    markAchievedThrough(1);
+  } else if (normalizedStatus.includes("PARTIAL")) {
+    markAchievedThrough(1);
+  }
+
+  return Array.from(achievedLevels).sort((a, b) => a - b);
+}
+
+function getCurrentSignalAchievedSummary(signal: SignalItem | null): string | null {
+  if (!signal) return null;
+  const achievedLevels = getCurrentSignalAchievedTargetLevels(signal);
+  if (achievedLevels.length > 0) {
+    return `${achievedLevels.map((level) => `TP${level}`).join(" • ")} Achieved`;
+  }
+
+  const notes = String(signal.notes || "").trim();
+  return /achieved/i.test(notes) ? notes : null;
+}
+
+function getLiveAchievedTargetLevels(signal: SignalItem | null, latestPrice: number | undefined): number[] {
+  if (!signal || typeof latestPrice !== "number" || !Number.isFinite(latestPrice)) return [];
+
+  const direction = getSignalDirection(signal);
+  if (!direction) return [];
+
+  return getCurrentSignalTargets(signal)
+    .map((target, index) => {
+      const isHit =
+        direction === "BUY" ? latestPrice >= target : latestPrice <= target;
+      return isHit ? index + 1 : null;
+    })
+    .filter((value): value is number => typeof value === "number");
 }
 
 function isTouchInteractionDevice(): boolean {
@@ -342,6 +516,28 @@ function getBucketStart(
   return toUTCTimestamp(bucket);
 }
 
+function getChartBucketOffset(interval: ChartInterval, intervalSec: number, isIndianMarket = false): number {
+  if (!Number.isFinite(intervalSec) || intervalSec <= 0) return 0;
+  if (interval === "D" || interval === "W" || interval === "M") return 0;
+  if (!isIndianMarket) return 0;
+  return normalizeBucketOffset(INDIA_MARKET_OPEN_UTC_SEC, intervalSec);
+}
+
+function normalizeCandleTime(
+  timeSec: number,
+  interval: ChartInterval,
+  intervalSec: number,
+  isIndianMarket = false
+): UTCTimestamp {
+  return getBucketStart(
+    timeSec,
+    interval,
+    intervalSec,
+    getChartBucketOffset(interval, intervalSec, isIndianMarket),
+    isIndianMarket ? INDIA_TIME_ZONE_OFFSET_SEC : 0
+  );
+}
+
 function buildCandlesFromTicks(
   points: TickPoint[],
   interval: ChartInterval,
@@ -349,7 +545,7 @@ function buildCandlesFromTicks(
   isIndianMarket = false
 ): HistoryCandle[] {
   if (intervalSec <= 0 || points.length === 0) return [];
-  const bucketOffsetSec = normalizeBucketOffset(points[0].time, intervalSec);
+  const bucketOffsetSec = getChartBucketOffset(interval, intervalSec, isIndianMarket);
   const candles: HistoryCandle[] = [];
   let current: HistoryCandle | null = null;
   let previousClose: number | null = null;
@@ -699,6 +895,10 @@ function WatchlistPageContent() {
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   const [chartInterval, setChartInterval] = useState<ChartInterval>("15");
   const [chartType, setChartType] = useState<ChartType>("candle");
+  const [isChartVisibilityDialogOpen, setIsChartVisibilityDialogOpen] = useState(false);
+  const [chartVisibility, setChartVisibility] = useState<ChartVisibilitySettings>(
+    DEFAULT_CHART_VISIBILITY_SETTINGS
+  );
   const [hasChartData, setHasChartData] = useState(false);
   const [crosshairEnabled, setCrosshairEnabled] = useState(true);
   const [isAdjustOpen, setIsAdjustOpen] = useState(false);
@@ -756,6 +956,7 @@ function WatchlistPageContent() {
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const signalPriceLinesRef = useRef<IPriceLine[]>([]);
   const touchCrosshairPointerIdRef = useRef<number | null>(null);
   const chartRawCandlesRef = useRef<HistoryCandle[]>([]);
   const chartCandlesRef = useRef<HistoryCandle[]>([]);
@@ -862,6 +1063,36 @@ function WatchlistPageContent() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    const raw = window.localStorage.getItem(CHART_VISIBILITY_STORAGE_KEY);
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw) as Partial<ChartVisibilitySettings>;
+      if (!parsed || typeof parsed !== "object") return;
+      setChartVisibility((prev) => ({
+        ...prev,
+        showOhlc: typeof parsed.showOhlc === "boolean" ? parsed.showOhlc : prev.showOhlc,
+        showSignalSummary:
+          typeof parsed.showSignalSummary === "boolean"
+            ? parsed.showSignalSummary
+            : prev.showSignalSummary,
+        showEntryLine:
+          typeof parsed.showEntryLine === "boolean" ? parsed.showEntryLine : prev.showEntryLine,
+        showStopLossLine:
+          typeof parsed.showStopLossLine === "boolean"
+            ? parsed.showStopLossLine
+            : prev.showStopLossLine,
+        showTargetLines:
+          typeof parsed.showTargetLines === "boolean"
+            ? parsed.showTargetLines
+            : prev.showTargetLines,
+      }));
+    } catch {
+      // ignore invalid storage payload
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
     const savedView = window.localStorage.getItem(VIEW_MODE_STORAGE_KEY);
     if (savedView === "table" || savedView === "cards") {
       setViewMode(savedView);
@@ -911,6 +1142,11 @@ function WatchlistPageContent() {
     if (typeof window === "undefined") return;
     window.localStorage.setItem(CHART_TYPE_STORAGE_KEY, chartType);
   }, [chartType]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(CHART_VISIBILITY_STORAGE_KEY, JSON.stringify(chartVisibility));
+  }, [chartVisibility]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1829,6 +2065,67 @@ function WatchlistPageContent() {
     () => isIndianMarketSymbol(selectedRow, selectedSymbol ?? urlSymbol),
     [selectedRow, selectedSymbol, urlSymbol]
   );
+  const activeChartSymbol = chartMode ? selectedSymbol || urlSymbol : null;
+  const shouldFetchCurrentSignal =
+    Boolean(activeChartSymbol) &&
+    (chartVisibility.showSignalSummary ||
+      chartVisibility.showEntryLine ||
+      chartVisibility.showStopLossLine ||
+      chartVisibility.showTargetLines);
+  const currentSignalQuery = useSignalsQuery(
+    shouldFetchCurrentSignal && activeChartSymbol
+      ? {
+          symbol: activeChartSymbol,
+          status: "Active",
+          page: 1,
+          limit: 1,
+        }
+      : undefined,
+    shouldFetchCurrentSignal
+  );
+  const currentSignal = useMemo<SignalItem | null>(
+    () => (shouldFetchCurrentSignal ? currentSignalQuery.data?.results?.[0] ?? null : null),
+    [currentSignalQuery.data?.results, shouldFetchCurrentSignal]
+  );
+  const currentSignalLabel = useMemo(() => getCurrentSignalLabel(currentSignal), [currentSignal]);
+  const currentSignalEntry = useMemo(() => getCurrentSignalEntry(currentSignal), [currentSignal]);
+  const currentSignalStopLoss = useMemo(() => getCurrentSignalStopLoss(currentSignal), [currentSignal]);
+  const currentSignalTargets = useMemo(() => getCurrentSignalTargets(currentSignal).slice(0, 3), [currentSignal]);
+  const latestChartPrice = useMemo(() => {
+    if (selectedTick) {
+      const livePrice = getTickPrice(selectedTick);
+      if (typeof livePrice === "number" && Number.isFinite(livePrice)) {
+        return livePrice;
+      }
+    }
+
+    return selectedRow?.currentPrice ?? selectedRow?.close;
+  }, [selectedRow?.close, selectedRow?.currentPrice, selectedTick]);
+  const currentSignalAchievedTargetLevels = useMemo(
+    () =>
+      Array.from(
+        new Set([
+          ...getCurrentSignalAchievedTargetLevels(currentSignal),
+          ...getLiveAchievedTargetLevels(currentSignal, latestChartPrice),
+        ])
+      ).sort((a, b) => a - b),
+    [currentSignal, latestChartPrice]
+  );
+  const currentSignalAchievedSummary = useMemo(
+    () =>
+      currentSignalAchievedTargetLevels.length > 0
+        ? `${currentSignalAchievedTargetLevels.map((level) => `TP${level}`).join(" • ")} Achieved`
+        : getCurrentSignalAchievedSummary(currentSignal),
+    [currentSignal, currentSignalAchievedTargetLevels]
+  );
+  const shouldRenderSignalSummary = chartVisibility.showSignalSummary && Boolean(currentSignalLabel);
+  const shouldRenderChartLegend = Boolean(chartLegend) && (chartVisibility.showOhlc || shouldRenderSignalSummary);
+  const toggleChartVisibility = useCallback((key: keyof ChartVisibilitySettings) => {
+    setChartVisibility((prev) => ({ ...prev, [key]: !prev[key] }));
+  }, []);
+  const resetChartVisibility = useCallback(() => {
+    setChartVisibility({ ...DEFAULT_CHART_VISIBILITY_SETTINGS });
+  }, []);
   const whatsappUrl = useMemo(() => {
     if (!selectedRow) return "";
     const message = [
@@ -1902,6 +2199,11 @@ function WatchlistPageContent() {
       if (typeof time === "number" && time > 10_000_000_000) {
         time = Math.floor(time / 1000);
       }
+      if (typeof time === "number" && Number.isFinite(time)) {
+        time = Number(
+          normalizeCandleTime(time, chartInterval, intervalSeconds, isIndianChartMarket)
+        );
+      }
       const open = toNumber(row.open);
       let high = toNumber(row.high);
       let low = toNumber(row.low);
@@ -1922,6 +2224,17 @@ function WatchlistPageContent() {
       if (high < low) {
         [high, low] = [low, high];
       }
+      const previous = candles[candles.length - 1];
+      if (previous && Number(previous.time) === time) {
+        previous.high = Math.max(previous.high, high);
+        previous.low = Math.min(previous.low, low);
+        previous.close = close;
+        const volume = toNumber(row.volume);
+        if (typeof volume === "number") {
+          previous.volume = (previous.volume ?? 0) + volume;
+        }
+        continue;
+      }
       const candle: HistoryCandle = { time: toUTCTimestamp(time), open, high, low, close };
       const volume = toNumber(row.volume);
       if (typeof volume === "number") {
@@ -1933,7 +2246,7 @@ function WatchlistPageContent() {
     return candles
       .sort((left, right) => Number(left.time) - Number(right.time))
       .slice(-HISTORY_CANDLE_COUNT);
-  }, [historyQuery.data]);
+  }, [historyQuery.data, chartInterval, intervalSeconds, isIndianChartMarket]);
 
   const historyKey = selectedSymbol ? `${selectedSymbol}:${chartInterval}` : "";
 
@@ -1966,7 +2279,7 @@ function WatchlistPageContent() {
       return tickCandles;
     }
     return [];
-  }, [selectedSymbol, historyCandles, intervalSeconds, historyKey, isIndianChartMarket]);
+  }, [selectedSymbol, historyCandles, chartInterval, intervalSeconds, historyKey, isIndianChartMarket]);
 
   useEffect(() => {
     if (!selectedSymbol || !chartContainerRef.current || !chartContainerReady) return;
@@ -2183,9 +2496,10 @@ function WatchlistPageContent() {
       container.removeEventListener("pointermove", handleTouchPointerMove, true);
       container.removeEventListener("pointerup", handleTouchPointerEnd, true);
       container.removeEventListener("pointercancel", handleTouchPointerEnd, true);
-      chart.remove();
-      chartRef.current = null;
+      signalPriceLinesRef.current = [];
       candleSeriesRef.current = null;
+      chartRef.current = null;
+      chart.remove();
     };
   }, [selectedSymbol, chartInterval, chartContainerReady, isIndianChartMarket]);
 
@@ -2231,6 +2545,92 @@ function WatchlistPageContent() {
   }, [chartType]);
 
   useEffect(() => {
+    const series = candleSeriesRef.current;
+    if (!series) return;
+
+    for (const line of signalPriceLinesRef.current) {
+      try {
+        series.removePriceLine(line);
+      } catch {
+        // Ignore stale handles after chart recreation.
+      }
+    }
+    signalPriceLinesRef.current = [];
+
+    const addSignalPriceLine = (
+      price: number | undefined,
+      title: string,
+      color: string,
+      lineStyle: LineStyle,
+      lineWidth: LineWidth = 1,
+      axisLabelColor?: string,
+      axisLabelTextColor?: string
+    ) => {
+      if (typeof price !== "number" || !Number.isFinite(price) || price <= 0) return;
+      try {
+        const line = series.createPriceLine({
+          price,
+          title,
+          color,
+          lineStyle,
+          lineWidth,
+          axisLabelVisible: true,
+          lineVisible: true,
+          axisLabelColor,
+          axisLabelTextColor,
+        });
+        signalPriceLinesRef.current.push(line);
+      } catch {
+        // Ignore fast chart-switch races.
+      }
+    };
+
+    if (chartVisibility.showEntryLine) {
+      addSignalPriceLine(currentSignalEntry, "Entry", "#0ea5e9", LineStyle.Solid, 2);
+    }
+    if (chartVisibility.showStopLossLine) {
+      addSignalPriceLine(currentSignalStopLoss, "SL", "#f43f5e", LineStyle.Dashed, 2);
+    }
+    if (chartVisibility.showTargetLines) {
+      currentSignalTargets.forEach((target, index) => {
+        const level = index + 1;
+        const isAchieved = currentSignalAchievedTargetLevels.includes(level);
+        addSignalPriceLine(
+          target,
+          isAchieved ? `TP${level} HIT` : `TP${level}`,
+          isAchieved ? "#f59e0b" : "#22c55e",
+          isAchieved ? LineStyle.Solid : LineStyle.LargeDashed,
+          isAchieved ? 3 : 1,
+          isAchieved ? "#f59e0b" : "#22c55e",
+          isAchieved ? "#0f172a" : "#ecfdf5"
+        );
+      });
+    }
+
+    return () => {
+      for (const line of signalPriceLinesRef.current) {
+        try {
+          series.removePriceLine(line);
+        } catch {
+          // Ignore cleanup races during teardown.
+        }
+      }
+      signalPriceLinesRef.current = [];
+    };
+  }, [
+    chartInterval,
+    chartType,
+    chartVisibility.showEntryLine,
+    chartVisibility.showStopLossLine,
+    chartVisibility.showTargetLines,
+    currentSignalEntry,
+    currentSignalAchievedTargetLevels,
+    currentSignalStopLoss,
+    currentSignalTargets,
+    selectedSymbol,
+  ]);
+
+  useEffect(() => {
     if (!candleSeriesRef.current || !selectedSymbol) return;
     const tick = selectedTick;
     if (!tick) return;
@@ -2239,7 +2639,7 @@ function WatchlistPageContent() {
     const time = getTickTimestamp(tick);
     const rawCandles = chartRawCandlesRef.current;
     if (rawCandles.length === 0) return;
-    const bucketOffsetSec = normalizeBucketOffset(Number(rawCandles[0].time), intervalSeconds);
+    const bucketOffsetSec = getChartBucketOffset(chartInterval, intervalSeconds, isIndianChartMarket);
     const bucketTime = getBucketStart(
       time,
       chartInterval,
@@ -2350,7 +2750,8 @@ function WatchlistPageContent() {
       updateLegendFromLatest();
     }
     lastChartUpdateRef.current = nowMs;
-  }, [selectedTick, selectedSymbol, intervalSeconds, hasChartData, chartType, isIndianChartMarket]);
+  }, [selectedTick, selectedSymbol, chartInterval, intervalSeconds, hasChartData, chartType, isIndianChartMarket]);
+
   const refreshWatchlistQueries = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: USER_MARKET_WATCHLISTS_QUERY_KEY }),
@@ -2564,11 +2965,17 @@ function WatchlistPageContent() {
     if (historyKey) {
       delete historyCacheRef.current[historyKey];
     }
-    const result = await historyQuery.refetch();
-    if (result.error) {
+    const [historyResult, signalResult] = await Promise.all([
+      historyQuery.refetch(),
+      shouldFetchCurrentSignal ? currentSignalQuery.refetch() : Promise.resolve(null),
+    ]);
+    if (historyResult.error) {
       toast.error("Failed to refresh chart data");
     }
-  }, [chartParams, historyKey, historyQuery]);
+    if (signalResult && "error" in signalResult && signalResult.error) {
+      toast.error("Failed to refresh signal data");
+    }
+  }, [chartParams, currentSignalQuery, historyKey, historyQuery, shouldFetchCurrentSignal]);
   useEffect(() => {
     crosshairEnabledRef.current = crosshairEnabled;
     syncChartInteractionMode();
@@ -2617,10 +3024,23 @@ function WatchlistPageContent() {
         <div className="flex h-full flex-col gap-3 p-2 sm:gap-4 sm:p-4">
           <header className="flex flex-wrap items-start justify-between gap-2 rounded-2xl border border-slate-200/80 bg-white/90 p-2 shadow-[0_16px_40px_-28px_rgba(15,23,42,0.45)] dark:border-slate-800 dark:bg-slate-950/85 sm:gap-3 sm:p-4">
             <div>
-              <p className="inline-flex items-center gap-1.5 text-[8px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400 sm:text-[10px] sm:tracking-[0.16em]">
-                <BarChart3 className="h-3 w-3" />
-                Live Chart
-              </p>
+              <div className="inline-flex items-center gap-1.5">
+                <p className="inline-flex items-center gap-1.5 text-[8px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400 sm:text-[10px] sm:tracking-[0.16em]">
+                  <BarChart3 className="h-3 w-3" />
+                  Live Chart
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setIsChartVisibilityDialogOpen(true)}
+                  aria-label="Chart visibility settings"
+                  title="Chart visibility settings"
+                  className="h-5 w-5 rounded-full border-slate-300/80 bg-white/85 text-slate-600 shadow-none hover:bg-slate-100 hover:text-slate-900 dark:border-slate-700/70 dark:bg-slate-900/75 dark:text-slate-300 dark:hover:bg-slate-800/80 dark:hover:text-slate-100 sm:h-6 sm:w-6"
+                >
+                  <Eye className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+                </Button>
+              </div>
               <div className="flex flex-wrap items-center gap-2 sm:gap-2">
                 <p className="text-lg font-bold tracking-tight text-slate-900 dark:text-slate-100 sm:text-2xl">
                   {activeSymbol || "Select a symbol"}
@@ -2668,13 +3088,13 @@ function WatchlistPageContent() {
                       <Button
                         type="button"
                         variant="outline"
-                        className="h-6 min-w-[90px] justify-between gap-1 border-0 bg-white/85 px-2 text-[8px] font-semibold uppercase tracking-[0.12em] text-slate-700 shadow-none dark:bg-slate-900/70 dark:text-slate-200"
+                        className="h-6 min-w-[104px] max-w-[132px] justify-between gap-1 overflow-hidden border-0 bg-white/85 px-2 text-[8px] font-semibold uppercase tracking-[0.12em] text-slate-700 shadow-none dark:bg-slate-900/70 dark:text-slate-200"
                       >
-                        <span className="inline-flex items-center gap-1">
+                        <span className="inline-flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
                           <ActiveChartTypeIcon className="h-3 w-3" />
-                          {chartType === "heikin" ? "HA" : "Candle"}
+                          <span className="truncate">{chartType === "heikin" ? "HA" : "Candle"}</span>
                         </span>
-                        <ChevronDown className="h-3 w-3 opacity-70" />
+                        <ChevronDown className="h-3 w-3 shrink-0 opacity-70" />
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent
@@ -2720,19 +3140,20 @@ function WatchlistPageContent() {
                     <Button
                       type="button"
                       variant="outline"
-                      className="h-9 w-[120px] justify-between border-slate-300/80 bg-white/80 px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-700 transition dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200"
+                      className="h-9 w-[148px] justify-between gap-2 overflow-hidden border-slate-300/80 bg-white/80 px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-700 transition dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200"
                     >
-                      <span className="inline-flex items-center gap-1.5">
+                      <span className="inline-flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
                         <ActiveChartTypeIcon className="h-3.5 w-3.5" />
-                        {chartType === "heikin" ? "Heikin Ashi" : "Candles"}
+                        <span className="truncate">{chartType === "heikin" ? "Heikin Ashi" : "Candles"}</span>
                       </span>
-                      <ChevronDown className="ml-1.5 h-3 w-3 opacity-70" />
+                      <ChevronDown className="h-3 w-3 shrink-0 opacity-70" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent
-                    align="end"
-                    sideOffset={6}
-                    className="w-40 border border-slate-300/85 bg-white/95 p-1 dark:border-slate-700/80 dark:bg-slate-950/95"
+                    align="start"
+                    collisionPadding={12}
+                    sideOffset={8}
+                    className="w-[max(7.5rem,var(--radix-dropdown-menu-trigger-width))] max-w-[calc(100vw-2rem)] border border-slate-300/85 bg-white/95 p-1 dark:border-slate-700/80 dark:bg-slate-950/95"
                   >
                     {CHART_TYPES.map((type) => (
                       <DropdownMenuItem
@@ -2747,12 +3168,12 @@ function WatchlistPageContent() {
                             "bg-sky-500/10 text-sky-700 dark:bg-sky-500/20 dark:text-slate-100"
                         )}
                       >
-                        <span className="inline-flex items-center gap-1.5">
+                        <span className="inline-flex min-w-0 items-center gap-1.5">
                           {(() => {
                             const TypeIcon = getChartTypeIcon(type.value);
                             return <TypeIcon className="h-3.5 w-3.5 opacity-80" />;
                           })()}
-                          {type.label}
+                          <span className="truncate">{type.label}</span>
                         </span>
                         {chartType === type.value ? (
                           <span className="h-1.5 w-1.5 rounded-full bg-sky-500 shadow-[0_0_8px_rgba(14,165,233,0.8)]" />
@@ -2815,34 +3236,112 @@ function WatchlistPageContent() {
             onPointerMove={triggerChartToolbar}
             onMouseEnter={triggerChartToolbar}
           >
-            {chartLegend ? (
-              <div className="pointer-events-none absolute left-3 top-2 z-10 max-w-[calc(100%-1.5rem)] rounded-lg border border-slate-200/80 bg-white/90 px-1.5 py-1 text-[10px] text-slate-600 shadow-sm backdrop-blur dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-300 sm:left-3 sm:top-3 sm:px-2 sm:py-1 sm:text-[11px]">
-                <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 sm:flex sm:flex-wrap sm:items-center sm:gap-2">
-                  <span>
-                    O{" "}
-                    <span className="font-semibold text-slate-900 dark:text-slate-100">
-                      {formatNumber(chartLegend.open, chartLegendDigits)}
+            {shouldRenderChartLegend ? (
+              <div className="pointer-events-none absolute left-2 top-2 z-10 max-w-[calc(100%-1rem)] rounded-lg border border-slate-200/80 bg-white/90 px-1.5 py-1 text-[10px] text-slate-600 shadow-sm backdrop-blur dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-300 sm:left-3 sm:top-3 sm:max-w-[calc(100%-1.5rem)] sm:px-2 sm:py-1 sm:text-[11px]">
+                {chartVisibility.showOhlc && chartLegend ? (
+                  <div className="no-scrollbar flex max-w-full items-center gap-2 overflow-x-auto whitespace-nowrap sm:flex-wrap sm:gap-2 sm:overflow-visible">
+                    <span className="shrink-0">
+                      O{" "}
+                      <span className="font-semibold text-slate-900 dark:text-slate-100">
+                        {formatNumber(chartLegend.open, chartLegendDigits)}
+                      </span>
                     </span>
-                  </span>
-                  <span>
-                    H{" "}
-                    <span className="font-semibold text-slate-900 dark:text-slate-100">
-                      {formatNumber(chartLegend.high, chartLegendDigits)}
+                    <span className="shrink-0">
+                      H{" "}
+                      <span className="font-semibold text-slate-900 dark:text-slate-100">
+                        {formatNumber(chartLegend.high, chartLegendDigits)}
+                      </span>
                     </span>
-                  </span>
-                  <span>
-                    L{" "}
-                    <span className="font-semibold text-slate-900 dark:text-slate-100">
-                      {formatNumber(chartLegend.low, chartLegendDigits)}
+                    <span className="shrink-0">
+                      L{" "}
+                      <span className="font-semibold text-slate-900 dark:text-slate-100">
+                        {formatNumber(chartLegend.low, chartLegendDigits)}
+                      </span>
                     </span>
-                  </span>
-                  <span>
-                    C{" "}
-                    <span className="font-semibold text-slate-900 dark:text-slate-100">
-                      {formatNumber(chartLegend.close, chartLegendDigits)}
+                    <span className="shrink-0">
+                      C{" "}
+                      <span className="font-semibold text-slate-900 dark:text-slate-100">
+                        {formatNumber(chartLegend.close, chartLegendDigits)}
+                      </span>
                     </span>
-                  </span>
-                </div>
+                  </div>
+                ) : null}
+                {shouldRenderSignalSummary ? (
+                  <div
+                    className={cn(
+                      chartVisibility.showOhlc && "mt-1 border-t border-slate-200/70 pt-1 dark:border-slate-700/70"
+                    )}
+                  >
+                    <div className="no-scrollbar flex max-w-full items-center gap-2 overflow-x-auto whitespace-nowrap text-slate-600 dark:text-slate-300 sm:flex-wrap sm:gap-x-3 sm:gap-y-0.5 sm:overflow-visible">
+                      <span className="shrink-0 uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400 sm:hidden">
+                        Signal
+                      </span>
+                      <span className="hidden uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400 sm:inline">
+                        Current Signal
+                      </span>
+                      <span
+                        className={cn(
+                          "shrink-0 font-semibold",
+                          currentSignalLabel === "BUY"
+                            ? "text-emerald-700 dark:text-emerald-300"
+                            : currentSignalLabel === "SELL" || currentSignalLabel === "STOPLOSS"
+                              ? "text-rose-700 dark:text-rose-300"
+                              : "text-amber-700 dark:text-amber-300"
+                        )}
+                      >
+                        {currentSignalLabel}
+                      </span>
+                      {currentSignalAchievedSummary ? (
+                        <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-emerald-500/60 bg-emerald-600 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-white shadow-[0_12px_20px_-14px_rgba(22,163,74,0.95)] dark:border-emerald-400/55 dark:bg-emerald-500 dark:text-slate-950">
+                          <Check className="h-3 w-3" />
+                          {currentSignalAchievedSummary}
+                        </span>
+                      ) : null}
+                      {typeof currentSignalEntry === "number" ? (
+                        <span className="shrink-0">
+                          Entry{" "}
+                          <span className="font-semibold text-slate-900 dark:text-slate-100">
+                            {formatNumber(currentSignalEntry, chartLegendDigits)}
+                          </span>
+                        </span>
+                      ) : null}
+                      {typeof currentSignalStopLoss === "number" ? (
+                        <span className="shrink-0">
+                          SL{" "}
+                          <span className="font-semibold text-rose-700 dark:text-rose-300">
+                            {formatNumber(currentSignalStopLoss, chartLegendDigits)}
+                          </span>
+                        </span>
+                      ) : null}
+                      {currentSignalTargets.map((target, index) => {
+                        const level = index + 1;
+                        const isAchieved = currentSignalAchievedTargetLevels.includes(level);
+
+                        return (
+                          <span
+                            key={`current-signal-target-${level}`}
+                            className={cn(
+                              "shrink-0",
+                              isAchieved &&
+                                "inline-flex items-center gap-1 rounded-full border border-emerald-500/70 bg-emerald-600 px-2 py-0.5 text-white shadow-[0_12px_20px_-14px_rgba(22,163,74,0.95)] dark:border-emerald-400/55 dark:bg-emerald-500 dark:text-slate-950"
+                            )}
+                          >
+                            {isAchieved ? <Check className="h-3 w-3" /> : null}
+                            <span className={cn(isAchieved ? "font-semibold" : undefined)}>TP{level}</span>{" "}
+                            <span
+                              className={cn(
+                                "font-semibold text-emerald-700 dark:text-emerald-300",
+                                isAchieved && "text-white dark:text-slate-950"
+                              )}
+                            >
+                              {formatNumber(target, chartLegendDigits)}
+                            </span>
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
               </div>
             ) : null}
             <div
@@ -2917,6 +3416,72 @@ function WatchlistPageContent() {
             </div>
             <div ref={setChartContainer} className="h-full w-full touch-none select-none" />
           </section>
+          <Dialog open={isChartVisibilityDialogOpen} onOpenChange={setIsChartVisibilityDialogOpen}>
+            <DialogContent className="flex h-auto max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden border border-slate-200/85 bg-[linear-gradient(170deg,rgba(255,255,255,0.98),rgba(241,245,249,0.95))] p-0 text-slate-900 shadow-[0_28px_70px_-42px_rgba(15,23,42,0.48)] sm:max-h-[min(82vh,720px)] sm:max-w-md dark:border-slate-700/80 dark:bg-[linear-gradient(170deg,rgba(7,16,27,0.98),rgba(6,12,22,0.96))] dark:text-slate-100">
+              <DialogHeader className="shrink-0 border-b border-slate-200/85 bg-[linear-gradient(120deg,rgba(240,249,255,0.9),rgba(255,255,255,0.88))] px-4 py-3 dark:border-slate-800/80 dark:[background-image:none] dark:bg-transparent sm:px-5 sm:py-4">
+                <DialogTitle className="flex items-center gap-2 text-lg font-bold tracking-tight text-slate-900 dark:text-slate-100">
+                  <Eye className="h-4 w-4" />
+                  Chart Visibility
+                </DialogTitle>
+                <DialogDescription className="text-slate-600 dark:text-slate-400">
+                  Choose what stays visible on the chart. Changes apply instantly.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 sm:px-5 sm:py-4">
+                <div className="space-y-2">
+                {CHART_VISIBILITY_OPTIONS.map((option) => {
+                  const enabled = chartVisibility[option.key];
+                  return (
+                    <button
+                      key={option.key}
+                      type="button"
+                      onClick={() => toggleChartVisibility(option.key)}
+                      className={cn(
+                        "flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-3 text-left transition sm:px-3 sm:py-3",
+                        enabled
+                          ? "border-sky-400/45 bg-sky-500/10 text-slate-900 dark:border-sky-400/35 dark:bg-sky-500/10 dark:text-slate-100"
+                          : "border-slate-200/85 bg-white/80 text-slate-700 dark:border-slate-700/75 dark:bg-slate-900/55 dark:text-slate-300"
+                      )}
+                      aria-pressed={enabled}
+                    >
+                      <span className="min-w-0">
+                        <span className="block text-sm font-semibold">{option.label}</span>
+                        <span className="block text-xs text-slate-500 dark:text-slate-400">
+                          {option.description}
+                        </span>
+                      </span>
+                      <span
+                        className={cn(
+                          "inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]",
+                          enabled
+                            ? "border-emerald-400/50 bg-emerald-500/12 text-emerald-700 dark:border-emerald-400/35 dark:bg-emerald-500/12 dark:text-emerald-300"
+                            : "border-slate-300/80 bg-slate-100/80 text-slate-500 dark:border-slate-700/75 dark:bg-slate-800/80 dark:text-slate-400"
+                        )}
+                      >
+                        {enabled ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
+                        {enabled ? "Visible" : "Hidden"}
+                      </span>
+                    </button>
+                  );
+                })}
+                </div>
+              </div>
+              <div className="shrink-0 flex items-center justify-between border-t border-slate-200/85 px-3 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] dark:border-slate-800/80 sm:px-5 sm:pb-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-9 border-slate-300/80 bg-white/85 text-slate-700 dark:border-slate-700/70 dark:bg-slate-900/65 dark:text-slate-200"
+                  onClick={resetChartVisibility}
+                >
+                  <RotateCcw className="h-4 w-4" />
+                  Reset
+                </Button>
+                <Button type="button" className="h-9" onClick={() => setIsChartVisibilityDialogOpen(false)}>
+                  Done
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
     );
@@ -4174,19 +4739,20 @@ function WatchlistPageContent() {
                         <Button
                           type="button"
                           variant="outline"
-                          className="h-7 w-[104px] justify-between border-slate-300/80 bg-white/90 px-2 text-[9px] font-semibold uppercase tracking-[0.1em] text-slate-700 dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200 sm:h-8 sm:w-[120px] sm:px-3 sm:text-[10px] sm:tracking-[0.12em]"
+                          className="h-7 w-[132px] justify-between gap-2 overflow-hidden border-slate-300/80 bg-white/90 px-2 text-[9px] font-semibold uppercase tracking-[0.1em] text-slate-700 dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200 sm:h-8 sm:w-[150px] sm:px-3 sm:text-[10px] sm:tracking-[0.12em]"
                         >
-                          <span className="inline-flex items-center gap-1.5">
+                          <span className="inline-flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
                             <ActiveChartTypeIcon className="h-3.5 w-3.5" />
-                            {chartType === "heikin" ? "Heikin Ashi" : "Candles"}
+                            <span className="truncate">{chartType === "heikin" ? "Heikin Ashi" : "Candles"}</span>
                           </span>
-                          <ChevronDown className="ml-1.5 h-3 w-3 opacity-70" />
+                          <ChevronDown className="h-3 w-3 shrink-0 opacity-70" />
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent
-                          align="end"
-                          sideOffset={6}
-                          className="w-40 border border-slate-300/85 bg-white/95 p-1 dark:border-slate-700/80 dark:bg-slate-950/95"
+                          align="start"
+                          collisionPadding={12}
+                          sideOffset={8}
+                          className="w-[max(7.5rem,var(--radix-dropdown-menu-trigger-width))] max-w-[calc(100vw-2rem)] border border-slate-300/85 bg-white/95 p-1 dark:border-slate-700/80 dark:bg-slate-950/95"
                         >
                           {CHART_TYPES.map((type) => (
                             <DropdownMenuItem
@@ -4201,12 +4767,12 @@ function WatchlistPageContent() {
                                   "bg-sky-500/10 text-sky-700 dark:bg-sky-500/20 dark:text-slate-100"
                               )}
                             >
-                              <span className="inline-flex items-center gap-1.5">
+                              <span className="inline-flex min-w-0 items-center gap-1.5">
                                 {(() => {
                                   const TypeIcon = getChartTypeIcon(type.value);
                                   return <TypeIcon className="h-3.5 w-3.5 opacity-80" />;
                                 })()}
-                                {type.label}
+                                <span className="truncate">{type.label}</span>
                               </span>
                               {chartType === type.value ? (
                                 <span className="h-1.5 w-1.5 rounded-full bg-sky-500 shadow-[0_0_8px_rgba(14,165,233,0.8)]" />

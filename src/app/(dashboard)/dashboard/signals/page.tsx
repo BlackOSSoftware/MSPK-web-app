@@ -217,6 +217,38 @@ function formatTimeframe(value?: string | null) {
   return raw;
 }
 
+function getChartIntervalFromTimeframe(value?: string | null) {
+  const raw = String(value || "").trim();
+  if (!raw) return "15";
+
+  const normalized = raw.toUpperCase();
+  if (normalized === "1" || normalized === "2" || normalized === "5" || normalized === "10" || normalized === "15") {
+    return normalized;
+  }
+  if (normalized === "60" || normalized === "1H" || normalized === "H") return "60";
+  if (["D", "1D", "DAY"].includes(normalized)) return "D";
+  if (["W", "1W", "WEEK"].includes(normalized)) return "W";
+  if (["MO", "MON", "MONTH", "1MO", "1MON", "1MONTH", "M"].includes(normalized)) return "M";
+  if (/^\d+M$/.test(normalized)) {
+    const minutes = normalized.slice(0, -1);
+    if (["1", "2", "5", "10", "15"].includes(minutes)) return minutes;
+    if (minutes === "60") return "60";
+  }
+  if (/^\d+H$/.test(normalized)) {
+    const hours = Number(normalized.slice(0, -1));
+    if (hours === 1) return "60";
+  }
+
+  if (/^\d+$/.test(normalized)) {
+    if (["1", "2", "5", "10", "15", "60"].includes(normalized)) return normalized;
+    if (normalized === "1440") return "D";
+    if (normalized === "10080") return "W";
+    if (normalized === "43200") return "M";
+  }
+
+  return "15";
+}
+
 function getStatusTone(status?: string) {
   const normalized = String(status || "").toLowerCase();
   if (normalized.includes("active") || normalized.includes("open")) {
@@ -398,6 +430,18 @@ function SignalsPageContent() {
   const openSignalDetail = (signal: SignalItem) => {
     setSelectedKey(getSignalKey(signal));
     setIsDetailOpen(true);
+  };
+
+  const openSignalChart = (signal: SignalItem) => {
+    const symbol = String(signal.symbol || "").trim();
+    if (!symbol) return;
+    const params = new URLSearchParams({
+      chart: "1",
+      symbol,
+      interval: getChartIntervalFromTimeframe(signal.timeframe),
+    });
+    setIsDetailOpen(false);
+    router.push(`/dashboard/watchlist?${params.toString()}`);
   };
 
   const selectSignal = (signal: SignalItem) => {
@@ -952,6 +996,15 @@ function SignalsPageContent() {
                         </div>
 
                         <div className="flex flex-wrap items-center justify-end gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => openSignalChart(detailSignal)}
+                            className="h-9 rounded-full border-slate-300/80 bg-white/80 px-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-700 hover:bg-slate-100 dark:border-primary/25 dark:bg-slate-900/55 dark:text-slate-100 dark:hover:bg-slate-800"
+                          >
+                            <TrendingUp className="mr-1.5 h-3.5 w-3.5" />
+                            Open Chart
+                          </Button>
                           <span
                             className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-[10px] font-semibold ${
                               isBuySignal(detailSignal)
