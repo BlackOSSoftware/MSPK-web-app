@@ -2291,11 +2291,13 @@ function WatchlistPageContent() {
     const initialHeight = Math.max(220, Math.floor(container.clientHeight || 260));
     const touchCrosshairMode = isTouchInteractionDevice() && crosshairEnabledRef.current;
     const chartTimeZone = isIndianChartMarket ? INDIA_TIME_ZONE : undefined;
+    const initialFontSize = (container.clientWidth || window.innerWidth || 0) < 640 ? 10 : 12;
     const chart = createChart(container, {
       height: initialHeight,
       layout: {
         background: { color: "transparent" },
         textColor: isDark ? "#e2e8f0" : "#0f172a",
+        fontSize: initialFontSize,
       },
       localization: chartTimeZone
         ? {
@@ -2468,9 +2470,13 @@ function WatchlistPageContent() {
     const resizeToContainer = () => {
       const rect = container.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) return;
+      const nextFontSize = rect.width < 640 ? 10 : 12;
       chart.applyOptions({
         width: rect.width,
         height: Math.max(220, Math.floor(rect.height)),
+        layout: {
+          fontSize: nextFontSize,
+        },
       });
       if (!chartManualZoomRef.current) {
         fitChartToContent();
@@ -3041,17 +3047,17 @@ function WatchlistPageContent() {
                   <Eye className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
                 </Button>
               </div>
-              <div className="flex flex-wrap items-center gap-2 sm:gap-2">
-                <p className="text-lg font-bold tracking-tight text-slate-900 dark:text-slate-100 sm:text-2xl">
+              <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_56px_minmax(96px,112px)] items-center gap-1.5 sm:flex sm:flex-wrap sm:items-center sm:gap-2">
+                <p className="min-w-0 truncate text-[11px] font-bold tracking-tight text-slate-900 dark:text-slate-100 sm:text-2xl">
                   {activeSymbol || "Select a symbol"}
                 </p>
-                <div className="flex items-center gap-1.5 rounded-full bg-slate-100/80 p-0.5 dark:bg-slate-900/70 sm:hidden">
+                <div className="contents sm:hidden">
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button
                         type="button"
                         variant="outline"
-                        className="h-6 min-w-[56px] justify-between gap-1 border-0 bg-white/85 px-2 text-[8px] font-semibold uppercase tracking-[0.12em] text-slate-700 shadow-none dark:bg-slate-900/70 dark:text-slate-200"
+                        className="h-6 w-[56px] min-w-[56px] justify-between gap-1 rounded-full border-0 bg-slate-100/80 px-2 text-[8px] font-semibold uppercase tracking-[0.12em] text-slate-700 shadow-none dark:bg-slate-900/70 dark:text-slate-200"
                       >
                         <span>{activeIntervalLabel}</span>
                         <ChevronDown className="h-3 w-3 opacity-70" />
@@ -3088,7 +3094,7 @@ function WatchlistPageContent() {
                       <Button
                         type="button"
                         variant="outline"
-                        className="h-6 min-w-[104px] max-w-[132px] justify-between gap-1 overflow-hidden border-0 bg-white/85 px-2 text-[8px] font-semibold uppercase tracking-[0.12em] text-slate-700 shadow-none dark:bg-slate-900/70 dark:text-slate-200"
+                        className="h-6 min-w-0 w-full justify-between gap-1 overflow-hidden rounded-full border-0 bg-slate-100/80 px-2 text-[8px] font-semibold uppercase tracking-[0.1em] text-slate-700 shadow-none dark:bg-slate-900/70 dark:text-slate-200"
                       >
                         <span className="inline-flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
                           <ActiveChartTypeIcon className="h-3 w-3" />
@@ -3237,9 +3243,9 @@ function WatchlistPageContent() {
             onMouseEnter={triggerChartToolbar}
           >
             {shouldRenderChartLegend ? (
-              <div className="pointer-events-none absolute left-2 top-2 z-10 max-w-[calc(100%-1rem)] rounded-lg border border-slate-200/80 bg-white/90 px-1.5 py-1 text-[10px] text-slate-600 shadow-sm backdrop-blur dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-300 sm:left-3 sm:top-3 sm:max-w-[calc(100%-1.5rem)] sm:px-2 sm:py-1 sm:text-[11px]">
+              <div className="pointer-events-none absolute left-2 top-2 z-10 max-w-[calc(100%-3.25rem)] rounded-lg border border-transparent bg-transparent px-1.5 py-1 text-[9px] text-slate-600 shadow-none backdrop-blur-0 dark:text-slate-300 sm:left-3 sm:top-3 sm:max-w-[calc(100%-1.5rem)] sm:px-2 sm:py-1 sm:text-[11px]">
                 {chartVisibility.showOhlc && chartLegend ? (
-                  <div className="no-scrollbar flex max-w-full items-center gap-2 overflow-x-auto whitespace-nowrap sm:flex-wrap sm:gap-2 sm:overflow-visible">
+                  <div className="flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-0.5 whitespace-normal sm:gap-2">
                     <span className="shrink-0">
                       O{" "}
                       <span className="font-semibold text-slate-900 dark:text-slate-100">
@@ -3272,13 +3278,7 @@ function WatchlistPageContent() {
                       chartVisibility.showOhlc && "mt-1 border-t border-slate-200/70 pt-1 dark:border-slate-700/70"
                     )}
                   >
-                    <div className="no-scrollbar flex max-w-full items-center gap-2 overflow-x-auto whitespace-nowrap text-slate-600 dark:text-slate-300 sm:flex-wrap sm:gap-x-3 sm:gap-y-0.5 sm:overflow-visible">
-                      <span className="shrink-0 uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400 sm:hidden">
-                        Signal
-                      </span>
-                      <span className="hidden uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400 sm:inline">
-                        Current Signal
-                      </span>
+                    <div className="flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-0.5 text-slate-600 dark:text-slate-300 sm:gap-x-3 sm:gap-y-0.5">
                       <span
                         className={cn(
                           "shrink-0 font-semibold",
@@ -3292,7 +3292,7 @@ function WatchlistPageContent() {
                         {currentSignalLabel}
                       </span>
                       {currentSignalAchievedSummary ? (
-                        <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-emerald-500/60 bg-emerald-600 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-white shadow-[0_12px_20px_-14px_rgba(22,163,74,0.95)] dark:border-emerald-400/55 dark:bg-emerald-500 dark:text-slate-950">
+                        <span className="hidden shrink-0 items-center gap-1 rounded-full border border-emerald-500/60 bg-emerald-600 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-white shadow-[0_12px_20px_-14px_rgba(22,163,74,0.95)] dark:border-emerald-400/55 dark:bg-emerald-500 dark:text-slate-950 sm:inline-flex">
                           <Check className="h-3 w-3" />
                           {currentSignalAchievedSummary}
                         </span>
@@ -3315,25 +3315,11 @@ function WatchlistPageContent() {
                       ) : null}
                       {currentSignalTargets.map((target, index) => {
                         const level = index + 1;
-                        const isAchieved = currentSignalAchievedTargetLevels.includes(level);
 
                         return (
-                          <span
-                            key={`current-signal-target-${level}`}
-                            className={cn(
-                              "shrink-0",
-                              isAchieved &&
-                                "inline-flex items-center gap-1 rounded-full border border-emerald-500/70 bg-emerald-600 px-2 py-0.5 text-white shadow-[0_12px_20px_-14px_rgba(22,163,74,0.95)] dark:border-emerald-400/55 dark:bg-emerald-500 dark:text-slate-950"
-                            )}
-                          >
-                            {isAchieved ? <Check className="h-3 w-3" /> : null}
-                            <span className={cn(isAchieved ? "font-semibold" : undefined)}>TP{level}</span>{" "}
-                            <span
-                              className={cn(
-                                "font-semibold text-emerald-700 dark:text-emerald-300",
-                                isAchieved && "text-white dark:text-slate-950"
-                              )}
-                            >
+                          <span key={`current-signal-target-${level}`} className="shrink-0">
+                            <span className="font-semibold">TP{level}</span>{" "}
+                            <span className="font-semibold text-emerald-700 dark:text-emerald-300">
                               {formatNumber(target, chartLegendDigits)}
                             </span>
                           </span>
@@ -4873,5 +4859,3 @@ export default function WatchlistPage() {
     </Suspense>
   );
 }
-
-
