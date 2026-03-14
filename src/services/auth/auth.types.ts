@@ -1,6 +1,7 @@
 export type LoginPayload = {
   email: string;
   password: string;
+  ip?: string;
 };
 
 export type LoginApiResponse = Record<string, unknown>;

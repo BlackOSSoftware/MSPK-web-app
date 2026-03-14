@@ -9,6 +9,12 @@ export type EconomicCalendarItem = {
   forecast?: string | null;
   previous?: string;
   impact?: string;
+  unit?: string | null;
+  change?: string | null;
+  changePercentage?: string | null;
+  isAlertSent?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 export type EconomicCalendarListResponse = {

@@ -1,8 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import type { EconomicCalendarItem } from "@/services/economic-calendar/economic-calendar.types";
 import { useEconomicCalendarQuery } from "@/services/economic-calendar/economic-calendar.hooks";
 import {
   CalendarClock,
@@ -15,6 +17,7 @@ import {
   Rows3,
   RotateCcw,
   Sparkles,
+  X,
 } from "lucide-react";
 
 const LIMIT_OPTIONS = [10, 20] as const;
@@ -126,6 +129,229 @@ function impactMeta(impact?: string) {
   };
 }
 
+function parseComparableValue(value?: string | number | null) {
+  if (value === null || value === undefined || value === "") return null;
+  const cleaned = String(value).replace(/[%,$,\s]/g, "");
+  const parsed = Number(cleaned);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function buildEventInsight(
+  event: EconomicCalendarItem,
+  impactLabel: string,
+  surpriseDirection: string,
+  actualValue: number | null,
+  forecastValue: number | null,
+  previousValue: number | null,
+) {
+  const locationLabel = event.country || event.currency || "global market";
+  const forecastRead =
+    actualValue !== null && forecastValue !== null
+      ? actualValue > forecastValue
+        ? "The release came in stronger than forecast, which can trigger quick repricing in related pairs and indices."
+        : actualValue < forecastValue
+          ? "The release printed below forecast, which can weigh on sentiment when the market was expecting strength."
+          : "The release landed in line with forecast, so follow-through usually depends on revisions and positioning."
+      : "Comparable values are limited, so price action and surrounding context matter more than the headline number alone.";
+  const previousRead =
+    actualValue !== null && previousValue !== null
+      ? actualValue > previousValue
+        ? "Versus the previous release, momentum looks improved."
+        : actualValue < previousValue
+          ? "Versus the previous release, momentum looks softer."
+          : "Versus the previous release, the result is broadly unchanged."
+      : "";
+
+  return [
+    `${event.event || "This release"} is tagged as ${impactLabel.toLowerCase()} impact for ${locationLabel}.`,
+    `Current read: ${surpriseDirection}.`,
+    forecastRead,
+    previousRead,
+    event.unit ? `Published unit: ${event.unit}.` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function getImpactScore(impact?: string) {
+  const normalized = String(impact || "").toLowerCase();
+  if (normalized === "high") return "9/10";
+  if (normalized === "medium") return "6/10";
+  if (normalized === "low") return "3/10";
+  return "1/10";
+}
+
+function EconomicEventDetailsModal({
+  event,
+  onClose,
+}: {
+  event: EconomicCalendarItem | null;
+  onClose: () => void;
+}) {
+  if (!event) return null;
+
+  const impact = impactMeta(event.impact);
+  const { dateLabel, timeLabel } = formatDateParts(event.date);
+  const eventDate = event.date ? new Date(event.date) : null;
+  const isValidDate = eventDate && !Number.isNaN(eventDate.getTime());
+  const actualValue = parseComparableValue(event.actual);
+  const forecastValue = parseComparableValue(event.forecast);
+  const previousValue = parseComparableValue(event.previous);
+  const surpriseDirection =
+    actualValue !== null && forecastValue !== null
+      ? actualValue > forecastValue
+        ? "Above Forecast"
+        : actualValue < forecastValue
+          ? "Below Forecast"
+          : "In Line"
+      : "Awaiting Comparable Data";
+  const forecastGap =
+    actualValue !== null && forecastValue !== null ? (actualValue - forecastValue).toFixed(2) : null;
+  const previousGap =
+    actualValue !== null && previousValue !== null ? (actualValue - previousValue).toFixed(2) : null;
+  const importanceScore = getImpactScore(event.impact);
+  const releaseDate =
+    isValidDate
+      ? eventDate.toLocaleDateString("en-IN", {
+          weekday: "long",
+          day: "2-digit",
+          month: "short",
+          year: "numeric",
+        })
+      : "-";
+  const releaseTime = timeLabel;
+  const releaseWindow = isValidDate ? `${releaseDate} at ${releaseTime}` : "Date unavailable";
+  const marketBias =
+    surpriseDirection === "Above Forecast"
+      ? "Potentially Bullish"
+      : surpriseDirection === "Below Forecast"
+        ? "Potentially Bearish"
+        : surpriseDirection === "In Line"
+          ? "Neutral / Wait For Price Action"
+          : "Monitoring";
+  const volatilityTone =
+    impact.label === "High"
+      ? "High volatility expected around release"
+      : impact.label === "Medium"
+        ? "Moderate volatility expected around release"
+        : "Usually lighter volatility unless bigger macro themes are active";
+  const dataQuality =
+    actualValue !== null && forecastValue !== null
+      ? "Full comparable set available"
+      : actualValue !== null || forecastValue !== null || previousValue !== null
+        ? "Partial comparable data available"
+        : "Headline-only event at the moment";
+  const previewText = `${event.event || "-"} from ${event.country || event.currency || "global market"} with ${impact.label.toLowerCase()} impact. Actual ${event.actual || "-"}, forecast ${event.forecast || "-"}, previous ${event.previous || "-"}.${event.unit ? ` Unit: ${event.unit}.` : ""}`;
+  const insightText = buildEventInsight(event, impact.label, surpriseDirection, actualValue, forecastValue, previousValue);
+  const detailRows = [
+    ["Country", event.country || "-"],
+    ["Currency", event.currency || "-"],
+    ["Date", releaseDate],
+    ["Time", releaseTime],
+    ["Release Window", releaseWindow],
+    ["Timezone", "Local browser time"],
+    ["Impact Score", importanceScore],
+    ["Market Bias", marketBias],
+    ["Volatility Outlook", volatilityTone],
+    ["Data Coverage", dataQuality],
+    ["Surprise", surpriseDirection],
+    ["Forecast Gap", forecastGap ?? "-"],
+    ["Previous Gap", previousGap ?? "-"],
+    ["Actual", event.actual || "-"],
+    ["Forecast", event.forecast || "-"],
+    ["Previous", event.previous || "-"],
+    ["Unit", event.unit || "-"],
+    ["Change", event.change || "-"],
+    ["Change %", event.changePercentage || "-"],
+    ["Alert Sent", typeof event.isAlertSent === "boolean" ? (event.isAlertSent ? "Yes" : "No") : "-"],
+    ["Event ID", event.eventId || event._id || "-"],
+  ].filter(([, value]) => value && value !== "-");
+
+  const modalContent = (
+    <div
+      className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/78 p-2 backdrop-blur-sm sm:p-4"
+      onClick={onClose}
+    >
+      <div
+        className="mx-auto my-3 flex w-full max-w-4xl flex-col overflow-hidden rounded-[24px] border border-slate-300/70 bg-background shadow-2xl dark:border-primary/20 sm:my-6 sm:rounded-[2rem]"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="border-b border-slate-300/70 bg-slate-100/80 px-4 py-4 dark:border-primary/20 dark:bg-slate-900/80 sm:px-6 sm:py-5">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="space-y-2 min-w-0">
+              <span className={`inline-flex w-fit items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${impact.tone}`}>
+                <span className={`h-1.5 w-1.5 rounded-full ${impact.dot}`} />
+                {impact.label} Impact
+              </span>
+              <h3 className="break-words text-lg font-semibold tracking-tight text-slate-900 dark:text-slate-100 sm:text-2xl">
+                {event.event || "Economic Event"}
+              </h3>
+              <p className="text-sm text-slate-600 dark:text-slate-400">
+                {releaseWindow}
+              </p>
+            </div>
+            <Button type="button" variant="outline" className="h-10 rounded-xl px-4" onClick={onClose}>
+              <X className="h-4 w-4" />
+              Close
+            </Button>
+          </div>
+        </div>
+
+        <div className="overflow-y-auto px-3 py-3 sm:px-6 sm:py-6">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 sm:gap-4">
+            <div className="rounded-2xl border border-slate-300/70 bg-slate-100/70 p-4 dark:border-slate-700 dark:bg-slate-900/70">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Actual</div>
+              <div className="mt-2 text-xl font-semibold text-slate-900 dark:text-slate-100">{event.actual || "-"}</div>
+            </div>
+            <div className="rounded-2xl border border-slate-300/70 bg-slate-100/70 p-4 dark:border-slate-700 dark:bg-slate-900/70">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Forecast</div>
+              <div className="mt-2 text-xl font-semibold text-slate-900 dark:text-slate-100">{event.forecast || "-"}</div>
+            </div>
+            <div className="rounded-2xl border border-slate-300/70 bg-slate-100/70 p-4 dark:border-slate-700 dark:bg-slate-900/70">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Previous</div>
+              <div className="mt-2 text-xl font-semibold text-slate-900 dark:text-slate-100">{event.previous || "-"}</div>
+            </div>
+            <div className="rounded-2xl border border-slate-300/70 bg-slate-100/70 p-4 dark:border-slate-700 dark:bg-slate-900/70">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Market Bias</div>
+              <div className="mt-2 text-sm font-semibold text-slate-900 dark:text-slate-100">{marketBias}</div>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-3 xl:grid-cols-[1.25fr_1fr]">
+            <div className="rounded-2xl border border-slate-300/70 bg-slate-100/65 p-4 dark:border-slate-700 dark:bg-slate-900/70">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Preview</div>
+              <p className="mt-2 text-sm leading-7 text-slate-700 dark:text-slate-300">{previewText}</p>
+            </div>
+            <div className="rounded-2xl border border-slate-300/70 bg-white/70 p-4 dark:border-slate-700 dark:bg-slate-950/70">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Market Insight</div>
+              <p className="mt-2 text-sm leading-7 text-slate-700 dark:text-slate-300">{insightText}</p>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-3 xl:grid-cols-3">
+            {detailRows.map(([label, value]) => (
+              <div key={label} className="rounded-2xl border border-slate-300/70 bg-white/70 p-4 dark:border-slate-700 dark:bg-slate-900/70">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">{label}</div>
+                <div className="mt-2 break-words text-sm font-medium text-slate-900 dark:text-slate-100">{value}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="border-t border-slate-300/70 bg-slate-100/80 px-4 py-3 text-xs text-slate-600 dark:border-primary/20 dark:bg-slate-900/80 dark:text-slate-400 sm:px-6">
+          Tap outside the modal or use Close to dismiss.
+        </div>
+      </div>
+    </div>
+  );
+
+  if (typeof document === "undefined") {
+    return null;
+  }
+
+  return createPortal(modalContent, document.body);
+}
+
 export default function EconomicCalendarPage() {
   const [draftFrom, setDraftFrom] = useState(INITIAL_FILTERS.from);
   const [draftTo, setDraftTo] = useState(INITIAL_FILTERS.to);
@@ -135,6 +361,7 @@ export default function EconomicCalendarPage() {
   const [selectedPreset, setSelectedPreset] = useState<RangePreset>(DEFAULT_RANGE_PRESET);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState<LimitOption>(20);
+  const [selectedEvent, setSelectedEvent] = useState<EconomicCalendarItem | null>(null);
 
   const dateRangeInvalid = useMemo(() => {
     if (!draftFrom || !draftTo) return false;
@@ -400,7 +627,8 @@ export default function EconomicCalendarPage() {
                   return (
                     <tr
                       key={event._id || event.eventId || `${event.event || "event"}-${index}`}
-                      className={`group/row isolate bg-transparent transition-all duration-300 ${impact.rowHover}`}
+                      onClick={() => setSelectedEvent(event)}
+                      className={`group/row isolate cursor-pointer bg-transparent transition-all duration-300 ${impact.rowHover}`}
                     >
                       <td
                         className={`relative px-4 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 transition-all duration-300 ${impact.cellHover} ${impact.valueHover}`}
@@ -512,6 +740,7 @@ export default function EconomicCalendarPage() {
           </Button>
         </div>
       </section>
+      <EconomicEventDetailsModal event={selectedEvent} onClose={() => setSelectedEvent(null)} />
     </div>
   );
 }

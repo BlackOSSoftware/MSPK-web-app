@@ -32,6 +32,17 @@ export default function LoginPage() {
     const [isPolicyOpen, setIsPolicyOpen] = useState(false);
     const loading = loginMutation.isPending;
 
+    async function resolveClientIp() {
+        try {
+            const response = await fetch('https://api.ipify.org?format=json', { cache: 'no-store' });
+            if (!response.ok) return undefined;
+            const data = (await response.json()) as { ip?: string };
+            return typeof data.ip === 'string' && data.ip.trim() ? data.ip.trim() : undefined;
+        } catch {
+            return undefined;
+        }
+    }
+
     async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
         e.preventDefault();
 
@@ -41,7 +52,8 @@ export default function LoginPage() {
         setShowVerify(false);
 
         try {
-            const loginResponse = await loginMutation.mutateAsync({ email, password });
+            const clientIp = await resolveClientIp();
+            const loginResponse = await loginMutation.mutateAsync({ email, password, ...(clientIp ? { ip: clientIp } : {}) });
             if (typeof window !== 'undefined') {
                 void (async () => {
                     try {
