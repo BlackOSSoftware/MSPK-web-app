@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -188,6 +188,16 @@ function EconomicEventDetailsModal({
   event: EconomicCalendarItem | null;
   onClose: () => void;
 }) {
+  useEffect(() => {
+    if (!event) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [event]);
+
   if (!event) return null;
 
   const impact = impactMeta(event.impact);
@@ -269,14 +279,14 @@ function EconomicEventDetailsModal({
 
   const modalContent = (
     <div
-      className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/78 p-2 backdrop-blur-sm sm:p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center overflow-hidden bg-slate-950/78 p-2 backdrop-blur-sm sm:p-4"
       onClick={onClose}
     >
       <div
-        className="mx-auto my-3 flex w-full max-w-4xl flex-col overflow-hidden rounded-[24px] border border-slate-300/70 bg-background shadow-2xl dark:border-primary/20 sm:my-6 sm:rounded-[2rem]"
+        className="flex max-h-[calc(100dvh-1rem)] w-full max-w-4xl flex-col overflow-hidden rounded-[24px] border border-slate-300/70 bg-background shadow-2xl dark:border-primary/20 sm:max-h-[min(80vh,760px)] sm:rounded-[2rem]"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="border-b border-slate-300/70 bg-slate-100/80 px-4 py-4 dark:border-primary/20 dark:bg-slate-900/80 sm:px-6 sm:py-5">
+        <div className="shrink-0 border-b border-slate-300/70 bg-slate-100/80 px-4 py-4 dark:border-primary/20 dark:bg-slate-900/80 sm:px-6 sm:py-5">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="space-y-2 min-w-0">
               <span className={`inline-flex w-fit items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${impact.tone}`}>
@@ -297,7 +307,7 @@ function EconomicEventDetailsModal({
           </div>
         </div>
 
-        <div className="overflow-y-auto px-3 py-3 sm:px-6 sm:py-6">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 sm:px-6 sm:py-5">
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 sm:gap-4">
             <div className="rounded-2xl border border-slate-300/70 bg-slate-100/70 p-4 dark:border-slate-700 dark:bg-slate-900/70">
               <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Actual</div>
@@ -338,7 +348,7 @@ function EconomicEventDetailsModal({
           </div>
         </div>
 
-        <div className="border-t border-slate-300/70 bg-slate-100/80 px-4 py-3 text-xs text-slate-600 dark:border-primary/20 dark:bg-slate-900/80 dark:text-slate-400 sm:px-6">
+        <div className="shrink-0 border-t border-slate-300/70 bg-slate-100/80 px-4 py-3 text-xs text-slate-600 dark:border-primary/20 dark:bg-slate-900/80 dark:text-slate-400 sm:px-6">
           Tap outside the modal or use Close to dismiss.
         </div>
       </div>

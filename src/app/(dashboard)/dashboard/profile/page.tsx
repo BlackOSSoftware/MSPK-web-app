@@ -1,7 +1,5 @@
 "use client";
 
-import { Capacitor } from "@capacitor/core";
-import { Share } from "@capacitor/share";
 import {
   BadgeCheck,
   BadgePercent,
@@ -21,6 +19,7 @@ import { useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { useMeQuery } from "@/hooks/use-auth";
+import { shareApp } from "@/lib/app-share";
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -95,54 +94,21 @@ export default function ProfilePage() {
   };
 
   const handleShareApp = async () => {
-    const trialBaseUrl = "https://user.mspktradesolutions.com/trial";
     const referralCode = profile.referralCode && profile.referralCode !== "N/A" ? profile.referralCode : "";
-    const trialUrl = referralCode ? `${trialBaseUrl}?ref=${encodeURIComponent(referralCode)}` : trialBaseUrl;
-    const referralLine = referralCode
-      ? `Use my referral code: ${referralCode}.`
-      : "Join MSPK Trade Solutions today.";
-    const text = [
-      "MSPK Trade Solutions is a premium, trusted signals app.",
-      "Get real-time market updates and pro-level trade insights.",
-      referralLine,
-      `Start your free trial here: ${trialUrl}`,
-    ].join(" ");
+
     try {
-      if (Capacitor.isNativePlatform()) {
-        await Share.share({
-          title: "MSPK Trade Solutions",
-          text,
-          url: trialUrl,
-          dialogTitle: "Share MSPK Trade Solutions",
-        });
+      const result = await shareApp({ referralCode });
+      if (result.status === "shared") {
         return;
       }
 
-      if (navigator.share) {
-        let files: File[] | undefined;
-        try {
-          if (typeof window !== "undefined") {
-            const logoResponse = await fetch("/logo.jpg");
-            if (logoResponse.ok) {
-              const blob = await logoResponse.blob();
-              const logoFile = new File([blob], "mspk-logo.jpg", { type: blob.type || "image/jpeg" });
-              if (navigator.canShare?.({ files: [logoFile] })) {
-                files = [logoFile];
-              }
-            }
-          }
-        } catch {
-          files = undefined;
-        }
-        await navigator.share(
-          files
-            ? { title: "MSPK Trade Solutions", text, files }
-            : { title: "MSPK Trade Solutions", text }
-        );
+      if (result.text) {
+        await navigator.clipboard.writeText(result.text);
+        toast.success("Share message copied");
         return;
       }
-      await navigator.clipboard.writeText(text);
-      toast.success("App message copied");
+
+      toast.error("Unable to share");
     } catch {
       toast.error("Unable to share");
     }

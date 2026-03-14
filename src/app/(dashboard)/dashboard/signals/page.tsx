@@ -508,6 +508,7 @@ function SignalsPageContent() {
   const [selectedKey, setSelectedKey] = useState("");
   const [statusFilter, setStatusFilter] = useState<SignalStatusFilter>("all");
   const [isDetailOpen, setIsDetailOpen] = useState(false);
+  const [openedMobileBookKey, setOpenedMobileBookKey] = useState("");
   const [liveTick, setLiveTick] = useState<LiveSignalTick | null>(null);
   const [statHoverPulse, setStatHoverPulse] = useState<Record<StatHoverKey, number>>({
     total: 0,
@@ -662,6 +663,12 @@ function SignalsPageContent() {
     setLiveTick(null);
     setSelectedKey(getSignalKey(signal));
     setIsDetailOpen(false);
+  };
+
+  const toggleMobileBook = (signal: SignalItem) => {
+    const nextKey = getSignalKey(signal);
+    selectSignal(signal);
+    setOpenedMobileBookKey((prev) => (prev === nextKey ? "" : nextKey));
   };
 
   const handleTabChange = (value: string) => {
@@ -1067,7 +1074,7 @@ function SignalsPageContent() {
               })}
             </div>
 
-            <div className="grid gap-3 p-4 sm:p-5 xl:hidden">
+            <div className="grid gap-3 p-3 sm:p-5 xl:hidden">
               {filteredSignals.map((signal) => {
                 const cardKey = getSignalKey(signal);
                 const isBuy = isBuySignal(signal);
@@ -1075,111 +1082,190 @@ function SignalsPageContent() {
                 const points = getResolvedPoints(signal);
                 const status = getDisplayStatus(signal);
                 const isSelected = activeSignalKey === cardKey;
+                const isBookOpen = openedMobileBookKey === cardKey;
+                const coverTone = isBuy
+                  ? "from-emerald-200 via-teal-100 to-cyan-100 text-slate-900"
+                  : "from-rose-200 via-orange-100 to-amber-100 text-slate-900";
 
                 return (
-                  <button
-                    type="button"
+                  <div
                     key={cardKey}
-                    onClick={() => selectSignal(signal)}
-                    className={`rounded-2xl border p-4 text-left transition-colors ${
+                    className={`group relative rounded-[1.35rem] border shadow-[0_16px_34px_-28px_rgba(15,23,42,0.3)] transition-all duration-500 [perspective:1400px] ${
                       isSelected
-                        ? "border-primary/55 bg-primary/12 dark:border-primary/50 dark:bg-primary/14"
-                        : "border-slate-300/75 bg-white/85 hover:border-slate-400/80 dark:border-primary/28 dark:bg-slate-950/55 dark:hover:border-primary/45"
+                        ? "border-primary/45 bg-primary/[0.07] dark:border-primary/35 dark:bg-primary/[0.08]"
+                        : "border-slate-300/75 bg-white/85 dark:border-primary/28 dark:bg-slate-950/55"
                     }`}
                   >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div
-                          className={`inline-flex rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.16em] ${getSegmentBadgeTone(signal.segment)}`}
-                        >
-                          {signal.segment || "SEG"}
+                    <div className="relative min-h-[248px]">
+                      <div
+                        className={`rounded-[1.35rem] px-3 py-3 transition-all duration-500 ${isBookOpen ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"}`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div
+                              className={`inline-flex rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.16em] ${getSegmentBadgeTone(signal.segment)}`}
+                            >
+                              {signal.segment || "SEG"}
+                            </div>
+                            <div className="mt-1 truncate text-[15px] font-semibold text-slate-900 dark:text-foreground">
+                              {signal.symbol || "Signal"}
+                            </div>
+                            <div className="mt-1 inline-flex items-center gap-1 text-[11px] text-slate-700 dark:text-slate-300">
+                              <CalendarClock className="h-3.5 w-3.5" />
+                              {formatTimeframe(signal.timeframe)}
+                            </div>
+                          </div>
+                          <div
+                            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-semibold ${
+                              isBuy
+                                ? "border border-emerald-600/30 bg-emerald-600/10 text-emerald-700 dark:border-emerald-400/30 dark:bg-emerald-400/12 dark:text-emerald-200"
+                                : "border border-rose-600/30 bg-rose-600/10 text-rose-700 dark:border-rose-400/30 dark:bg-rose-400/12 dark:text-rose-200"
+                            }`}
+                          >
+                            {isBuy ? (
+                              <ArrowUpRight className="h-3.5 w-3.5" />
+                            ) : (
+                              <ArrowDownRight className="h-3.5 w-3.5" />
+                            )}
+                            {signal.type || "BUY"}
+                          </div>
                         </div>
-                        <div className="mt-1 truncate text-base font-semibold text-slate-900 dark:text-foreground">
-                          {signal.symbol || "Signal"}
+
+                        <div className="mt-2.5 grid grid-cols-2 gap-2 text-xs">
+                          <div className="rounded-lg border border-slate-300/70 bg-white/90 p-2 dark:border-primary/30 dark:bg-slate-900/70">
+                            <div className="inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.12em] text-slate-700 dark:text-slate-300">
+                              <TrendingUp className="h-3.5 w-3.5 text-cyan-700 dark:text-cyan-200" />
+                              Entry
+                            </div>
+                            <div className="mt-1 text-[13px] font-semibold leading-tight text-slate-900 dark:text-slate-100">
+                              {formatPrice(getEntry(signal))}
+                            </div>
+                          </div>
+                          <div className="rounded-lg border border-slate-300/70 bg-white/90 p-2 dark:border-primary/30 dark:bg-slate-900/70">
+                            <div className="inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.12em] text-slate-700 dark:text-slate-300">
+                              <Target className="h-3.5 w-3.5 text-amber-700 dark:text-amber-200" />
+                              Stop Loss
+                            </div>
+                            <div className="mt-1 text-[13px] font-semibold leading-tight text-slate-900 dark:text-slate-100">
+                              {formatPrice(getStopLoss(signal))}
+                            </div>
+                          </div>
                         </div>
-                        <div className="mt-1 inline-flex items-center gap-1 text-[11px] text-slate-700 dark:text-slate-300">
-                          <CalendarClock className="h-3.5 w-3.5" />
-                          {formatTimeframe(signal.timeframe)}
+
+                        <div className="mt-2.5 rounded-lg border border-slate-300/70 bg-white/90 p-2 dark:border-primary/30 dark:bg-slate-900/70">
+                          <div className="inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.12em] text-slate-700 dark:text-slate-300">
+                            <BadgeCheck className="h-3.5 w-3.5 text-emerald-700 dark:text-emerald-200" />
+                            Targets
+                          </div>
+                          {targets.length ? (
+                            <div className="mt-1 grid grid-cols-3 gap-1.5">
+                              {targets.map((item, index) => (
+                                <span
+                                  key={`${cardKey}-target-${index + 1}`}
+                                  className="rounded-full border border-emerald-600/20 bg-emerald-500/10 px-2 py-1 text-center text-[9px] font-semibold text-emerald-700 dark:border-emerald-300/25 dark:bg-emerald-300/10 dark:text-emerald-100"
+                                >
+                                  TP{index + 1}: {formatPrice(item)}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">-</div>
+                          )}
+                        </div>
+
+                        <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 text-[10px]">
+                          <div
+                            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 font-semibold ${getStatusTone(status)}`}
+                          >
+                            <Activity className="h-3.5 w-3.5" />
+                            {status}
+                          </div>
+                          <div
+                            className={`inline-flex items-center gap-1 font-semibold ${getPointsTone(points)}`}
+                          >
+                            <Sparkles className="h-3.5 w-3.5 text-amber-700 dark:text-amber-100" />
+                            {formatPoints(points)}
+                          </div>
+                        </div>
+
+                        <div className="mt-2 inline-flex items-center gap-1.5 text-[10px] leading-4 text-slate-700 dark:text-slate-300">
+                          <Clock3 className="h-3.5 w-3.5 text-amber-700 dark:text-amber-100" />
+                          {formatDate(signal.signalTime || signal.timestamp || signal.createdAt)}
+                        </div>
+
+                        <div className="mt-3 flex gap-2">
+                          <Button
+                            type="button"
+                            onClick={() => openSignalDetail(signal)}
+                            className="h-9 flex-1 rounded-lg px-3 text-[10px] font-semibold uppercase tracking-[0.12em]"
+                          >
+                            View Full Details
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setOpenedMobileBookKey("")}
+                            className="h-9 rounded-lg px-3 text-[10px] font-semibold uppercase tracking-[0.12em]"
+                          >
+                            Close
+                          </Button>
                         </div>
                       </div>
-                      <div
-                        className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-semibold ${
-                          isBuy
-                            ? "border border-emerald-600/30 bg-emerald-600/10 text-emerald-700 dark:border-emerald-400/30 dark:bg-emerald-400/12 dark:text-emerald-200"
-                            : "border border-rose-600/30 bg-rose-600/10 text-rose-700 dark:border-rose-400/30 dark:bg-rose-400/12 dark:text-rose-200"
+
+                      <button
+                        type="button"
+                        onClick={() => toggleMobileBook(signal)}
+                        className={`absolute inset-0 w-full rounded-[1.35rem] bg-gradient-to-br ${coverTone} p-3.5 text-left transition-all duration-700 [backface-visibility:hidden] [transform-origin:left_center] ${
+                          isBookOpen
+                            ? "pointer-events-none [transform:rotateY(-104deg)] shadow-[14px_0_28px_-20px_rgba(15,23,42,0.42)]"
+                            : "pointer-events-auto [transform:rotateY(0deg)]"
                         }`}
                       >
-                        {isBuy ? (
-                          <ArrowUpRight className="h-3.5 w-3.5" />
-                        ) : (
-                          <ArrowDownRight className="h-3.5 w-3.5" />
-                        )}
-                        {signal.type || "BUY"}
-                      </div>
-                    </div>
+                        <div className="absolute inset-y-3.5 left-3 w-px bg-slate-700/12" />
+                        <div className="absolute inset-y-4 left-4.5 w-1 rounded-full bg-slate-900/6 blur-[1px]" />
+                        <div className="flex h-full flex-col justify-between">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <div className="inline-flex items-center gap-1.5 rounded-full border border-slate-800/10 bg-white/45 px-2.5 py-1 text-[9px] font-semibold uppercase tracking-[0.16em] text-slate-800/85 backdrop-blur-sm">
+                                <Layers3 className="h-3.5 w-3.5" />
+                                Signal Book
+                              </div>
+                              <div className="mt-2.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-800/55">
+                                Tap To Open
+                              </div>
+                            </div>
+                            <div className="rounded-full border border-slate-800/10 bg-white/45 px-2.5 py-1 text-[9px] font-semibold uppercase tracking-[0.14em] text-slate-800/80 backdrop-blur-sm">
+                              {signal.segment || "SEG"}
+                            </div>
+                          </div>
 
-                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                      <div className="rounded-xl border border-slate-300/70 bg-white/90 p-2.5 dark:border-primary/30 dark:bg-slate-900/70">
-                        <div className="inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.12em] text-slate-700 dark:text-slate-300">
-                          <TrendingUp className="h-3.5 w-3.5 text-cyan-700 dark:text-cyan-200" />
-                          Entry
-                        </div>
-                        <div className="mt-1 font-semibold text-slate-900 dark:text-slate-100">
-                          {formatPrice(getEntry(signal))}
-                        </div>
-                      </div>
-                      <div className="rounded-xl border border-slate-300/70 bg-white/90 p-2.5 dark:border-primary/30 dark:bg-slate-900/70">
-                        <div className="inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.12em] text-slate-700 dark:text-slate-300">
-                          <Target className="h-3.5 w-3.5 text-amber-700 dark:text-amber-200" />
-                          Stop Loss
-                        </div>
-                        <div className="mt-1 font-semibold text-slate-900 dark:text-slate-100">
-                          {formatPrice(getStopLoss(signal))}
-                        </div>
-                      </div>
-                    </div>
+                          <div>
+                            <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-800/55">
+                              {isBuy ? "BUY SIGNAL" : "SELL SIGNAL"}
+                            </div>
+                            <div className="mt-2 text-[1.65rem] font-black tracking-[0.12em] text-slate-900">
+                              {signal.type || (isBuy ? "BUY" : "SELL")}
+                            </div>
+                            <div className="mt-1.5 max-w-[11rem] text-base font-semibold leading-tight text-slate-900/90">
+                              {signal.symbol || "Signal"}
+                            </div>
+                            <div className="mt-2.5 inline-flex items-center gap-1.5 rounded-full border border-slate-800/10 bg-white/45 px-2.5 py-1 text-[10px] font-medium text-slate-800/75 backdrop-blur-sm">
+                              <CalendarClock className="h-3.5 w-3.5" />
+                              {formatTimeframe(signal.timeframe)}
+                            </div>
+                          </div>
 
-                    <div className="mt-3 rounded-xl border border-slate-300/70 bg-white/90 p-2.5 dark:border-primary/30 dark:bg-slate-900/70">
-                      <div className="inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.12em] text-slate-700 dark:text-slate-300">
-                        <BadgeCheck className="h-3.5 w-3.5 text-emerald-700 dark:text-emerald-200" />
-                        Targets
-                      </div>
-                      {targets.length ? (
-                        <div className="mt-1 flex flex-wrap gap-1.5">
-                          {targets.map((item, index) => (
-                            <span
-                              key={`${cardKey}-target-${index + 1}`}
-                              className="rounded-full border border-emerald-600/20 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-semibold text-emerald-700 dark:border-emerald-300/25 dark:bg-emerald-300/10 dark:text-emerald-100"
-                            >
-                              TP{index + 1}: {formatPrice(item)}
+                          <div className="flex items-center justify-between text-[10px] text-slate-800/65">
+                            <span className="truncate pr-2">{formatDate(signal.signalTime || signal.timestamp || signal.createdAt)}</span>
+                            <span className="inline-flex shrink-0 items-center gap-1">
+                              {isBuy ? <ArrowUpRight className="h-3.5 w-3.5" /> : <ArrowDownRight className="h-3.5 w-3.5" />}
+                              Open
                             </span>
-                          ))}
+                          </div>
                         </div>
-                      ) : (
-                        <div className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">-</div>
-                      )}
+                      </button>
                     </div>
-
-                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[11px]">
-                      <div
-                        className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 font-semibold ${getStatusTone(status)}`}
-                      >
-                        <Activity className="h-3.5 w-3.5" />
-                        {status}
-                      </div>
-                      <div
-                        className={`inline-flex items-center gap-1 font-semibold ${getPointsTone(points)}`}
-                      >
-                        <Sparkles className="h-3.5 w-3.5 text-amber-700 dark:text-amber-100" />
-                        {formatPoints(points)}
-                      </div>
-                    </div>
-
-                    <div className="mt-2 inline-flex items-center gap-1.5 text-[10px] text-slate-700 dark:text-slate-300">
-                      <Clock3 className="h-3.5 w-3.5 text-amber-700 dark:text-amber-100" />
-                      {formatDate(signal.signalTime || signal.timestamp || signal.createdAt)}
-                    </div>
-                  </button>
+                  </div>
                 );
               })}
             </div>
@@ -1222,41 +1308,41 @@ function SignalsPageContent() {
               }
             }}
           >
-            <DialogContent className="max-h-[92vh] overflow-y-auto border-slate-300/70 bg-[linear-gradient(160deg,rgba(248,250,252,0.98),rgba(226,232,240,0.96))] p-0 text-slate-900 shadow-[0_30px_90px_-45px_rgba(15,23,42,0.7)] dark:border-primary/25 dark:bg-[linear-gradient(165deg,rgba(5,12,24,0.98),rgba(14,23,38,0.96))] dark:text-slate-100 sm:max-w-3xl">
+            <DialogContent className="max-h-[94vh] w-[calc(100vw-0.75rem)] max-w-[calc(100vw-0.75rem)] overflow-y-auto border-slate-300/70 bg-[linear-gradient(160deg,rgba(248,250,252,0.98),rgba(226,232,240,0.96))] p-0 text-slate-900 shadow-[0_30px_90px_-45px_rgba(15,23,42,0.7)] dark:border-primary/25 dark:bg-[linear-gradient(165deg,rgba(5,12,24,0.98),rgba(14,23,38,0.96))] dark:text-slate-100 sm:max-h-[92vh] sm:max-w-3xl">
               {detailSignal ? (
                 <>
-                  <div className="border-b border-slate-300/60 px-5 py-5 dark:border-primary/20 sm:px-6">
-                    <DialogHeader className="gap-3">
+                  <div className="border-b border-slate-300/60 px-3 py-3 dark:border-primary/20 sm:px-6 sm:py-5">
+                    <DialogHeader className="gap-2 sm:gap-3">
                       <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div className="space-y-2">
-                          <div className="inline-flex items-center gap-2 rounded-full border border-amber-600/30 bg-amber-500/10 px-3 py-1 text-[10px] uppercase tracking-[0.2em] text-amber-700 dark:border-amber-300/25 dark:bg-amber-300/10 dark:text-amber-100">
+                        <div className="space-y-1.5 sm:space-y-2">
+                          <div className="inline-flex items-center gap-1.5 rounded-full border border-amber-600/30 bg-amber-500/10 px-2.5 py-0.5 text-[9px] uppercase tracking-[0.16em] text-amber-700 dark:border-amber-300/25 dark:bg-amber-300/10 dark:text-amber-100 sm:px-3 sm:py-1 sm:text-[10px] sm:tracking-[0.2em]">
                             <Sparkles className="h-3.5 w-3.5" />
                             Signal Details
                           </div>
-                          <DialogTitle className="text-2xl font-semibold tracking-tight">
+                          <DialogTitle className="text-lg font-semibold tracking-tight sm:text-2xl">
                             {detailSignal.symbol || "Signal"}
                           </DialogTitle>
-                          <DialogDescription className="max-w-2xl text-xs text-slate-600 dark:text-slate-300">
+                          <DialogDescription className="max-w-2xl text-[11px] leading-5 text-slate-600 dark:text-slate-300 sm:text-xs">
                             Entry, exit, stop loss, targets, and live outcome for this signal.
                           </DialogDescription>
                         </div>
 
-                        <div className="flex flex-wrap items-center justify-end gap-2">
+                        <div className="flex flex-wrap items-center justify-end gap-1.5 sm:gap-2">
                           <Button
                             type="button"
                             variant="outline"
                             onClick={() => openSignalChart(detailSignal)}
-                            className="h-9 rounded-full border-slate-300/80 bg-white/80 px-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-700 hover:bg-slate-100 dark:border-primary/25 dark:bg-slate-900/55 dark:text-slate-100 dark:hover:bg-slate-800"
+                            className="h-8 rounded-full border-slate-300/80 bg-white/80 px-3 text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-700 hover:bg-slate-100 dark:border-primary/25 dark:bg-slate-900/55 dark:text-slate-100 dark:hover:bg-slate-800 sm:h-9 sm:px-4 sm:text-[10px] sm:tracking-[0.16em]"
                           >
                             <TrendingUp className="mr-1.5 h-3.5 w-3.5" />
                             Open Chart
                           </Button>
                           <span
-                            className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-[10px] font-semibold ${
+                            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[9px] font-semibold ${
                               isBuySignal(detailSignal)
                                 ? "border border-emerald-600/30 bg-emerald-600/10 text-emerald-700 dark:border-emerald-400/30 dark:bg-emerald-400/12 dark:text-emerald-200"
                                 : "border border-rose-600/30 bg-rose-600/10 text-rose-700 dark:border-rose-400/30 dark:bg-rose-400/12 dark:text-rose-200"
-                            }`}
+                            } sm:px-3 sm:text-[10px]`}
                           >
                             {isBuySignal(detailSignal) ? (
                               <ArrowUpRight className="h-3.5 w-3.5" />
@@ -1266,14 +1352,14 @@ function SignalsPageContent() {
                             {detailSignal.type || "BUY"}
                           </span>
                           <span
-                            className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-[10px] font-semibold ${getSegmentBadgeTone(detailSignal.segment)}`}
+                            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[9px] font-semibold ${getSegmentBadgeTone(detailSignal.segment)} sm:px-3 sm:text-[10px]`}
                           >
                             <ShieldCheck className="h-3.5 w-3.5" />
                             {detailSignal.segment || "SEG"}
                             {detailSignal.timeframe ? ` - ${formatTimeframe(detailSignal.timeframe)}` : ""}
                           </span>
                           <span
-                            className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-[10px] font-semibold ${getStatusTone(getDisplayStatus(detailSignal))}`}
+                            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[9px] font-semibold ${getStatusTone(getDisplayStatus(detailSignal))} sm:px-3 sm:text-[10px]`}
                           >
                             <Activity className="h-3.5 w-3.5" />
                             {getDisplayStatus(detailSignal)}
@@ -1283,118 +1369,124 @@ function SignalsPageContent() {
                     </DialogHeader>
                   </div>
 
-                  <div className="space-y-5 px-5 py-5 sm:px-6">
-                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                      <div className="rounded-2xl border border-slate-300/65 bg-white/85 p-4 dark:border-primary/25 dark:bg-slate-950/55">
-                        <div className="inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.18em] text-slate-600 dark:text-slate-300">
+                  <div className="space-y-3 px-3 py-3 sm:space-y-5 sm:px-6 sm:py-5">
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-2 sm:gap-3 xl:grid-cols-4">
+                      <div className="rounded-xl border border-slate-300/65 bg-white/85 p-3 dark:border-primary/25 dark:bg-slate-950/55 sm:rounded-2xl sm:p-4">
+                        <div className="inline-flex items-center gap-1 text-[9px] uppercase tracking-[0.14em] text-slate-600 dark:text-slate-300 sm:text-[10px] sm:tracking-[0.18em]">
                           <TrendingUp className="h-3.5 w-3.5 text-cyan-700 dark:text-cyan-200" />
                           Entry
                         </div>
-                        <div className="mt-2 text-lg font-semibold text-slate-900 dark:text-slate-100">
+                        <div className="mt-1.5 text-sm font-semibold leading-tight text-slate-900 dark:text-slate-100 sm:mt-2 sm:text-lg">
                           {formatPrice(getEntry(detailSignal))}
                         </div>
                       </div>
 
-                      <div className="rounded-2xl border border-slate-300/65 bg-white/85 p-4 dark:border-primary/25 dark:bg-slate-950/55">
-                        <div className="inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.18em] text-slate-600 dark:text-slate-300">
+                      <div className="rounded-xl border border-slate-300/65 bg-white/85 p-3 dark:border-primary/25 dark:bg-slate-950/55 sm:rounded-2xl sm:p-4">
+                        <div className="inline-flex items-center gap-1 text-[9px] uppercase tracking-[0.14em] text-slate-600 dark:text-slate-300 sm:text-[10px] sm:tracking-[0.18em]">
                           <ArrowDownRight className="h-3.5 w-3.5 text-primary" />
                           Live Price
                         </div>
-                        <div className="mt-2 text-lg font-semibold text-slate-900 dark:text-slate-100">
+                        <div className="mt-1.5 text-sm font-semibold leading-tight text-slate-900 dark:text-slate-100 sm:mt-2 sm:text-lg">
                           {formatPrice(detailLivePrice)}
                         </div>
-                        <div className="mt-2 text-[11px] text-slate-600 dark:text-slate-300">
-                          Bid: <span className="font-semibold text-slate-900 dark:text-slate-100">{formatPrice(detailBid)}</span>
-                          {"  "}
-                          Ask: <span className="font-semibold text-slate-900 dark:text-slate-100">{formatPrice(detailAsk)}</span>
+                        <div className="mt-1.5 text-[9px] leading-4 text-slate-600 dark:text-slate-300 sm:mt-2 sm:text-[11px] sm:leading-5">
+                          Bid <span className="font-semibold text-slate-900 dark:text-slate-100">{formatPrice(detailBid)}</span>
+                          {" • "}
+                          Ask <span className="font-semibold text-slate-900 dark:text-slate-100">{formatPrice(detailAsk)}</span>
                         </div>
                       </div>
 
-                      <div className="rounded-2xl border border-slate-300/65 bg-white/85 p-4 dark:border-primary/25 dark:bg-slate-950/55">
-                        <div className="inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.18em] text-slate-600 dark:text-slate-300">
+                      <div className="rounded-xl border border-slate-300/65 bg-white/85 p-3 dark:border-primary/25 dark:bg-slate-950/55 sm:rounded-2xl sm:p-4">
+                        <div className="inline-flex items-center gap-1 text-[9px] uppercase tracking-[0.14em] text-slate-600 dark:text-slate-300 sm:text-[10px] sm:tracking-[0.18em]">
                           <Target className="h-3.5 w-3.5 text-amber-700 dark:text-amber-200" />
                           Stop Loss
                         </div>
-                        <div className="mt-2 text-lg font-semibold text-slate-900 dark:text-slate-100">
+                        <div className="mt-1.5 text-sm font-semibold leading-tight text-slate-900 dark:text-slate-100 sm:mt-2 sm:text-lg">
                           {formatPrice(getStopLoss(detailSignal))}
                         </div>
                       </div>
 
-                      <div className="rounded-2xl border border-slate-300/65 bg-white/85 p-4 dark:border-primary/25 dark:bg-slate-950/55">
-                        <div className="inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.18em] text-slate-600 dark:text-slate-300">
+                      <div className="rounded-xl border border-slate-300/65 bg-white/85 p-3 dark:border-primary/25 dark:bg-slate-950/55 sm:rounded-2xl sm:p-4">
+                        <div className="inline-flex items-center gap-1 text-[9px] uppercase tracking-[0.14em] text-slate-600 dark:text-slate-300 sm:text-[10px] sm:tracking-[0.18em]">
                           <Sparkles className="h-3.5 w-3.5 text-amber-700 dark:text-amber-100" />
                           Points
                         </div>
-                        <div className={`mt-2 text-lg font-semibold ${getPointsTone(getResolvedPoints(detailSignal))}`}>
+                        <div className={`mt-1.5 text-sm font-semibold leading-tight ${getPointsTone(getResolvedPoints(detailSignal))} sm:mt-2 sm:text-lg`}>
                           {formatPoints(getResolvedPoints(detailSignal))}
                         </div>
                       </div>
                     </div>
 
-                    <div className="rounded-[1.4rem] border border-slate-300/65 bg-white/80 p-4 dark:border-primary/25 dark:bg-slate-950/55">
-                      <div className="inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.18em] text-slate-600 dark:text-slate-300">
+                    <div className="rounded-xl border border-slate-300/65 bg-white/80 p-3 dark:border-primary/25 dark:bg-slate-950/55 sm:rounded-[1.4rem] sm:p-4">
+                      <div className="inline-flex items-center gap-1 text-[9px] uppercase tracking-[0.14em] text-slate-600 dark:text-slate-300 sm:text-[10px] sm:tracking-[0.18em]">
                         <BadgeCheck className="h-3.5 w-3.5 text-emerald-700 dark:text-emerald-200" />
                         Targets
                       </div>
                       {getTargets(detailSignal).length ? (
-                        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                        <div className="mt-2 grid grid-cols-3 gap-2 sm:mt-3 sm:gap-3">
                           {getTargets(detailSignal).map((target, index) => (
                             <div
                               key={`${getSignalKey(detailSignal)}-detail-target-${index + 1}`}
-                              className="rounded-2xl border border-emerald-600/20 bg-emerald-500/10 px-4 py-3 dark:border-emerald-300/25 dark:bg-emerald-300/10"
+                              className="rounded-xl border border-emerald-600/20 bg-emerald-500/10 px-3 py-2.5 dark:border-emerald-300/25 dark:bg-emerald-300/10 sm:rounded-2xl sm:px-4 sm:py-3"
                             >
-                              <div className="text-[10px] uppercase tracking-[0.18em] text-emerald-700 dark:text-emerald-100">
-                                Target {index + 1}
+                              <div className="text-center text-[8px] uppercase tracking-[0.08em] text-emerald-700 dark:text-emerald-100 sm:text-[10px] sm:tracking-[0.18em]">
+                                TP {index + 1}
                               </div>
-                              <div className="mt-1 text-base font-semibold text-emerald-800 dark:text-emerald-100">
+                              <div className="mt-1 text-center text-[11px] font-semibold leading-tight text-emerald-800 dark:text-emerald-100 sm:text-base">
                                 {formatPrice(target)}
                               </div>
                             </div>
                           ))}
                         </div>
                       ) : (
-                        <div className="mt-3 text-sm text-slate-600 dark:text-slate-300">
+                        <div className="mt-2 text-sm text-slate-600 dark:text-slate-300 sm:mt-3">
                           Targets not available.
                         </div>
                       )}
                     </div>
 
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <div className="rounded-[1.4rem] border border-slate-300/65 bg-white/80 p-4 dark:border-primary/25 dark:bg-slate-950/55">
-                        <div className="inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.18em] text-slate-600 dark:text-slate-300">
+                    <div className="grid grid-cols-2 gap-2 sm:gap-3">
+                      <div className="rounded-xl border border-slate-300/65 bg-white/80 p-3 dark:border-primary/25 dark:bg-slate-950/55 sm:rounded-[1.4rem] sm:p-4">
+                        <div className="inline-flex items-center gap-1 text-[9px] uppercase tracking-[0.14em] text-slate-600 dark:text-slate-300 sm:text-[10px] sm:tracking-[0.18em]">
                           <Clock3 className="h-3.5 w-3.5 text-amber-700 dark:text-amber-100" />
                           Signal Time
                         </div>
-                        <div className="mt-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                        <div className="mt-1.5 text-[11px] font-semibold leading-4 text-slate-900 dark:text-slate-100 sm:mt-2 sm:text-sm sm:leading-5">
                           {formatDate(
                             detailSignal.signalTime || detailSignal.timestamp || detailSignal.createdAt,
                           )}
                         </div>
-                        <div className="mt-2 text-[11px] text-slate-600 dark:text-slate-300">
-                          Timeframe: <span className="font-semibold text-slate-900 dark:text-slate-100">{formatTimeframe(detailSignal.timeframe)}</span>
-                        </div>
                       </div>
 
-                      <div className="rounded-[1.4rem] border border-slate-300/65 bg-white/80 p-4 dark:border-primary/25 dark:bg-slate-950/55">
-                        <div className="inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.18em] text-slate-600 dark:text-slate-300">
+                      <div className="rounded-xl border border-slate-300/65 bg-white/80 p-3 dark:border-primary/25 dark:bg-slate-950/55 sm:rounded-[1.4rem] sm:p-4">
+                        <div className="inline-flex items-center gap-1 text-[9px] uppercase tracking-[0.14em] text-slate-600 dark:text-slate-300 sm:text-[10px] sm:tracking-[0.18em]">
                           <CalendarClock className="h-3.5 w-3.5 text-cyan-700 dark:text-cyan-200" />
                           Exit Time
                         </div>
-                        <div className="mt-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                        <div className="mt-1.5 text-[11px] font-semibold leading-4 text-slate-900 dark:text-slate-100 sm:mt-2 sm:text-sm sm:leading-5">
                           {formatDate(detailSignal.exitTime)}
                         </div>
                       </div>
 
-                      <div className="rounded-[1.4rem] border border-slate-300/65 bg-white/80 p-4 dark:border-primary/25 dark:bg-slate-950/55">
-                        <div className="inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.18em] text-slate-600 dark:text-slate-300">
-                          <Activity className="h-3.5 w-3.5 text-primary" />
-                          Exit Summary
+                      <div className="rounded-xl border border-slate-300/65 bg-white/80 p-3 dark:border-primary/25 dark:bg-slate-950/55 sm:rounded-[1.4rem] sm:p-4">
+                        <div className="inline-flex items-center gap-1 text-[9px] uppercase tracking-[0.14em] text-slate-600 dark:text-slate-300 sm:text-[10px] sm:tracking-[0.18em]">
+                          <ShieldCheck className="h-3.5 w-3.5 text-violet-700 dark:text-violet-200" />
+                          Timeframe
                         </div>
-                        <div className="mt-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
-                          {getDisplayStatus(detailSignal)}
+                        <div className="mt-1.5 text-[11px] font-semibold leading-4 text-slate-900 dark:text-slate-100 sm:mt-2 sm:text-sm sm:leading-5">
+                          {formatTimeframe(detailSignal.timeframe)}
                         </div>
                       </div>
 
+                      <div className="rounded-xl border border-slate-300/65 bg-white/80 p-3 dark:border-primary/25 dark:bg-slate-950/55 sm:rounded-[1.4rem] sm:p-4">
+                        <div className="inline-flex items-center gap-1 text-[9px] uppercase tracking-[0.14em] text-slate-600 dark:text-slate-300 sm:text-[10px] sm:tracking-[0.18em]">
+                          <Activity className="h-3.5 w-3.5 text-primary" />
+                          Exit Summary
+                        </div>
+                        <div className="mt-1.5 text-[11px] font-semibold leading-4 text-slate-900 dark:text-slate-100 sm:mt-2 sm:text-sm sm:leading-5">
+                          {getDisplayStatus(detailSignal)}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </>

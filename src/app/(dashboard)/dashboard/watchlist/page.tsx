@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -65,7 +65,9 @@ import {
   MARKET_QUERY_KEY,
   USER_MARKET_WATCHLISTS_QUERY_KEY,
   useMarketHistoryQuery,
+  useMarketSegmentsQuery,
   useMarketSearchQuery,
+  useMarketSymbolsQuery,
   useMarketUserWatchlistsQuery,
   useMarketUserWatchlistAddMutation,
   useMarketUserWatchlistCreateMutation,
@@ -75,7 +77,7 @@ import {
   useMarketUserWatchlistRemoveMutation,
   useMarketUserWatchlistUpdateMutation,
 } from "@/services/market/market.hooks";
-import type { MarketSearchItem, MarketTicker } from "@/services/market/market.types";
+import type { MarketSearchItem, MarketSymbol, MarketTicker } from "@/services/market/market.types";
 import { useSignalsQuery } from "@/services/signals/signal.hooks";
 import type { SignalItem } from "@/services/signals/signal.types";
 type ConnectionState = "connecting" | "connected" | "disconnected" | "error";
@@ -99,6 +101,8 @@ const CHART_BAR_SPACING_MIN = 2;
 const CHART_BAR_SPACING_MAX = 24;
 const CHART_BAR_SPACING_STEP = 2;
 const PRICE_LINE_CLICK_TOLERANCE_PX = 10;
+const DEFAULT_CHART_INTERVAL: ChartInterval = "5";
+const DEFAULT_CHART_TYPE: ChartType = "heikin";
 
 type SocketTick = {
   symbol: string;
@@ -815,10 +819,35 @@ function getMarketSocketUrl(token: string): string {
   return url.toString();
 }
 
-function getSuggestionLabel(item: MarketSearchItem): string {
-  const symbol = item.symbol ?? "";
-  const name = item.name ? ` - ${item.name}` : "";
-  return `${symbol}${name}`;
+function getMarketItemName(item: Pick<MarketSearchItem, "name"> | Pick<MarketSymbol, "name">): string {
+  return (item.name ?? "").trim();
+}
+
+function getMarketItemSegment(
+  item: Pick<MarketSearchItem, "segment"> | Pick<MarketSymbol, "segment">
+): string {
+  return (item.segment ?? "").trim().toUpperCase();
+}
+
+function getMarketItemExchange(
+  item: Pick<MarketSearchItem, "exchange"> | Pick<MarketSymbol, "exchange">
+): string {
+  return (item.exchange ?? "").trim().toUpperCase();
+}
+
+function isBseMarketItem(
+  item: Pick<MarketSearchItem, "exchange" | "symbol" | "name"> | Pick<MarketSymbol, "exchange" | "symbol" | "name">
+): boolean {
+  const exchange = getMarketItemExchange(item);
+  const symbol = normalizeSymbol(item.symbol ?? "");
+  const name = getMarketItemName(item).toUpperCase();
+  return (
+    exchange.includes("BSE") ||
+    symbol.endsWith("-BSE") ||
+    symbol.endsWith("_BSE") ||
+    symbol.includes(":BSE") ||
+    name.includes("BSE")
+  );
 }
 
 function mapSocketTick(payload: Record<string, unknown>): SocketTick | null {
@@ -938,6 +967,7 @@ function WatchlistPageContent() {
     return raw ? normalizeSymbol(raw) : "";
   }, [searchParams]);
   const urlInterval = searchParams.get("interval") ?? "";
+  const urlChartType = searchParams.get("type") ?? "";
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectRef = useRef<number | null>(null);
   const reconnectAttempts = useRef(0);
@@ -949,21 +979,24 @@ function WatchlistPageContent() {
 
   const [connectionState, setConnectionState] = useState<ConnectionState>("disconnected");
   const [ticks, setTicks] = useState<Record<string, SocketTick>>({});
-  const [symbolInput, setSymbolInput] = useState("");
   const [segmentFilter, setSegmentFilter] = useState("ALL");
   const [exchangeFilter, setExchangeFilter] = useState("ALL");
   const [tableSearch, setTableSearch] = useState("");
   const [viewMode, setViewMode] = useState<ViewMode>("table");
   const [searchQuery, setSearchQuery] = useState("");
+  const [isAddSymbolDialogOpen, setIsAddSymbolDialogOpen] = useState(false);
+  const [addSymbolSegment, setAddSymbolSegment] = useState("ALL");
   const [isCreateWatchlistOpen, setIsCreateWatchlistOpen] = useState(false);
   const [newWatchlistName, setNewWatchlistName] = useState("");
   const [isFilterDialogOpen, setIsFilterDialogOpen] = useState(false);
   const [isColumnDialogOpen, setIsColumnDialogOpen] = useState(false);
+  const [isAppearanceDialogOpen, setIsAppearanceDialogOpen] = useState(false);
   const [isWatchlistEditMode, setIsWatchlistEditMode] = useState(false);
+  const [addingSymbol, setAddingSymbol] = useState<string | null>(null);
   const [removingSymbol, setRemovingSymbol] = useState<string | null>(null);
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
-  const [chartInterval, setChartInterval] = useState<ChartInterval>("15");
-  const [chartType, setChartType] = useState<ChartType>("candle");
+  const [chartInterval, setChartInterval] = useState<ChartInterval>(DEFAULT_CHART_INTERVAL);
+  const [chartType, setChartType] = useState<ChartType>(DEFAULT_CHART_TYPE);
   const [isChartVisibilityDialogOpen, setIsChartVisibilityDialogOpen] = useState(false);
   const [chartVisibility, setChartVisibility] = useState<ChartVisibilitySettings>(
     DEFAULT_CHART_VISIBILITY_SETTINGS
@@ -1013,6 +1046,7 @@ function WatchlistPageContent() {
     ask: 120,
     action: 130,
   });
+  const deferredSearchQuery = useDeferredValue(searchQuery.trim());
 
   const previousPriceRef = useRef<Record<string, number>>({});
   const previousHighRef = useRef<Record<string, number>>({});
@@ -1052,6 +1086,7 @@ function WatchlistPageContent() {
     staleTime: 8_000,
     refetchInterval: 25_000,
   });
+  const marketSegmentsQuery = useMarketSegmentsQuery(!chartMode);
   const addMutation = useMarketUserWatchlistAddMutation();
   const removeMutation = useMarketUserWatchlistRemoveMutation();
   const reorderMutation = useMarketUserWatchlistReorderMutation();
@@ -1060,8 +1095,15 @@ function WatchlistPageContent() {
   const deleteWatchlistMutation = useMarketUserWatchlistDeleteMutation();
 
   const searchMarketQuery = useMarketSearchQuery(
-    { q: searchQuery, limit: 12 },
-    searchQuery.trim().length >= 2
+    { q: deferredSearchQuery, limit: 10 },
+    isAddSymbolDialogOpen && deferredSearchQuery.length >= 2
+  );
+  const marketSymbolsQuery = useMarketSymbolsQuery(
+    {
+      limit: deferredSearchQuery.length >= 2 ? 72 : 32,
+      ...(deferredSearchQuery.length >= 2 ? { q: deferredSearchQuery } : {}),
+    },
+    isAddSymbolDialogOpen && !chartMode
   );
 
   const watchlistSymbols = useMemo(() => {
@@ -1084,6 +1126,11 @@ function WatchlistPageContent() {
       setWatchlistTextSize(savedTextSize as WatchlistTextSize);
     }
   }, []);
+  useEffect(() => {
+    if (isAddSymbolDialogOpen) return;
+    setSearchQuery("");
+    setAddSymbolSegment("ALL");
+  }, [isAddSymbolDialogOpen]);
   useEffect(() => {
     if (typeof window === "undefined") return;
     window.localStorage.setItem(WATCHLIST_APPEARANCE_STORAGE_KEY, watchlistAppearanceFont);
@@ -1159,12 +1206,19 @@ function WatchlistPageContent() {
   }, [urlInterval]);
 
   useEffect(() => {
+    if (urlChartType === "candle" || urlChartType === "heikin") {
+      setChartType(urlChartType);
+    }
+  }, [urlChartType]);
+
+  useEffect(() => {
     if (typeof window === "undefined") return;
+    if (chartMode && (urlChartType === "candle" || urlChartType === "heikin")) return;
     const stored = window.localStorage.getItem(CHART_TYPE_STORAGE_KEY);
     if (stored === "candle" || stored === "heikin") {
       setChartType(stored);
     }
-  }, []);
+  }, [chartMode, urlChartType]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1294,14 +1348,6 @@ function WatchlistPageContent() {
     }
   }, [hiddenColumns.length, columnOrder.length]);
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setSearchQuery(symbolInput.trim());
-    }, 260);
-
-    return () => window.clearTimeout(timer);
-  }, [symbolInput]);
-
   const getColumnWidthStyle = (col: TableColumnId) => {
     const width = columnWidths[col];
     if (!width) return undefined;
@@ -1347,30 +1393,52 @@ function WatchlistPageContent() {
     window.addEventListener("pointercancel", handleUp);
   };
 
-  const searchSuggestions = useMemo(() => {
-    const list = searchMarketQuery.data ?? [];
+  const addSymbolResults = useMemo(() => {
     const selected = new Set(watchlistSymbols);
     const used = new Set<string>();
-    const suggestions: MarketSearchItem[] = [];
+    const merged: Array<MarketSearchItem | MarketSymbol> = [
+      ...(deferredSearchQuery.length >= 2 ? searchMarketQuery.data ?? [] : []),
+      ...(marketSymbolsQuery.data ?? []),
+    ].sort((left, right) => {
+      const leftIsBse = isBseMarketItem(left);
+      const rightIsBse = isBseMarketItem(right);
+      if (leftIsBse !== rightIsBse) return leftIsBse ? 1 : -1;
+      const leftExchange = getMarketItemExchange(left);
+      const rightExchange = getMarketItemExchange(right);
+      if (leftExchange === "NSE" && rightExchange !== "NSE") return -1;
+      if (rightExchange === "NSE" && leftExchange !== "NSE") return 1;
+      return normalizeSymbol(left.symbol ?? "").localeCompare(normalizeSymbol(right.symbol ?? ""));
+    });
+    const items: Array<MarketSearchItem | MarketSymbol> = [];
 
-    for (const item of list) {
+    for (const item of merged) {
       if (!item.symbol) continue;
       const symbol = normalizeSymbol(item.symbol);
-      if (selected.has(symbol) || used.has(symbol)) continue;
+      const segment = getMarketItemSegment(item);
+      const exchange = getMarketItemExchange(item);
+      if (!symbol || selected.has(symbol) || used.has(symbol)) continue;
+      if (isBseMarketItem(item) || exchange.includes("BSE")) continue;
+      if (addSymbolSegment !== "ALL" && segment !== addSymbolSegment) continue;
       used.add(symbol);
-      suggestions.push({ ...item, symbol });
-      if (suggestions.length >= 8) break;
+      items.push({ ...item, symbol, segment });
+      if (items.length >= 28) break;
     }
 
-    return suggestions;
-  }, [searchMarketQuery.data, watchlistSymbols]);
-  const pendingSymbol = useMemo(() => normalizeSymbol(symbolInput), [symbolInput]);
-  const hasExactSuggestion = useMemo(
-    () => searchSuggestions.some((item) => item.symbol === pendingSymbol),
-    [searchSuggestions, pendingSymbol]
-  );
-  const showQuickAdd =
-    pendingSymbol.length > 0 && !watchlistSymbols.includes(pendingSymbol) && !hasExactSuggestion;
+    return items;
+  }, [addSymbolSegment, deferredSearchQuery, marketSymbolsQuery.data, searchMarketQuery.data, watchlistSymbols]);
+  const addSymbolLookup = useMemo(() => {
+    const lookup = new Map<string, string>();
+    for (const item of addSymbolResults) {
+      const normalized = normalizeSymbol(item.symbol ?? "");
+      const raw = String(item.symbol ?? "").trim();
+      if (!normalized || !raw || lookup.has(normalized)) continue;
+      lookup.set(normalized, raw);
+    }
+    return lookup;
+  }, [addSymbolResults]);
+
+  const addSymbolLoading =
+    marketSymbolsQuery.isFetching || (deferredSearchQuery.length >= 2 && searchMarketQuery.isFetching);
 
   useEffect(() => {
     const activeSymbols = new Set(watchlistSymbols.map((sym) => sym.toUpperCase()));
@@ -1653,6 +1721,26 @@ function WatchlistPageContent() {
       .map((item) => mapWatchlistRow(item, ticks[normalizeSymbol(item.symbol ?? "")]))
       .filter((item): item is WatchlistRow => item !== null);
   }, [watchlistQuery.data, ticks]);
+  const addSymbolSegmentOptions = useMemo(() => {
+    const options = new Set<string>();
+    for (const item of marketSegmentsQuery.data ?? []) {
+      const value = (item.segment ?? item.name ?? "").trim().toUpperCase();
+      if (value) options.add(value);
+    }
+    for (const item of allRows) {
+      const value = (item.segment ?? "").trim().toUpperCase();
+      if (value && value !== "--") options.add(value);
+    }
+    for (const item of marketSymbolsQuery.data ?? []) {
+      const value = getMarketItemSegment(item);
+      if (value) options.add(value);
+    }
+    for (const item of searchMarketQuery.data ?? []) {
+      const value = getMarketItemSegment(item);
+      if (value) options.add(value);
+    }
+    return ["ALL", ...Array.from(options).sort((a, b) => a.localeCompare(b))];
+  }, [allRows, marketSegmentsQuery.data, marketSymbolsQuery.data, searchMarketQuery.data]);
 
   const orderedRows = useMemo(() => {
     if (!activeWatchlistId) return allRows;
@@ -2252,7 +2340,8 @@ function WatchlistPageContent() {
     const params = new URLSearchParams({
       chart: "1",
       symbol,
-      interval: chartInterval,
+      interval: DEFAULT_CHART_INTERVAL,
+      type: DEFAULT_CHART_TYPE,
     });
     const url = `/dashboard/watchlist?${params.toString()}`;
     window.location.href = url;
@@ -2260,7 +2349,8 @@ function WatchlistPageContent() {
 
   useEffect(() => {
     if (selectedRow && !chartMode) {
-      setChartInterval("15");
+      setChartInterval(DEFAULT_CHART_INTERVAL);
+      setChartType(DEFAULT_CHART_TYPE);
     }
   }, [selectedRow?.symbol, chartMode]);
 
@@ -2278,7 +2368,7 @@ function WatchlistPageContent() {
   }, [selectedSymbol, chartInterval, intervalSeconds]);
 
   const historyQuery = useMarketHistoryQuery(
-    chartParams ?? { symbol: "", resolution: "15", from: 0, to: 0, count: HISTORY_CANDLE_COUNT },
+    chartParams ?? { symbol: "", resolution: DEFAULT_CHART_INTERVAL, from: 0, to: 0, count: HISTORY_CANDLE_COUNT },
     Boolean(chartParams)
   );
 
@@ -2865,8 +2955,8 @@ function WatchlistPageContent() {
 
   const refreshWatchlistQueries = async () => {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: USER_MARKET_WATCHLISTS_QUERY_KEY }),
-      queryClient.invalidateQueries({ queryKey: USER_WATCHLIST_QUERY_KEY }),
+      queryClient.refetchQueries({ queryKey: USER_MARKET_WATCHLISTS_QUERY_KEY, type: "active" }),
+      queryClient.refetchQueries({ queryKey: USER_WATCHLIST_QUERY_KEY, type: "active" }),
     ]);
   };
 
@@ -2930,7 +3020,9 @@ function WatchlistPageContent() {
   };
 
   const handleAddSymbol = async (candidate?: string) => {
-    const target = normalizeSymbol(candidate ?? symbolInput);
+    const inputValue = String(candidate ?? searchQuery ?? "").trim();
+    const normalizedTarget = normalizeSymbol(inputValue);
+    const target = addSymbolLookup.get(normalizedTarget) ?? inputValue.toUpperCase();
     if (!target) {
       toast.error("Symbol required");
       return;
@@ -2939,22 +3031,22 @@ function WatchlistPageContent() {
       toast.error("Select or create a watchlist first");
       return;
     }
-    if (watchlistSymbols.includes(target)) {
-      toast.info(`${target} already in watchlist`);
+    if (watchlistSymbols.includes(normalizedTarget)) {
+      toast.info(`${normalizedTarget} already in watchlist`);
       return;
     }
 
     try {
+      setAddingSymbol(normalizedTarget);
       await addMutation.mutateAsync({ symbol: target, watchlistId: activeWatchlistId });
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: USER_WATCHLIST_QUERY_KEY }),
-        queryClient.invalidateQueries({ queryKey: USER_MARKET_WATCHLISTS_QUERY_KEY }),
-      ]);
-      setSymbolInput("");
+      await refreshWatchlistQueries();
       setSearchQuery("");
-      toast.success(`${target} added`);
+      setIsAddSymbolDialogOpen(false);
+      toast.success(`${normalizedTarget} added`);
     } catch (error: unknown) {
       toast.error(getErrorMessage(error, "Unable to add symbol"));
+    } finally {
+      setAddingSymbol(null);
     }
   };
 
@@ -3684,66 +3776,40 @@ function WatchlistPageContent() {
             </div>
 
             <div className="rounded-xl border border-slate-300/75 bg-white/85 p-3 dark:border-slate-700/70 dark:bg-slate-900/60">
-              <div className="mb-2 flex items-center justify-between">
-                <label
-                  htmlFor="watchlist-symbol"
-                  className="watchlist-section-label inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-700 dark:text-slate-300"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  Add Instrument
-                </label>
-                <span className="watchlist-subtext text-[10px] font-medium text-slate-500 dark:text-slate-400">Quick add</span>
-              </div>
-
-              <div>
-                <Input
-                  id="watchlist-symbol"
-                  value={symbolInput}
-                  onChange={(event) => setSymbolInput(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      void handleAddSymbol();
-                    }
-                  }}
-                  placeholder="Type symbol (example: BTCUSDT)"
-                  className="h-11 border-slate-300/80 bg-white/90 dark:border-slate-700/70 dark:bg-slate-950/65"
-                />
-              </div>
-
-              {(showQuickAdd || searchQuery.length >= 2) && (
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {showQuickAdd ? (
-                    <button
-                      type="button"
-                      className="rounded-full border border-emerald-400/70 bg-emerald-500/12 px-3 py-1 text-[11px] font-semibold text-emerald-700 transition-colors hover:bg-emerald-500/18 dark:border-emerald-500/55 dark:bg-emerald-500/14 dark:text-emerald-300"
-                      onClick={() => void handleAddSymbol(pendingSymbol)}
-                    >
-                      Add {pendingSymbol}
-                    </button>
-                  ) : null}
-
-                  {searchQuery.length >= 2 && searchMarketQuery.isFetching ? (
-                    <span className="text-xs text-muted-foreground">Searching symbols...</span>
-                  ) : searchQuery.length >= 2 && searchSuggestions.length > 0 ? (
-                    searchSuggestions.map((item) => (
-                      <button
-                        key={item.symbol}
-                        type="button"
-                        className="group rounded-full border border-slate-300/80 bg-white/90 px-2.5 py-1 text-[11px] text-slate-700 transition-all duration-300 hover:-translate-y-0.5 hover:border-slate-400/70 hover:bg-slate-100 hover:text-slate-800 dark:border-slate-700/75 dark:bg-slate-900/75 dark:text-slate-300 dark:hover:border-slate-500/65 dark:hover:bg-slate-800/80 dark:hover:text-slate-100"
-                        onClick={() => void handleAddSymbol(item.symbol)}
-                      >
-                        {getSuggestionLabel(item)}
-                        {item.segment ? (
-                          <span className="ml-1 text-[10px] opacity-70">({item.segment})</span>
-                        ) : null}
-                      </button>
-                    ))
-                  ) : searchQuery.length >= 2 ? (
-                    <span className="text-xs text-muted-foreground">No matching symbol found.</span>
-                  ) : null}
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <div>
+                  <div className="watchlist-section-label inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-700 dark:text-slate-300">
+                    <Plus className="h-3.5 w-3.5" />
+                    Add Symbol
+                  </div>
+                  <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                    Open a focused search modal and add symbols by segment.
+                  </p>
                 </div>
-              )}
+                <span className="watchlist-subtext shrink-0 text-[10px] font-medium text-slate-500 dark:text-slate-400">
+                  {watchlistSymbols.length} saved
+                </span>
+              </div>
+
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setIsAddSymbolDialogOpen(true)}
+                className="h-11 w-full justify-between rounded-xl border-slate-300/80 bg-[linear-gradient(135deg,rgba(255,255,255,0.98),rgba(239,246,255,0.96))] px-4 text-left text-slate-700 shadow-[0_12px_28px_-24px_rgba(14,165,233,0.65)] transition-all duration-200 hover:-translate-y-[1px] hover:border-sky-400/50 hover:bg-sky-50/80 dark:border-slate-700/70 dark:bg-[linear-gradient(135deg,rgba(15,23,42,0.88),rgba(6,12,22,0.96))] dark:text-slate-200 dark:hover:border-sky-400/35 dark:hover:bg-slate-900"
+              >
+                <span className="inline-flex min-w-0 items-center gap-2">
+                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-sky-500/12 text-sky-700 dark:bg-sky-500/16 dark:text-sky-200">
+                    <ScanSearch className="h-4 w-4" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-semibold">Browse and add market symbols</span>
+                    <span className="block truncate text-[11px] text-slate-500 dark:text-slate-400">
+                      Search by symbol, name, segment, or exchange
+                    </span>
+                  </span>
+                </span>
+                <Plus className="h-4 w-4 shrink-0 opacity-70" />
+              </Button>
             </div>
           </div>
 
@@ -3780,75 +3846,21 @@ function WatchlistPageContent() {
               </Button>
             </div>
             <div className="flex w-full flex-wrap items-center gap-2 min-[320px]:justify-end sm:w-auto">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-9 w-full justify-between border-slate-300/80 bg-white/90 px-3 text-slate-700 dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200 min-[360px]:w-auto"
-                  >
-                    <span className="inline-flex min-w-0 items-center gap-1.5">
-                      <Type className="h-4 w-4 shrink-0" />
-                      <span className="truncate">Appearance</span>
-                    </span>
-                    <span className="truncate text-[10px] uppercase tracking-[0.12em] opacity-70">
-                      {selectedWatchlistFontOption.label} / {selectedWatchlistTextSizeOption.label}
-                    </span>
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  align="end"
-                  sideOffset={8}
-                  className="w-[min(20rem,calc(100vw-1.25rem))] border border-slate-300/85 bg-white/95 p-1.5 dark:border-slate-700/80 dark:bg-slate-950/95"
-                >
-                  <DropdownMenuLabel className="px-2 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
-                    Font Style
-                  </DropdownMenuLabel>
-                  {WATCHLIST_FONT_OPTIONS.map((option) => (
-                    <DropdownMenuItem
-                      key={option.value}
-                      onSelect={(event) => {
-                        event.preventDefault();
-                        setWatchlistAppearanceFont(option.value);
-                      }}
-                      className="flex cursor-pointer items-center justify-between gap-3 rounded-md px-2 py-2 text-slate-700 data-[highlighted]:bg-sky-500/10 data-[highlighted]:text-sky-700 dark:text-slate-200 dark:data-[highlighted]:bg-sky-500/20 dark:data-[highlighted]:text-slate-100"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate font-semibold" style={{ fontFamily: option.family }}>
-                          {option.label}
-                        </p>
-                        <p className="truncate text-[10px] text-slate-500 dark:text-slate-400" style={{ fontFamily: option.family }}>
-                          Watchlist preview
-                        </p>
-                      </div>
-                      {watchlistAppearanceFont === option.value ? <Check className="h-4 w-4 shrink-0" /> : null}
-                    </DropdownMenuItem>
-                  ))}
-                  <DropdownMenuSeparator className="my-1 bg-slate-200/80 dark:bg-slate-800/80" />
-                  <DropdownMenuLabel className="px-2 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
-                    Text Size
-                  </DropdownMenuLabel>
-                  {WATCHLIST_TEXT_SIZE_OPTIONS.map((option) => (
-                    <DropdownMenuItem
-                      key={option.value}
-                      onSelect={(event) => {
-                        event.preventDefault();
-                        setWatchlistTextSize(option.value);
-                      }}
-                      className="flex cursor-pointer items-center justify-between gap-3 rounded-md px-2 py-2 text-slate-700 data-[highlighted]:bg-emerald-500/10 data-[highlighted]:text-emerald-700 dark:text-slate-200 dark:data-[highlighted]:bg-emerald-500/20 dark:data-[highlighted]:text-slate-100"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate font-semibold">{option.label}</p>
-                        <p className="truncate text-[10px] text-slate-500 dark:text-slate-400">
-                          Readability for 320px to desktop
-                        </p>
-                      </div>
-                      {watchlistTextSize === option.value ? <Check className="h-4 w-4 shrink-0" /> : null}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setIsAppearanceDialogOpen(true)}
+                className="h-9 w-full justify-between border-slate-300/80 bg-white/90 px-3 text-slate-700 dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200 min-[360px]:w-auto"
+              >
+                <span className="inline-flex min-w-0 items-center gap-1.5">
+                  <Type className="h-4 w-4 shrink-0" />
+                  <span className="truncate">Appearance</span>
+                </span>
+                <span className="truncate text-[10px] uppercase tracking-[0.12em] opacity-70">
+                  {selectedWatchlistFontOption.label} / {selectedWatchlistTextSizeOption.label}
+                </span>
+              </Button>
               <div className="inline-flex flex-1 overflow-hidden rounded-lg border border-slate-300/80 bg-white/90 dark:border-slate-700/70 dark:bg-slate-900/70 sm:flex-none">
                 <button
                   type="button"
@@ -4591,6 +4603,167 @@ function WatchlistPageContent() {
         )}
       </section>
 
+      <Dialog open={isAddSymbolDialogOpen} onOpenChange={setIsAddSymbolDialogOpen}>
+        <DialogContent className="flex h-auto max-h-[calc(100dvh-0.2rem)] w-[calc(100vw-0.2rem)] max-w-[calc(100vw-0.2rem)] flex-col overflow-hidden border border-slate-200/85 bg-[linear-gradient(180deg,rgba(255,255,255,0.995),rgba(248,250,252,0.98))] p-0 text-slate-900 shadow-[0_32px_90px_-48px_rgba(15,23,42,0.55)] min-[360px]:w-[calc(100vw-0.75rem)] min-[360px]:max-w-[calc(100vw-0.75rem)] sm:max-h-[84vh] sm:max-w-4xl dark:border-slate-700/80 dark:bg-[linear-gradient(180deg,rgba(3,10,20,0.99),rgba(8,15,28,0.98))] dark:text-slate-100">
+          <DialogHeader className="shrink-0 gap-1.5 border-b border-slate-200/85 bg-[linear-gradient(120deg,rgba(255,255,255,0.98),rgba(240,249,255,0.94))] px-3 py-3 dark:border-slate-800/80 dark:[background-image:none] dark:bg-transparent sm:px-5 sm:py-5">
+            <DialogTitle className="text-left text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+              Add symbol
+            </DialogTitle>
+            <DialogDescription className="text-left text-sm text-slate-600 dark:text-slate-400">
+              Search and add symbols by segment without changing your current watchlist table.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex flex-1 min-h-0 flex-col overflow-hidden px-2.5 pb-2.5 pt-2.5 sm:px-5 sm:pb-5">
+            <div className="rounded-[1.15rem] border border-slate-200/85 bg-white/90 p-2.5 shadow-[0_16px_40px_-32px_rgba(15,23,42,0.35)] dark:border-slate-800/80 dark:bg-slate-950/55 sm:rounded-2xl sm:p-3">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
+                <Input
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && addSymbolResults[0]?.symbol) {
+                      event.preventDefault();
+                      void handleAddSymbol(addSymbolResults[0].symbol);
+                    }
+                  }}
+                  placeholder="Symbol, name, segment, or exchange"
+                  className="h-11 rounded-2xl border-slate-200/90 bg-slate-50/95 pl-10 pr-3 text-[13px] shadow-none focus-visible:ring-sky-500/30 dark:border-slate-700/80 dark:bg-slate-900/75 sm:h-12 sm:pl-11 sm:pr-4 sm:text-sm"
+                />
+              </div>
+
+              <div className="mt-2.5 flex gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:mt-3 sm:gap-2">
+                {addSymbolSegmentOptions.map((option) => {
+                  const isActive = addSymbolSegment === option;
+                  return (
+                    <button
+                      key={option}
+                      type="button"
+                      onClick={() => setAddSymbolSegment(option)}
+                      className={cn(
+                        "shrink-0 rounded-full px-3 py-1.5 text-[11px] font-semibold transition-all duration-200 sm:px-3.5 sm:text-xs",
+                        isActive
+                          ? "bg-slate-900 text-white shadow-[0_10px_25px_-18px_rgba(15,23,42,0.75)] dark:bg-white dark:text-slate-900"
+                          : "border border-slate-200/85 bg-slate-100/85 text-slate-700 hover:border-slate-300/85 hover:bg-slate-200/75 dark:border-slate-700/80 dark:bg-slate-900/75 dark:text-slate-200 dark:hover:bg-slate-800/85"
+                      )}
+                    >
+                      {option === "ALL" ? "All" : option}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="mt-2.5 flex flex-wrap items-center gap-2 text-[10px] text-slate-500 dark:text-slate-400 sm:mt-3 sm:text-[11px]">
+                <Badge className="rounded-full border border-sky-300/55 bg-sky-500/10 px-2.5 py-1 text-[10px] font-semibold text-sky-700 dark:border-sky-400/30 dark:bg-sky-500/12 dark:text-sky-200">
+                  {addSymbolSegment === "ALL" ? "All segments" : addSymbolSegment}
+                </Badge>
+                <span>{addSymbolResults.length} symbol{addSymbolResults.length === 1 ? "" : "s"} available</span>
+                {searchQuery.trim() !== deferredSearchQuery ? (
+                  <span className="text-[10px] text-slate-400 dark:text-slate-500">Updating...</span>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="mt-2.5 min-h-0 flex-1 overflow-hidden rounded-[1.15rem] border border-slate-200/85 bg-white/92 shadow-[0_20px_48px_-36px_rgba(15,23,42,0.42)] dark:border-slate-800/80 dark:bg-slate-950/55 sm:mt-3 sm:rounded-2xl">
+              <div className="flex items-center justify-between gap-3 border-b border-slate-200/85 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500 dark:border-slate-800/80 dark:text-slate-400 sm:px-4 sm:text-[11px] sm:tracking-[0.14em]">
+                <span>Available symbols</span>
+                <span className="truncate text-right">{deferredSearchQuery.length >= 2 ? "Live search" : "Suggested list"}</span>
+              </div>
+
+              <div className="max-h-[58vh] overflow-y-auto overscroll-contain [scrollbar-gutter:stable] sm:max-h-[54vh]">
+                {addSymbolLoading ? (
+                  <div className="flex min-h-[220px] items-center justify-center px-4 sm:min-h-[240px]">
+                    <CandleLoader size="md" />
+                  </div>
+                ) : addSymbolResults.length === 0 ? (
+                  <div className="flex min-h-[220px] flex-col items-center justify-center px-5 text-center sm:min-h-[240px] sm:px-6">
+                    <div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-500 dark:bg-slate-900/80 dark:text-slate-400">
+                      <ScanSearch className="h-5 w-5" />
+                    </div>
+                    <p className="mt-3 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                      No symbols found
+                    </p>
+                    <p className="mt-1 max-w-sm text-xs text-slate-500 dark:text-slate-400">
+                      Try another keyword or switch the segment filter to browse more instruments.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-slate-200/85 dark:divide-slate-800/80">
+                    {addSymbolResults.map((item) => {
+                      const symbol = normalizeSymbol(item.symbol ?? "");
+                      const segment = getMarketItemSegment(item) || "SEGMENT";
+                      const exchange = getMarketItemExchange(item) || "EXCHANGE";
+                      const name = getMarketItemName(item) || symbol;
+                      const isAdding = addMutation.isPending && symbol === addingSymbol;
+                      return (
+                        <div
+                          key={`${symbol}-${segment}-${exchange}`}
+                          className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2.5 px-2.5 py-2.5 transition-colors hover:bg-slate-50/90 dark:hover:bg-slate-900/60 sm:grid-cols-[56px_minmax(0,1.2fr)_minmax(110px,0.45fr)_auto] sm:gap-3 sm:px-4 sm:py-3"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => void handleAddSymbol(String(item.symbol ?? symbol))}
+                            disabled={addMutation.isPending || !activeWatchlistId}
+                            className="contents text-left disabled:pointer-events-none"
+                          >
+                            <div className="hidden h-11 w-11 items-center justify-center rounded-2xl border border-slate-200/85 bg-[linear-gradient(145deg,rgba(240,249,255,0.95),rgba(255,255,255,0.98))] text-sm font-bold uppercase tracking-[0.08em] text-slate-800 shadow-[0_10px_22px_-18px_rgba(14,165,233,0.5)] dark:border-slate-700/80 dark:bg-[linear-gradient(145deg,rgba(14,22,36,0.95),rgba(6,12,22,0.98))] dark:text-slate-100 sm:inline-flex"
+                            >
+                              {symbol.slice(0, 2)}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="truncate text-[13px] font-semibold text-slate-900 dark:text-slate-100 sm:text-sm">
+                                {symbol}
+                              </p>
+                              <p className="truncate text-[11px] text-slate-500 dark:text-slate-400 sm:text-xs">{name}</p>
+                              <div className="mt-1 flex items-center gap-2 text-[10px] text-slate-500 dark:text-slate-400 sm:hidden">
+                                <span className="font-semibold uppercase text-slate-700 dark:text-slate-200">{exchange}</span>
+                                <span className="truncate">{segment}</span>
+                              </div>
+                            </div>
+                          </button>
+                          <div className="hidden min-w-0 items-center gap-2 text-xs text-slate-500 dark:text-slate-400 sm:flex">
+                            <span className="truncate lowercase">{segment.toLowerCase()}</span>
+                            <span className="truncate font-semibold uppercase text-slate-700 dark:text-slate-200">
+                              {exchange}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-end">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={() => void handleAddSymbol(String(item.symbol ?? symbol))}
+                              disabled={addMutation.isPending || !activeWatchlistId}
+                              className="h-9 min-w-[72px] rounded-xl border-slate-200/85 bg-white px-3 text-[11px] font-semibold text-slate-700 hover:bg-slate-100 active:scale-[0.98] dark:border-slate-700/80 dark:bg-slate-900/80 dark:text-slate-100 dark:hover:bg-slate-800 sm:h-9 sm:min-w-0 sm:rounded-full sm:px-0 sm:w-9"
+                              aria-label={`Add ${symbol}`}
+                            >
+                              {addMutation.isPending && isAdding ? (
+                                <RefreshCw className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <>
+                                  <Plus className="h-4 w-4 sm:h-4 sm:w-4" />
+                                  <span className="ml-1 sm:hidden">Add</span>
+                                </>
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="mt-2.5 flex flex-col gap-2 rounded-[1.15rem] border border-slate-200/85 bg-white/88 px-3 py-2.5 text-[10px] text-slate-500 dark:border-slate-800/80 dark:bg-slate-950/50 dark:text-slate-400 sm:mt-3 sm:flex-row sm:items-center sm:justify-between sm:gap-2 sm:rounded-2xl sm:px-4 sm:py-2 sm:text-[11px]">
+              <span>Press Enter to add the first visible symbol quickly.</span>
+              <Button type="button" className="h-9 w-full rounded-xl px-4 sm:w-auto" onClick={() => setIsAddSymbolDialogOpen(false)}>
+                Done
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={isCreateWatchlistOpen} onOpenChange={setIsCreateWatchlistOpen}>
         <DialogContent className="max-w-[calc(100%-1rem)] border border-slate-200/85 bg-[linear-gradient(170deg,rgba(255,255,255,0.98),rgba(241,245,249,0.95))] p-0 text-slate-900 shadow-[0_28px_70px_-42px_rgba(15,23,42,0.48)] sm:max-w-md dark:border-slate-700/80 dark:bg-[linear-gradient(170deg,rgba(7,16,27,0.98),rgba(6,12,22,0.96))] dark:text-slate-100">
           <DialogHeader className="border-b border-slate-200/85 bg-[linear-gradient(120deg,rgba(240,249,255,0.9),rgba(255,255,255,0.88))] px-5 py-4 dark:border-slate-800/80 dark:[background-image:none] dark:bg-transparent">
@@ -4818,6 +4991,96 @@ function WatchlistPageContent() {
                 Done
               </Button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isAppearanceDialogOpen} onOpenChange={setIsAppearanceDialogOpen}>
+        <DialogContent className="flex h-auto max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden border border-slate-200/85 bg-[linear-gradient(170deg,rgba(255,255,255,0.98),rgba(241,245,249,0.95))] p-0 text-slate-900 shadow-[0_28px_70px_-42px_rgba(15,23,42,0.48)] sm:max-h-[82vh] sm:max-w-lg dark:border-slate-700/80 dark:bg-[linear-gradient(170deg,rgba(7,16,27,0.98),rgba(6,12,22,0.96))] dark:text-slate-100">
+          <DialogHeader className="shrink-0 border-b border-slate-200/85 bg-[linear-gradient(120deg,rgba(240,249,255,0.9),rgba(255,255,255,0.88))] px-4 py-3 dark:border-slate-800/80 dark:[background-image:none] dark:bg-transparent sm:px-5 sm:py-4">
+            <DialogTitle className="flex items-center gap-2 text-lg font-bold tracking-tight text-slate-900 dark:text-slate-100">
+              <Type className="h-4 w-4" />
+              Watchlist Appearance
+            </DialogTitle>
+            <DialogDescription className="text-slate-600 dark:text-slate-400">
+              Choose the font style and text size for the watchlist. All options are shown here for 320px to desktop screens.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 sm:px-5 sm:py-4">
+            <div className="space-y-5">
+              <section className="space-y-2">
+                <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+                  Font Style
+                </div>
+                <div className="space-y-2">
+                  {WATCHLIST_FONT_OPTIONS.map((option) => {
+                    const active = watchlistAppearanceFont === option.value;
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => setWatchlistAppearanceFont(option.value)}
+                        className={cn(
+                          "flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-3 text-left transition",
+                          active
+                            ? "border-sky-400/45 bg-sky-500/10 text-slate-900 dark:border-sky-400/35 dark:bg-sky-500/10 dark:text-slate-100"
+                            : "border-slate-200/85 bg-white/80 text-slate-700 dark:border-slate-700/75 dark:bg-slate-900/55 dark:text-slate-300"
+                        )}
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate font-semibold" style={{ fontFamily: option.family }}>
+                            {option.label}
+                          </span>
+                          <span className="block truncate text-[11px] text-slate-500 dark:text-slate-400" style={{ fontFamily: option.family }}>
+                            Watchlist preview
+                          </span>
+                        </span>
+                        {active ? <Check className="h-4 w-4 shrink-0" /> : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+
+              <section className="space-y-2">
+                <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+                  Text Size
+                </div>
+                <div className="space-y-2">
+                  {WATCHLIST_TEXT_SIZE_OPTIONS.map((option) => {
+                    const active = watchlistTextSize === option.value;
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => setWatchlistTextSize(option.value)}
+                        className={cn(
+                          "flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-3 text-left transition",
+                          active
+                            ? "border-emerald-400/45 bg-emerald-500/10 text-slate-900 dark:border-emerald-400/35 dark:bg-emerald-500/10 dark:text-slate-100"
+                            : "border-slate-200/85 bg-white/80 text-slate-700 dark:border-slate-700/75 dark:bg-slate-900/55 dark:text-slate-300"
+                        )}
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate font-semibold">{option.label}</span>
+                          <span className="block truncate text-[11px] text-slate-500 dark:text-slate-400">
+                            Readability for 320px to desktop
+                          </span>
+                        </span>
+                        {active ? <Check className="h-4 w-4 shrink-0" /> : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            </div>
+          </div>
+
+          <div className="shrink-0 flex items-center justify-end border-t border-slate-200/85 px-3 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] dark:border-slate-800/80 sm:px-5 sm:pb-3">
+            <Button type="button" className="h-9" onClick={() => setIsAppearanceDialogOpen(false)}>
+              Done
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

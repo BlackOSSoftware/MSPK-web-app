@@ -331,6 +331,100 @@ export default function AlertsPage() {
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-3 px-2 pb-5 pt-2 sm:space-y-4 sm:px-4 sm:pb-8 sm:pt-3">
+
+        <section className="grid gap-3 sm:gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+        <article className="overflow-hidden rounded-2xl border border-black/5 bg-white/90 shadow-sm dark:border-white/10 dark:bg-white/[0.04]">
+          <div className="border-b border-black/5 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.14),transparent_40%),linear-gradient(135deg,rgba(15,23,42,0.02),transparent)] p-3 dark:border-white/10 sm:p-5">
+            <div className="inline-flex items-center gap-2 rounded-full border border-sky-500/20 bg-sky-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-sky-700 dark:text-sky-200">
+              <Bot className="h-3.5 w-3.5" />
+              Telegram Setup Guide
+            </div>
+            <h2 className="mt-3 text-lg font-semibold tracking-tight text-foreground sm:text-xl">
+              Connect Telegram step by step
+            </h2>
+            <p className="mt-1 max-w-2xl text-xs leading-6 text-muted-foreground sm:text-sm">
+              Follow this once. After the bot is connected, new signal alerts will start routing to your Telegram account automatically.
+            </p>
+          </div>
+
+          <div className="space-y-3 p-3 sm:p-5">
+            {TELEGRAM_STEPS.map((step, index) => (
+              <div
+                key={step.title}
+                className="flex flex-col gap-3 rounded-xl border border-black/5 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.03] min-[360px]:flex-row"
+              >
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-sky-500 to-cyan-400 text-sm font-bold text-slate-950 shadow-sm">
+                  {index + 1}
+                </div>
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-foreground">{step.title}</div>
+                  <p className="mt-1 text-xs leading-6 text-muted-foreground sm:text-sm">{step.body}</p>
+                </div>
+              </div>
+            ))}
+
+            <div className="grid gap-3 pt-1 sm:grid-cols-2">
+              <Button
+                type="button"
+                onClick={handleConnect}
+                disabled={connectMutation.isPending}
+                className="h-auto min-h-11 rounded-xl px-4 py-3 text-left text-xs sm:text-sm"
+              >
+                {connectMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ExternalLink className="h-4 w-4" />}
+                Open Telegram Connect
+              </Button>
+              <Button asChild variant="outline" className="h-auto min-h-11 rounded-xl px-4 py-3 text-left text-xs sm:text-sm">
+                <a href={telegramWebUrl} target="_blank" rel="noopener noreferrer">
+                  <ExternalLink className="h-4 w-4" />
+                  Open Telegram Web
+                </a>
+              </Button>
+            </div>
+          </div>
+        </article>
+
+        <article className="space-y-4">
+          <div className="rounded-2xl border border-black/5 bg-white/90 p-3 shadow-sm dark:border-white/10 dark:bg-white/[0.04] sm:p-5">
+            <div className="text-sm font-semibold text-foreground">Quick tips</div>
+            <div className="mt-3 space-y-2">
+              {TELEGRAM_TIPS.map((tip) => (
+                <div
+                  key={tip}
+                  className="rounded-xl border border-black/5 bg-black/[0.02] px-3 py-2.5 text-xs leading-6 text-muted-foreground dark:border-white/10 dark:bg-white/[0.03] sm:text-sm"
+                >
+                  {tip}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-black/5 bg-white/90 p-3 shadow-sm dark:border-white/10 dark:bg-white/[0.04] sm:p-5">
+            <div className="text-sm font-semibold text-foreground">Telegram FAQ</div>
+            <div className="mt-3 space-y-2">
+              {TELEGRAM_FAQS.map((item, index) => {
+                const isOpen = openFaq === index;
+                return (
+                  <div key={item.question} className="rounded-xl border border-black/5 bg-black/[0.02] dark:border-white/10 dark:bg-white/[0.03]">
+                    <button
+                      type="button"
+                      onClick={() => setOpenFaq(isOpen ? -1 : index)}
+                      className="flex w-full items-center justify-between gap-3 px-3 py-3 text-left"
+                    >
+                      <span className="text-xs font-semibold leading-5 text-foreground sm:text-sm">{item.question}</span>
+                      <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", isOpen && "rotate-180")} />
+                    </button>
+                    {isOpen ? (
+                      <div className="border-t border-black/5 px-3 py-3 text-xs leading-6 text-muted-foreground dark:border-white/10 sm:text-sm">
+                        {item.answer}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </article>
+      </section>
       <section className="rounded-2xl border border-black/5 bg-white/85 p-3 shadow-sm dark:border-white/10 dark:bg-white/[0.04] sm:p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="space-y-1">
@@ -345,12 +439,7 @@ export default function AlertsPage() {
               Keep only connect/disconnect and channel on/off settings.
             </p>
           </div>
-          <Button asChild variant="outline" className="h-9 rounded-lg px-3 text-xs">
-            <Link href="/dashboard/profile">
-              Update Profile
-              <ArrowUpRight className="h-3.5 w-3.5" />
-            </Link>
-          </Button>
+         
         </div>
 
         <div className="mt-4 grid gap-2 sm:grid-cols-3">
@@ -551,99 +640,7 @@ export default function AlertsPage() {
         </article>
       </section>
 
-      <section className="grid gap-3 sm:gap-4 lg:grid-cols-[1.1fr_0.9fr]">
-        <article className="overflow-hidden rounded-2xl border border-black/5 bg-white/90 shadow-sm dark:border-white/10 dark:bg-white/[0.04]">
-          <div className="border-b border-black/5 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.14),transparent_40%),linear-gradient(135deg,rgba(15,23,42,0.02),transparent)] p-3 dark:border-white/10 sm:p-5">
-            <div className="inline-flex items-center gap-2 rounded-full border border-sky-500/20 bg-sky-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-sky-700 dark:text-sky-200">
-              <Bot className="h-3.5 w-3.5" />
-              Telegram Setup Guide
-            </div>
-            <h2 className="mt-3 text-lg font-semibold tracking-tight text-foreground sm:text-xl">
-              Connect Telegram step by step
-            </h2>
-            <p className="mt-1 max-w-2xl text-xs leading-6 text-muted-foreground sm:text-sm">
-              Follow this once. After the bot is connected, new signal alerts will start routing to your Telegram account automatically.
-            </p>
-          </div>
-
-          <div className="space-y-3 p-3 sm:p-5">
-            {TELEGRAM_STEPS.map((step, index) => (
-              <div
-                key={step.title}
-                className="flex flex-col gap-3 rounded-xl border border-black/5 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.03] min-[360px]:flex-row"
-              >
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-sky-500 to-cyan-400 text-sm font-bold text-slate-950 shadow-sm">
-                  {index + 1}
-                </div>
-                <div className="min-w-0">
-                  <div className="text-sm font-semibold text-foreground">{step.title}</div>
-                  <p className="mt-1 text-xs leading-6 text-muted-foreground sm:text-sm">{step.body}</p>
-                </div>
-              </div>
-            ))}
-
-            <div className="grid gap-3 pt-1 sm:grid-cols-2">
-              <Button
-                type="button"
-                onClick={handleConnect}
-                disabled={connectMutation.isPending}
-                className="h-auto min-h-11 rounded-xl px-4 py-3 text-left text-xs sm:text-sm"
-              >
-                {connectMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ExternalLink className="h-4 w-4" />}
-                Open Telegram Connect
-              </Button>
-              <Button asChild variant="outline" className="h-auto min-h-11 rounded-xl px-4 py-3 text-left text-xs sm:text-sm">
-                <a href={telegramWebUrl} target="_blank" rel="noopener noreferrer">
-                  <ExternalLink className="h-4 w-4" />
-                  Open Telegram Web
-                </a>
-              </Button>
-            </div>
-          </div>
-        </article>
-
-        <article className="space-y-4">
-          <div className="rounded-2xl border border-black/5 bg-white/90 p-3 shadow-sm dark:border-white/10 dark:bg-white/[0.04] sm:p-5">
-            <div className="text-sm font-semibold text-foreground">Quick tips</div>
-            <div className="mt-3 space-y-2">
-              {TELEGRAM_TIPS.map((tip) => (
-                <div
-                  key={tip}
-                  className="rounded-xl border border-black/5 bg-black/[0.02] px-3 py-2.5 text-xs leading-6 text-muted-foreground dark:border-white/10 dark:bg-white/[0.03] sm:text-sm"
-                >
-                  {tip}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-black/5 bg-white/90 p-3 shadow-sm dark:border-white/10 dark:bg-white/[0.04] sm:p-5">
-            <div className="text-sm font-semibold text-foreground">Telegram FAQ</div>
-            <div className="mt-3 space-y-2">
-              {TELEGRAM_FAQS.map((item, index) => {
-                const isOpen = openFaq === index;
-                return (
-                  <div key={item.question} className="rounded-xl border border-black/5 bg-black/[0.02] dark:border-white/10 dark:bg-white/[0.03]">
-                    <button
-                      type="button"
-                      onClick={() => setOpenFaq(isOpen ? -1 : index)}
-                      className="flex w-full items-center justify-between gap-3 px-3 py-3 text-left"
-                    >
-                      <span className="text-xs font-semibold leading-5 text-foreground sm:text-sm">{item.question}</span>
-                      <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", isOpen && "rotate-180")} />
-                    </button>
-                    {isOpen ? (
-                      <div className="border-t border-black/5 px-3 py-3 text-xs leading-6 text-muted-foreground dark:border-white/10 sm:text-sm">
-                        {item.answer}
-                      </div>
-                    ) : null}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </article>
-      </section>
+    
     </div>
   );
 }
