@@ -15,10 +15,10 @@ import {
   X,
   Instagram,
   Facebook,
-  Twitter,
   Youtube,
   Send,
 } from "lucide-react";
+import { FaXTwitter } from "react-icons/fa6";
 import { SiWhatsapp } from "react-icons/si";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -65,6 +65,20 @@ function formatDate(value?: string) {
   });
 }
 
+function getDateMs(value?: string | null) {
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+function getSignalTimestampMs(signal: SignalItem) {
+  return (
+    getDateMs(signal.signalTime) ??
+    getDateMs(signal.timestamp) ??
+    getDateMs(signal.createdAt)
+  );
+}
+
 type HoverKey = "plan" | "days" | "today";
 
 const SUPPORT_WHATSAPP = "917770039037";
@@ -79,7 +93,7 @@ const socialLinks = [
   { label: "Telegram", href: "https://t.me/Mspktradesolution", Icon: Send },
   { label: "YouTube", href: "https://youtube.com/@mspktradesolution?si=1_U7FF2PehnzFh_z", Icon: Youtube },
   { label: "Facebook", href: "https://www.facebook.com/share/18BV74A6dD/", Icon: Facebook },
-  { label: "X (Twitter)", href: null, Icon: Twitter },
+  { label: "X (Twitter)", href: "https://x.com/MspkTrade", Icon: FaXTwitter },
   { label: "Instagram", href: "https://www.instagram.com/mspk_tradesolutions/", Icon: Instagram },
 ];
 
@@ -176,7 +190,7 @@ export default function DashboardPage() {
   const subscriptionStatusQuery = useSubscriptionStatusQuery();
 
   const todaySignalsQuery = useSignalsQuery({ page: 1, limit: 1, dateFilter: "Today" });
-  const recentSignalsQuery = useSignalsQuery({ page: 1, limit: 6 });
+  const recentSignalsQuery = useSignalsQuery({ page: 1, limit: 20 });
 
   const planExpiry = meQuery.data?.planExpiry ?? undefined;
   const planNameLabel = meQuery.data?.planName ?? "No active plan";
@@ -226,7 +240,24 @@ export default function DashboardPage() {
     todaySignalsQuery.data?.results?.length ??
     0;
 
-  const recentSignals = recentSignalsQuery.data?.results ?? [];
+  const signalVisibleFromMs = useMemo(() => {
+    return (
+      getDateMs(recentSignalsQuery.data?.access?.signalVisibleFrom) ??
+      getDateMs(meQuery.data?.createdAt)
+    );
+  }, [meQuery.data?.createdAt, recentSignalsQuery.data?.access?.signalVisibleFrom]);
+
+  const recentSignals = useMemo(() => {
+    const items = recentSignalsQuery.data?.results ?? [];
+    if (!signalVisibleFromMs) return items.slice(0, 6);
+
+    return items
+      .filter((signal) => {
+        const signalMs = getSignalTimestampMs(signal);
+        return signalMs === null || signalMs >= signalVisibleFromMs;
+      })
+      .slice(0, 6);
+  }, [recentSignalsQuery.data?.results, signalVisibleFromMs]);
   const animatedDays = useAnimatedCount(remainingDays ?? 0, hoverPulse.days);
   const animatedToday = useAnimatedCount(todayCount, hoverPulse.today);
   const bumpHover = (key: HoverKey) =>

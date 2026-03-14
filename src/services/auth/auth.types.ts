@@ -78,6 +78,7 @@ export type MeResponse = {
   isBlocked?: boolean;
   tokenVersion?: number;
   lastLoginIp?: string;
+  clientId?: string;
   createdAt?: string;
   updatedAt?: string;
   planId?: string | null;

@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useState, type MouseEvent } from "reac
 import { useQueries } from "@tanstack/react-query";
 import { getHasAccess } from "@/services/subscriptions/subscription.service";
 import { useSwipeCards } from "@/hooks/use-swipe-cards";
+import { createPlanEnquiry } from "@/services/plan-enquiries/plan-enquiry.service";
 
 const SEGMENT_CARD_THEMES = [
     {
@@ -59,18 +60,83 @@ const PLAN_CARD_THEMES = [
     },
 ] as const;
 
-function formatPriceLabel(price?: number, isDemo?: boolean, name?: string) {
+function formatPriceLabel(price?: number, isDemo?: boolean, name?: string, isCustom?: boolean) {
     const numericPrice = typeof price === "number" ? price : Number(price);
-    if (isDemo) return "";
+    if (isDemo) return "Demo";
+    if (isCustom) return "Custom";
     if (!numericPrice || numericPrice <= 0) {
-        return name && name.toLowerCase().includes("custom") ? "Custom" : "";
+        return name && name.toLowerCase().includes("custom") ? "Custom" : "Custom";
     }
     return `INR ${new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(numericPrice)}`;
 }
 
-function formatDurationLabel(durationDays?: number) {
+function formatDurationLabel(durationDays?: number, isDemo?: boolean, isCustom?: boolean) {
+    if ((isDemo || isCustom) && !durationDays) return "30 Days";
     if (!durationDays) return "Flexible";
     return `${durationDays} Day${durationDays > 1 ? "s" : ""}`;
+}
+
+function getPlanButtonLabel(plan: Plan) {
+    if (plan.isDemo) return "Start Demo Access";
+    if (plan.isCustom) return "Talk to Sales";
+    if (plan.name) return `Continue with ${plan.name}`;
+    return "Continue with Plan";
+}
+
+function getBrowserContext() {
+    if (typeof window === "undefined") {
+        return {
+            browserName: "",
+            browserVersion: "",
+            osName: "",
+            deviceType: "",
+            platform: "",
+            language: "",
+            pageUrl: "",
+            referrerUrl: "",
+            userAgent: "",
+            visitorId: "",
+        };
+    }
+
+    const userAgent = window.navigator.userAgent || "";
+    const platform = window.navigator.platform || "";
+    const language = window.navigator.language || "";
+    const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(userAgent);
+    const browserName =
+        /Edg/i.test(userAgent) ? "Edge" :
+        /Chrome/i.test(userAgent) ? "Chrome" :
+        /Safari/i.test(userAgent) && !/Chrome/i.test(userAgent) ? "Safari" :
+        /Firefox/i.test(userAgent) ? "Firefox" :
+        "Unknown";
+    const browserVersion = (userAgent.match(/(Edg|Chrome|Firefox|Version)\/([\d.]+)/i)?.[2] || "");
+    const osName =
+        /Windows/i.test(userAgent) ? "Windows" :
+        /Mac OS/i.test(userAgent) ? "macOS" :
+        /Android/i.test(userAgent) ? "Android" :
+        /iPhone|iPad|iPod/i.test(userAgent) ? "iOS" :
+        /Linux/i.test(userAgent) ? "Linux" :
+        "Unknown";
+
+    const storageKey = "mspk_plan_visitor_id";
+    let visitorId = window.localStorage.getItem(storageKey) || "";
+    if (!visitorId) {
+        visitorId = `pv_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+        window.localStorage.setItem(storageKey, visitorId);
+    }
+
+    return {
+        browserName,
+        browserVersion,
+        osName,
+        deviceType: isMobile ? "mobile" : "desktop",
+        platform,
+        language,
+        pageUrl: window.location.href,
+        referrerUrl: document.referrer || "",
+        userAgent,
+        visitorId,
+    };
 }
 
 export default function PlansPage() {
@@ -168,16 +234,18 @@ export default function PlansPage() {
         card.style.setProperty("--spot-x", `${event.clientX - bounds.left}px`);
         card.style.setProperty("--spot-y", `${event.clientY - bounds.top}px`);
     }, []);
-    const onChoosePlan = useCallback((plan: Plan) => {
+    const onChoosePlan = useCallback(async (plan: Plan) => {
         const whatsappNumber = "917770039037";
         const userName = me?.name?.trim() || "N/A";
         const userEmail = me?.email?.trim() || "N/A";
         const userPhone = me?.phone?.trim() || "N/A";
+        const userClientId = me?.clientId?.trim() || "N/A";
         const selectedPlanId = plan?._id || "N/A";
         const selectedPlanName = plan?.name || "N/A";
-        const selectedPlanPrice = formatPriceLabel(plan?.price, plan?.isDemo, plan?.name);
-        const selectedPlanDuration = formatDurationLabel(plan?.durationDays);
+        const selectedPlanPrice = formatPriceLabel(plan?.price, plan?.isDemo, plan?.name, plan?.isCustom);
+        const selectedPlanDuration = formatDurationLabel(plan?.durationDays, plan?.isDemo, plan?.isCustom);
         const selectedPlanSegment = plan?.segment || "N/A";
+        const browserContext = getBrowserContext();
 
         const message = [
             "Hello MSPK Team,",
@@ -193,9 +261,37 @@ export default function PlansPage() {
             `- Name: ${userName}`,
             `- Email: ${userEmail}`,
             `- Phone: ${userPhone}`,
+            `- Client ID: ${userClientId}`,
         ].join("\n");
 
         const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(message)}`;
+        try {
+            await createPlanEnquiry({
+                planId: plan?._id,
+                planName: selectedPlanName,
+                planPriceLabel: selectedPlanPrice,
+                planDurationLabel: selectedPlanDuration,
+                planSegment: selectedPlanSegment,
+                source: "dashboard",
+                sourcePage: "dashboard_plans",
+                pageUrl: browserContext.pageUrl,
+                referrerUrl: browserContext.referrerUrl,
+                visitorId: browserContext.visitorId,
+                userName,
+                userEmail,
+                userPhone,
+                clientId: userClientId,
+                browserName: browserContext.browserName,
+                browserVersion: browserContext.browserVersion,
+                osName: browserContext.osName,
+                deviceType: browserContext.deviceType,
+                platform: browserContext.platform,
+                language: browserContext.language,
+                userAgent: browserContext.userAgent,
+            });
+        } catch (error) {
+            console.error("Failed to save plan enquiry", error);
+        }
         window.open(whatsappUrl, "_blank", "noopener,noreferrer");
     }, [me]);
     const onExploreSegment = useCallback((segment: Segment, hasAccess: boolean | undefined, basePriceLabel: string) => {
@@ -267,11 +363,11 @@ export default function PlansPage() {
                             <div className="flex flex-wrap gap-2">
                                 <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-100/70 px-3 py-1 text-xs text-slate-900 dark:border-foreground/10 dark:bg-foreground/5 dark:text-foreground">
                                     <CalendarDays className="h-3.5 w-3.5 text-primary" />
-                                    {formatDurationLabel(currentPlan.durationDays)}
+                                    {formatDurationLabel(currentPlan.durationDays, currentPlan.isDemo, currentPlan.isCustom)}
                                 </span>
                                 <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-100/70 px-3 py-1 text-xs text-slate-900 dark:border-foreground/10 dark:bg-foreground/5 dark:text-foreground">
                                     <Wallet className="h-3.5 w-3.5 text-emerald-500" />
-                                    {formatPriceLabel(currentPlan.price, currentPlan.isDemo, currentPlan.name)}
+                                    {formatPriceLabel(currentPlan.price, currentPlan.isDemo, currentPlan.name, currentPlan.isCustom)}
                                 </span>
                                 <span className="inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-500">
                                     <ShieldCheck className="h-3.5 w-3.5" />
@@ -285,11 +381,11 @@ export default function PlansPage() {
                             </div>
                             <div className="rounded-2xl border border-slate-200 bg-slate-100/70 px-4 py-3 text-sm text-slate-900 dark:border-foreground/10 dark:bg-foreground/5 dark:text-foreground w-full md:w-auto">
                                 <div className="text-[11px] uppercase tracking-wider text-slate-500 dark:text-muted-foreground">Plan Price</div>
-                                <div className="mt-1 text-lg font-semibold">{formatPriceLabel(currentPlan.price, currentPlan.isDemo, currentPlan.name)}</div>
+                                <div className="mt-1 text-lg font-semibold">{formatPriceLabel(currentPlan.price, currentPlan.isDemo, currentPlan.name, currentPlan.isCustom)}</div>
                             </div>
                             <div className="rounded-2xl border border-slate-200 bg-slate-100/70 px-4 py-3 text-sm text-slate-900 dark:border-foreground/10 dark:bg-foreground/5 dark:text-foreground w-full md:w-auto">
                                 <div className="text-[11px] uppercase tracking-wider text-slate-500 dark:text-muted-foreground">Duration</div>
-                                <div className="mt-1 text-lg font-semibold">{formatDurationLabel(currentPlan.durationDays)}</div>
+                                <div className="mt-1 text-lg font-semibold">{formatDurationLabel(currentPlan.durationDays, currentPlan.isDemo, currentPlan.isCustom)}</div>
                             </div>
                         </div>
                     </CardContent>
@@ -370,7 +466,7 @@ export default function PlansPage() {
                                             </span>
                                         )}
                                         <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                                            {formatDurationLabel(plan.durationDays)}
+                                            {formatDurationLabel(plan.durationDays, plan.isDemo, plan.isCustom)}
                                         </span>
                                     </div>
                                     <CardTitle className="text-xl font-bold text-foreground mb-2">{plan.name}</CardTitle>
@@ -386,8 +482,8 @@ export default function PlansPage() {
                                             Plan Price
                                         </div>
                                         <div className="mt-1 flex items-end gap-1.5">
-                                            <span className="text-3xl font-bold tracking-tight text-foreground">{formatPriceLabel(plan.price, plan.isDemo, plan.name)}</span>
-                                            <span className="pb-1 text-xs text-muted-foreground">/ {formatDurationLabel(plan.durationDays)}</span>
+                                            <span className="text-3xl font-bold tracking-tight text-foreground">{formatPriceLabel(plan.price, plan.isDemo, plan.name, plan.isCustom)}</span>
+                                            <span className="pb-1 text-xs text-muted-foreground">/ {formatDurationLabel(plan.durationDays, plan.isDemo, plan.isCustom)}</span>
                                         </div>
                                     </div>
 
@@ -416,7 +512,7 @@ export default function PlansPage() {
                                         <span className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_10%,rgba(255,255,255,0.38),transparent_42%)]" />
                                         <span className="pointer-events-none absolute inset-y-0 -left-1/2 w-1/2 skew-x-[-22deg] bg-white/35 blur-sm opacity-0 transition-all duration-700 group-hover/cta:left-[120%] group-hover/cta:opacity-100" />
                                         <span className="relative z-10 inline-flex items-center justify-center">
-                                            Choose Plan <ArrowRight className="ml-2 h-4 w-4 transition-transform duration-300 group-hover/cta:translate-x-1" />
+                                            {getPlanButtonLabel(plan)} <ArrowRight className="ml-2 h-4 w-4 transition-transform duration-300 group-hover/cta:translate-x-1" />
                                         </span>
                                     </Button>
                                 </CardFooter>
