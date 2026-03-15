@@ -1,21 +1,25 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { CandleLoader } from "@/components/ui/candle-loader";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import {
   MARKET_QUERY_KEY,
+  useMarketSegmentsQuery,
   useMarketSearchQuery,
+  useMarketSymbolsQuery,
   useMarketUserWatchlistsQuery,
   useMarketUserWatchlistAddMutation,
   useMarketUserWatchlistQuery,
   useMarketUserWatchlistRemoveMutation,
 } from "@/services/market/market.hooks";
-import type { MarketSearchItem } from "@/services/market/market.types";
-import { Eye, Filter, Plus, Search, Trash2 } from "lucide-react";
+import type { MarketSearchItem, MarketSymbol } from "@/services/market/market.types";
+import { Check, Eye, Filter, Plus, RefreshCw, ScanSearch, Search, Trash2 } from "lucide-react";
 
 function normalizeSymbol(symbol: string) {
   return symbol.trim().toUpperCase();
@@ -32,12 +36,6 @@ function getErrorMessage(error: unknown, fallback: string): string {
     return error.message;
   }
   return fallback;
-}
-
-function getSuggestionLabel(item: MarketSearchItem): string {
-  const symbol = item.symbol ?? "";
-  const name = item.name ? ` - ${item.name}` : "";
-  return `${symbol}${name}`;
 }
 
 function getSegmentBucketLabel(
@@ -72,6 +70,69 @@ function getSegmentBucketLabel(
   return exchange || "OTHER";
 }
 
+const SEGMENT_LABELS: Record<string, string> = {
+  EQUITY: "Equity",
+  INDICES: "Indices",
+  FNO: "Futures & Options",
+  COMMODITY: "Commodity",
+  COMEX: "Comex",
+  CURRENCY: "Currency",
+  FOREX: "Currency",
+  CRYPTO: "Crypto",
+};
+
+function getMarketItemName(item: Pick<MarketSearchItem, "name"> | Pick<MarketSymbol, "name">): string {
+  return (item.name ?? "").trim();
+}
+
+function getMarketItemSegment(
+  item: Pick<MarketSearchItem, "segment" | "segmentGroup"> | Pick<MarketSymbol, "segment" | "segmentGroup">
+): string {
+  return (item.segmentGroup ?? item.segment ?? "").trim().toUpperCase();
+}
+
+function getMarketItemExchange(
+  item: Pick<MarketSearchItem, "exchange"> | Pick<MarketSymbol, "exchange">
+): string {
+  return (item.exchange ?? "").trim().toUpperCase();
+}
+
+const DEDUPE_SUFFIX_PATTERN = /(\.PR|\.X)$/i;
+
+function getSymbolAliasBase(symbol: string): string {
+  const normalized = normalizeSymbol(symbol);
+  if (!normalized) return "";
+  return normalized.replace(DEDUPE_SUFFIX_PATTERN, "");
+}
+
+function getSearchDedupeKey(
+  item: Pick<MarketSearchItem, "symbol" | "name" | "segment" | "segmentGroup" | "exchange"> |
+    Pick<MarketSymbol, "symbol" | "name" | "segment" | "segmentGroup" | "exchange">
+): string {
+  const symbol = getSymbolAliasBase(String(item.symbol ?? ""));
+  if (!symbol) return "";
+  const name = getMarketItemName(item).toUpperCase();
+  const segment = getMarketItemSegment(item);
+  const exchange = getMarketItemExchange(item);
+  return `${segment}|${exchange}|${symbol}|${name}`;
+}
+
+function isBseMarketItem(
+  item: Pick<MarketSearchItem, "exchange" | "symbol" | "name"> |
+    Pick<MarketSymbol, "exchange" | "symbol" | "name">
+): boolean {
+  const exchange = getMarketItemExchange(item);
+  const symbol = normalizeSymbol(item.symbol ?? "");
+  const name = getMarketItemName(item).toUpperCase();
+  return (
+    exchange.includes("BSE") ||
+    symbol.endsWith("-BSE") ||
+    symbol.endsWith("_BSE") ||
+    symbol.includes(":BSE") ||
+    name.includes("BSE")
+  );
+}
+
 type ManageScriptsPanelProps = {
   className?: string;
 };
@@ -80,8 +141,9 @@ export function ManageScriptsPanel({ className }: ManageScriptsPanelProps) {
   const queryClient = useQueryClient();
   const [symbolInput, setSymbolInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchSegmentFilter, setSearchSegmentFilter] = useState("ALL");
+  const [addSymbolSegment, setAddSymbolSegment] = useState("ALL");
   const [selectedSegmentFilter, setSelectedSegmentFilter] = useState("ALL");
+  const [addingSymbol, setAddingSymbol] = useState<string | null>(null);
   const [removingSymbol, setRemovingSymbol] = useState<string | null>(null);
 
   const watchlistsQuery = useMarketUserWatchlistsQuery(true);
@@ -89,11 +151,21 @@ export function ManageScriptsPanel({ className }: ManageScriptsPanelProps) {
     staleTime: 15_000,
     refetchInterval: 25_000,
   });
+  const marketSegmentsQuery = useMarketSegmentsQuery(true);
   const addMutation = useMarketUserWatchlistAddMutation();
   const removeMutation = useMarketUserWatchlistRemoveMutation();
+  const deferredSearchQuery = useDeferredValue(searchQuery.trim());
   const searchMarketQuery = useMarketSearchQuery(
-    { q: searchQuery, limit: 12 },
-    searchQuery.trim().length >= 2
+    { q: deferredSearchQuery, limit: 10 },
+    deferredSearchQuery.length >= 2
+  );
+  const marketSymbolsQuery = useMarketSymbolsQuery(
+    {
+      limit: deferredSearchQuery.length >= 2 ? 72 : 32,
+      ...(deferredSearchQuery.length >= 2 ? { search: deferredSearchQuery } : {}),
+      ...(addSymbolSegment !== "ALL" ? { segment: addSymbolSegment } : {}),
+    },
+    true
   );
 
   useEffect(() => {
@@ -121,6 +193,10 @@ export function ManageScriptsPanel({ className }: ManageScriptsPanelProps) {
   );
 
   const selectedSymbols = useMemo(() => selectedScripts.map((item) => item.symbol), [selectedScripts]);
+  const selectedAliases = useMemo(
+    () => new Set(selectedSymbols.map((symbol) => getSymbolAliasBase(symbol)).filter(Boolean)),
+    [selectedSymbols]
+  );
   const activeWatchlistName = useMemo(() => {
     const activeId = String(watchlistsQuery.data?.activeWatchlistId || "").trim();
     const lists = watchlistsQuery.data?.watchlists ?? [];
@@ -182,38 +258,69 @@ export function ManageScriptsPanel({ className }: ManageScriptsPanelProps) {
     setSelectedSegmentFilter("ALL");
   }, [segmentFilterOptions, selectedSegmentFilter]);
 
-  const pendingSymbol = useMemo(() => normalizeSymbol(symbolInput), [symbolInput]);
-  const searchSuggestions = useMemo(() => {
-    const list = searchMarketQuery.data ?? [];
-    const selected = new Set(selectedSymbols);
-    const used = new Set<string>();
-    const suggestions: MarketSearchItem[] = [];
+  const addSymbolSegmentOptions = useMemo(() => {
+    const options = new Set<string>();
+    for (const item of marketSegmentsQuery.data ?? []) {
+      const value = (item.segment ?? item.code ?? "").trim().toUpperCase();
+      if (value && !value.includes("@") && value !== "BSE" && value !== "GLOBAL") options.add(value);
+    }
+    for (const item of selectedScripts) {
+      const value = getSegmentBucketLabel(item.segment, item.exchange, item.symbol, item.name);
+      if (value && !value.includes("@") && value !== "BSE" && value !== "GLOBAL") options.add(value);
+    }
+    for (const item of marketSymbolsQuery.data ?? []) {
+      const value = getMarketItemSegment(item);
+      if (value && !value.includes("@") && value !== "BSE" && value !== "GLOBAL") options.add(value);
+    }
+    for (const item of searchMarketQuery.data ?? []) {
+      const value = getMarketItemSegment(item);
+      if (value && !value.includes("@") && value !== "BSE" && value !== "GLOBAL") options.add(value);
+    }
+    return ["ALL", ...Array.from(options).sort((a, b) => a.localeCompare(b))];
+  }, [marketSegmentsQuery.data, marketSymbolsQuery.data, searchMarketQuery.data, selectedScripts]);
 
-    for (const item of list) {
+  const addSymbolResults = useMemo(() => {
+    const usedKeys = new Set<string>();
+    const merged: Array<MarketSearchItem | MarketSymbol> = [
+      ...(deferredSearchQuery.length >= 2 ? searchMarketQuery.data ?? [] : []),
+      ...(marketSymbolsQuery.data ?? []),
+    ].sort((left, right) => {
+      const leftIsBse = isBseMarketItem(left);
+      const rightIsBse = isBseMarketItem(right);
+      if (leftIsBse !== rightIsBse) return leftIsBse ? 1 : -1;
+      const leftExchange = getMarketItemExchange(left);
+      const rightExchange = getMarketItemExchange(right);
+      if (leftExchange === "NSE" && rightExchange !== "NSE") return -1;
+      if (rightExchange === "NSE" && leftExchange !== "NSE") return 1;
+      return normalizeSymbol(left.symbol ?? "").localeCompare(normalizeSymbol(right.symbol ?? ""));
+    });
+
+    const items: Array<MarketSearchItem | MarketSymbol> = [];
+
+    for (const item of merged) {
       if (!item.symbol) continue;
       const symbol = normalizeSymbol(item.symbol);
-      if (selected.has(symbol) || used.has(symbol)) continue;
-      if (
-        searchSegmentFilter !== "ALL" &&
-        getSegmentBucketLabel(item.segment, item.exchange, item.symbol, item.name) !==
-          searchSegmentFilter
-      ) {
+      const aliasBase = getSymbolAliasBase(symbol);
+      const segment = getMarketItemSegment(item);
+      const exchange = getMarketItemExchange(item);
+      const dedupeKey = getSearchDedupeKey(item);
+      if (!symbol || !aliasBase || (dedupeKey && usedKeys.has(dedupeKey))) {
         continue;
       }
-      used.add(symbol);
-      suggestions.push({ ...item, symbol });
-      if (suggestions.length >= 10) break;
+      if (isBseMarketItem(item) || exchange.includes("BSE")) continue;
+      if (exchange === "GLOBAL") continue;
+      if (addSymbolSegment !== "ALL" && segment !== addSymbolSegment) continue;
+      usedKeys.add(dedupeKey || symbol);
+      items.push({ ...item, symbol, segment });
+      if (items.length >= 28) break;
     }
 
-    return suggestions;
-  }, [searchMarketQuery.data, searchSegmentFilter, selectedSymbols]);
+    return items;
+  }, [addSymbolSegment, deferredSearchQuery, marketSymbolsQuery.data, searchMarketQuery.data]);
 
-  const hasExactSuggestion = useMemo(
-    () => searchSuggestions.some((item) => item.symbol === pendingSymbol),
-    [pendingSymbol, searchSuggestions]
-  );
-  const showQuickAdd =
-    pendingSymbol.length > 0 && !selectedSymbols.includes(pendingSymbol) && !hasExactSuggestion;
+  const addSymbolLoading =
+    marketSymbolsQuery.isFetching ||
+    (deferredSearchQuery.length >= 2 && searchMarketQuery.isFetching);
 
   const handleAddSymbol = async (candidate?: string) => {
     const target = normalizeSymbol(candidate ?? symbolInput);
@@ -226,6 +333,7 @@ export function ManageScriptsPanel({ className }: ManageScriptsPanelProps) {
       return;
     }
 
+    setAddingSymbol(target);
     try {
       await addMutation.mutateAsync(target);
       await queryClient.invalidateQueries({
@@ -236,6 +344,8 @@ export function ManageScriptsPanel({ className }: ManageScriptsPanelProps) {
       toast.success(`${target} added`);
     } catch (error: unknown) {
       toast.error(getErrorMessage(error, "Unable to add script"));
+    } finally {
+      setAddingSymbol(null);
     }
   };
 
@@ -289,20 +399,7 @@ export function ManageScriptsPanel({ className }: ManageScriptsPanelProps) {
               <Plus className="h-3.5 w-3.5" />
               Add Script
             </div>
-            <div className="flex items-center gap-2 text-[10px] text-slate-500 dark:text-slate-400">
-              <span>Quick search</span>
-              <select
-                value={searchSegmentFilter}
-                onChange={(event) => setSearchSegmentFilter(event.target.value)}
-                className="h-7 rounded-full border border-slate-300/80 bg-white/85 px-2.5 text-[10px] font-semibold text-slate-700 outline-none transition-all duration-200 hover:border-sky-500/40 dark:border-slate-700/70 dark:bg-slate-950/50 dark:text-slate-200 dark:hover:border-sky-400/45"
-              >
-                {["ALL", "COMEX", "COMMODITY", "CRYPTO", "CURRENCY", "EQUITY", "FNO", "INDICES"].map((segment) => (
-                  <option key={segment} value={segment}>
-                    {segment === "ALL" ? "All segments" : segment}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <span className="text-[10px] text-slate-500 dark:text-slate-400">Search & add</span>
           </div>
 
           <div className="relative">
@@ -311,51 +408,149 @@ export function ManageScriptsPanel({ className }: ManageScriptsPanelProps) {
               value={symbolInput}
               onChange={(event) => setSymbolInput(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === "Enter") {
+                if (event.key === "Enter" && addSymbolResults[0]?.symbol) {
                   event.preventDefault();
-                  void handleAddSymbol();
+                  void handleAddSymbol(addSymbolResults[0].symbol);
                 }
               }}
-              placeholder="Type script name like BTCUSDT or BANKNIFTY"
+              placeholder="Symbol, name, segment, or exchange"
               className="h-11 border-slate-300/80 bg-white/90 pl-9 transition-all duration-200 focus-visible:ring-2 focus-visible:ring-sky-500/25 dark:border-slate-700/70 dark:bg-slate-950/65 dark:focus-visible:ring-sky-400/30"
             />
           </div>
 
-          {(showQuickAdd || searchQuery.length >= 2) && (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {showQuickAdd ? (
+          <div className="mt-2.5 flex gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {addSymbolSegmentOptions.map((option) => {
+              const isActive = addSymbolSegment === option;
+              const label = option === "ALL" ? "All" : SEGMENT_LABELS[option] ?? option;
+              return (
                 <button
+                  key={option}
                   type="button"
-                  className="rounded-full border border-emerald-400/70 bg-emerald-500/12 px-3 py-1 text-[11px] font-semibold text-emerald-700 transition-all duration-200 hover:-translate-y-0.5 hover:border-emerald-500/80 hover:bg-emerald-500/20 hover:shadow-[0_10px_22px_-16px_rgba(16,185,129,0.95)] dark:border-emerald-500/55 dark:bg-emerald-500/14 dark:text-emerald-300 dark:hover:border-emerald-400/70 dark:hover:bg-emerald-500/22 dark:hover:shadow-[0_12px_22px_-15px_rgba(52,211,153,0.6)]"
-                  onClick={() => void handleAddSymbol(pendingSymbol)}
+                  onClick={() => setAddSymbolSegment(option)}
+                  className={cn(
+                    "shrink-0 rounded-full px-3 py-1.5 text-[11px] font-semibold transition-all duration-200",
+                    isActive
+                      ? "bg-slate-900 text-white shadow-[0_10px_25px_-18px_rgba(15,23,42,0.75)] dark:bg-white dark:text-slate-900"
+                      : "border border-slate-200/85 bg-slate-100/85 text-slate-700 hover:border-slate-300/85 hover:bg-slate-200/75 dark:border-slate-700/80 dark:bg-slate-900/75 dark:text-slate-200 dark:hover:bg-slate-800/85"
+                  )}
                 >
-                  Add {pendingSymbol}
+                  {label}
                 </button>
-              ) : null}
+              );
+            })}
+          </div>
 
-              {searchQuery.length >= 2 && searchMarketQuery.isFetching ? (
-                <span className="text-xs text-slate-500 dark:text-slate-400">Searching scripts...</span>
-              ) : searchQuery.length >= 2 && searchSuggestions.length > 0 ? (
-                searchSuggestions.map((item) => (
-                  <button
-                    key={item.symbol}
-                    type="button"
-                    className="rounded-full border border-slate-300/80 bg-white/90 px-3 py-1 text-[11px] text-slate-700 transition-all duration-300 hover:-translate-y-0.5 hover:border-sky-400/75 hover:bg-sky-500/10 hover:text-sky-700 hover:shadow-[0_12px_20px_-16px_rgba(59,130,246,0.95)] dark:border-slate-700/75 dark:bg-slate-900/75 dark:text-slate-300 dark:hover:border-sky-500/70 dark:hover:text-sky-200 dark:hover:shadow-[0_12px_20px_-15px_rgba(56,189,248,0.55)]"
-                    onClick={() => void handleAddSymbol(item.symbol)}
-                  >
-                    {getSuggestionLabel(item)}
-                    {item.segment || item.exchange ? (
-                      <span className="ml-1 text-[10px] opacity-70">
-                        ({getSegmentBucketLabel(item.segment, item.exchange, item.symbol, item.name)})
-                      </span>
-                    ) : null}
-                  </button>
-                ))
-              ) : searchQuery.length >= 2 ? (
-                <span className="text-xs text-slate-500 dark:text-slate-400">No matching script found.</span>
-              ) : null}
+          <div className="mt-2.5 flex flex-wrap items-center gap-2 text-[10px] text-slate-500 dark:text-slate-400">
+            <span className="rounded-full border border-sky-300/55 bg-sky-500/10 px-2.5 py-1 text-[10px] font-semibold text-sky-700 dark:border-sky-400/30 dark:bg-sky-500/12 dark:text-sky-200">
+              {addSymbolSegment === "ALL"
+                ? "All segments"
+                : SEGMENT_LABELS[addSymbolSegment] ?? addSymbolSegment}
+            </span>
+            <span>{addSymbolResults.length} symbol{addSymbolResults.length === 1 ? "" : "s"} available</span>
+            {symbolInput.trim() !== deferredSearchQuery ? (
+              <span className="text-[10px] text-slate-400 dark:text-slate-500">Updating...</span>
+            ) : null}
+          </div>
+
+          <div className="mt-2.5 min-h-0 overflow-hidden rounded-2xl border border-slate-200/85 bg-white/92 shadow-[0_18px_40px_-32px_rgba(15,23,42,0.35)] dark:border-slate-800/80 dark:bg-slate-950/55">
+            <div className="flex items-center justify-between gap-3 border-b border-slate-200/85 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500 dark:border-slate-800/80 dark:text-slate-400">
+              <span>Available symbols</span>
+              <span className="truncate text-right">{deferredSearchQuery.length >= 2 ? "Live search" : "Suggested list"}</span>
             </div>
-          )}
+
+            <div className="max-h-[320px] overflow-y-auto overscroll-contain [scrollbar-gutter:stable]">
+              {addSymbolLoading ? (
+                <div className="flex min-h-[200px] items-center justify-center px-4">
+                  <CandleLoader size="sm" />
+                </div>
+              ) : addSymbolResults.length === 0 ? (
+                <div className="flex min-h-[200px] flex-col items-center justify-center px-5 text-center">
+                  <div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-500 dark:bg-slate-900/80 dark:text-slate-400">
+                    <ScanSearch className="h-5 w-5" />
+                  </div>
+                  <p className="mt-3 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                    No symbols found
+                  </p>
+                  <p className="mt-1 max-w-sm text-xs text-slate-500 dark:text-slate-400">
+                    Try another keyword or switch the segment filter to browse more instruments.
+                  </p>
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-200/85 dark:divide-slate-800/80">
+                  {addSymbolResults.map((item) => {
+                    const symbol = normalizeSymbol(item.symbol ?? "");
+                    const aliasBase = getSymbolAliasBase(symbol);
+                    const segment = getMarketItemSegment(item) || "SEGMENT";
+                    const exchange = getMarketItemExchange(item) || "EXCHANGE";
+                    const name = getMarketItemName(item) || symbol;
+                    const isAdding = addMutation.isPending && symbol === addingSymbol;
+                    const isAlreadyAdded = Boolean(aliasBase && selectedAliases.has(aliasBase));
+                    return (
+                      <div
+                        key={`${symbol}-${segment}-${exchange}`}
+                        className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2.5 px-3 py-2.5 transition-colors hover:bg-slate-50/90 dark:hover:bg-slate-900/60 sm:grid-cols-[minmax(0,1.2fr)_minmax(110px,0.45fr)_auto]"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => void handleAddSymbol(String(item.symbol ?? symbol))}
+                          disabled={addMutation.isPending || isAlreadyAdded}
+                          className="contents text-left disabled:pointer-events-none"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate text-[13px] font-semibold text-slate-900 dark:text-slate-100 sm:text-sm">
+                              {symbol}
+                            </p>
+                            <p className="truncate text-[11px] text-slate-500 dark:text-slate-400 sm:text-xs">{name}</p>
+                            <div className="mt-1 flex items-center gap-2 text-[10px] text-slate-500 dark:text-slate-400 sm:hidden">
+                              <span className="font-semibold uppercase text-slate-700 dark:text-slate-200">{exchange}</span>
+                              <span className="truncate">{segment}</span>
+                            </div>
+                          </div>
+                        </button>
+                        <div className="hidden min-w-0 items-center gap-2 text-xs text-slate-500 dark:text-slate-400 sm:flex">
+                          <span className="truncate lowercase">{segment.toLowerCase()}</span>
+                          <span className="truncate font-semibold uppercase text-slate-700 dark:text-slate-200">
+                            {exchange}
+                          </span>
+                          {isAlreadyAdded ? (
+                            <span className="rounded-full border border-emerald-400/50 bg-emerald-500/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-emerald-700 dark:border-emerald-400/35 dark:bg-emerald-500/10 dark:text-emerald-300">
+                              Added
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="flex items-center justify-end">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => void handleAddSymbol(String(item.symbol ?? symbol))}
+                            disabled={addMutation.isPending || isAlreadyAdded}
+                            className="h-9 min-w-[72px] rounded-xl border-slate-200/85 bg-white px-3 text-[11px] font-semibold text-slate-700 hover:bg-slate-100 active:scale-[0.98] dark:border-slate-700/80 dark:bg-slate-900/80 dark:text-slate-100 dark:hover:bg-slate-800 sm:h-9 sm:min-w-0 sm:rounded-full sm:px-0 sm:w-9"
+                            aria-label={isAlreadyAdded ? `${symbol} already added` : `Add ${symbol}`}
+                          >
+                            {addMutation.isPending && isAdding ? (
+                              <RefreshCw className="h-4 w-4 animate-spin" />
+                            ) : isAlreadyAdded ? (
+                              <>
+                                <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-300" />
+                                <span className="ml-1 text-emerald-700 dark:text-emerald-300 sm:hidden">
+                                  Added
+                                </span>
+                              </>
+                            ) : (
+                              <>
+                                <Plus className="h-4 w-4" />
+                                <span className="ml-1 sm:hidden">Add</span>
+                              </>
+                            )}
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
