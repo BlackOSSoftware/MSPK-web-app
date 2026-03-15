@@ -115,6 +115,37 @@ const SEGMENT_LABELS: Record<string, string> = {
   CRYPTO: "Crypto",
 };
 
+const SEGMENT_NORMALIZATION_MAP: Record<string, string> = {
+  FOREX: "CURRENCY",
+  FX: "CURRENCY",
+  CUR: "CURRENCY",
+  CDS: "CURRENCY",
+  BCD: "CURRENCY",
+};
+const TARGET_LEVEL_TONES = [
+  {
+    text: "text-emerald-700 dark:text-emerald-300",
+    bg: "bg-emerald-500/12 dark:bg-emerald-500/16",
+    border: "border-emerald-400/50 dark:border-emerald-400/40",
+    line: "#22c55e",
+    axisText: "#052e16",
+  },
+  {
+    text: "text-sky-700 dark:text-sky-300",
+    bg: "bg-sky-500/12 dark:bg-sky-500/16",
+    border: "border-sky-400/50 dark:border-sky-400/40",
+    line: "#0ea5e9",
+    axisText: "#0c4a6e",
+  },
+  {
+    text: "text-amber-700 dark:text-amber-300",
+    bg: "bg-amber-500/12 dark:bg-amber-500/16",
+    border: "border-amber-400/50 dark:border-amber-400/40",
+    line: "#f59e0b",
+    axisText: "#78350f",
+  },
+];
+
 type SocketTick = {
   symbol: string;
   price?: number;
@@ -518,6 +549,28 @@ function getSignalLabelClass(signalLabel: string | null): string {
   return "border-slate-300/80 bg-slate-100/85 text-slate-500 dark:border-slate-700/70 dark:bg-slate-800/70 dark:text-slate-400";
 }
 
+function getSignalToneClasses(signalLabel: string | null) {
+  if (signalLabel === "BUY") {
+    return {
+      badge: "border-emerald-400/60 bg-emerald-500/15 text-emerald-700 dark:border-emerald-400/45 dark:bg-emerald-500/18 dark:text-emerald-200",
+      panel: "border-emerald-400/35 bg-emerald-500/10 dark:border-emerald-400/25 dark:bg-emerald-500/12",
+      hover: "hover:bg-emerald-500/14 dark:hover:bg-emerald-500/16",
+    };
+  }
+  if (signalLabel === "SELL" || signalLabel === "STOPLOSS") {
+    return {
+      badge: "border-rose-400/60 bg-rose-500/15 text-rose-700 dark:border-rose-400/45 dark:bg-rose-500/18 dark:text-rose-200",
+      panel: "border-rose-400/35 bg-rose-500/10 dark:border-rose-400/25 dark:bg-rose-500/12",
+      hover: "hover:bg-rose-500/14 dark:hover:bg-rose-500/16",
+    };
+  }
+  return {
+    badge: "border-amber-400/60 bg-amber-500/15 text-amber-700 dark:border-amber-400/45 dark:bg-amber-500/18 dark:text-amber-200",
+    panel: "border-amber-400/35 bg-amber-500/8 dark:border-amber-400/25 dark:bg-amber-500/10",
+    hover: "hover:bg-amber-500/12 dark:hover:bg-amber-500/14",
+  };
+}
+
 function getLiveAchievedTargetLevels(signal: SignalItem | null, latestPrice: number | undefined): number[] {
   if (!signal || typeof latestPrice !== "number" || !Number.isFinite(latestPrice)) return [];
 
@@ -781,6 +834,45 @@ function normalizeSymbol(symbol: string): string {
   return symbol.trim().toUpperCase();
 }
 
+function normalizeSegmentValue(value: unknown): string {
+  const normalized = String(value ?? "").trim().toUpperCase();
+  if (!normalized) return "";
+  if (normalized === "ALL" || normalized === "--") return normalized;
+  return SEGMENT_NORMALIZATION_MAP[normalized] ?? normalized;
+}
+
+function getSegmentBucketLabel(
+  segmentLike?: string,
+  exchangeLike?: string,
+  symbolLike?: string,
+  nameLike?: string
+): string {
+  const segment = String(segmentLike || "").trim().toUpperCase();
+  const exchange = String(exchangeLike || "").trim().toUpperCase();
+  const symbol = String(symbolLike || "").trim().toUpperCase();
+  const name = String(nameLike || "").trim().toUpperCase();
+
+  if (exchange === "MCX") return "COMMODITY";
+
+  if (
+    exchange === "COMEX" ||
+    exchange === "NYMEX" ||
+    (segment === "COMMODITY" && exchange && exchange !== "MCX") ||
+    (segment === "FNO" && (exchange === "COMEX" || exchange === "NYMEX")) ||
+    /(?:CRUDE|WTI|BRENT|USOIL|UKOIL|XAU|XAG|GC\d*!|SI\d*!|CL\d*!|NG\d*!|HG\d*!)/.test(symbol) ||
+    /(?:CRUDE|WTI|BRENT|COMEX|NYMEX|GOLD|SILVER|NATURAL GAS|COPPER)/.test(name)
+  ) {
+    return "COMEX";
+  }
+
+  if (segment === "CURRENCY" || segment === "FOREX") {
+    return "FOREX";
+  }
+  if (exchange === "CURRENCY" || exchange === "FOREX") return "FOREX";
+  if (segment) return segment;
+  return exchange || "OTHER";
+}
+
 function reorderSymbolOrder(symbols: string[], draggedSymbol: string, targetSymbol: string) {
   const draggedIndex = symbols.indexOf(draggedSymbol);
   const targetIndex = symbols.indexOf(targetSymbol);
@@ -924,11 +1016,20 @@ function getMarketItemName(item: Pick<MarketSearchItem, "name"> | Pick<MarketSym
 }
 
 function getMarketItemSegment(
-  item: Pick<MarketSearchItem, "segment" | "segmentGroup"> | Pick<MarketSymbol, "segment" | "segmentGroup">
+  item:
+    | Pick<MarketSearchItem, "segment" | "segmentGroup" | "exchange" | "symbol" | "name">
+    | Pick<MarketSymbol, "segment" | "segmentGroup" | "exchange" | "symbol" | "name">
 ): string {
   const segmentGroup =
     "segmentGroup" in item ? (item as { segmentGroup?: string }).segmentGroup : undefined;
-  return (segmentGroup ?? item.segment ?? "").trim().toUpperCase();
+  const rawSegment = segmentGroup ?? item.segment ?? "";
+  const exchange =
+    "exchange" in item ? (item as { exchange?: string }).exchange : undefined;
+  const symbol =
+    "symbol" in item ? (item as { symbol?: string }).symbol : undefined;
+  const name =
+    "name" in item ? (item as { name?: string }).name : undefined;
+  return normalizeSegmentValue(getSegmentBucketLabel(rawSegment, exchange, symbol, name));
 }
 
 function getMarketItemExchange(
@@ -1064,7 +1165,9 @@ function mapWatchlistRow(base: MarketTicker, live?: SocketTick): WatchlistRow | 
   return {
     symbol,
     name: base.name ?? "--",
-    segment: base.segmentGroup ?? base.segment ?? "--",
+    segment: normalizeSegmentValue(
+      getSegmentBucketLabel(base.segmentGroup ?? base.segment, base.exchange, base.symbol, base.name)
+    ),
     exchange: base.exchange ?? "--",
     open: getFirstPositive(base.open),
     currentPrice,
@@ -1134,8 +1237,13 @@ function TimeframeSignalPanel({
           const signalEntry = getCurrentSignalEntry(signal);
           const signalStopLoss = getCurrentSignalStopLoss(signal);
           const signalTargets = getCurrentSignalTargets(signal).slice(0, 3);
+          const achievedLevels = getCurrentSignalAchievedTargetLevels(signal);
+          const isStopLossHit = signalLabel === "STOPLOSS";
+          const signalTone = getSignalToneClasses(signalLabel);
           const signalTime = formatSignalTimestamp(getSignalTimestamp(signal));
           const isSelected = activeInterval === timeframeWindow.chartInterval;
+          const signalPanelTone = signalLabel ? signalTone.panel : "";
+          const signalPanelHover = signalLabel ? signalTone.hover : "";
 
           return (
             <button
@@ -1147,6 +1255,9 @@ function TimeframeSignalPanel({
                 isSelected
                   ? "border-sky-400/55 bg-sky-500/10 shadow-[0_18px_30px_-28px_rgba(14,165,233,0.85)] dark:border-sky-400/40 dark:bg-sky-500/12"
                   : "border-slate-200/85 bg-white/88 hover:border-slate-300/90 hover:bg-white dark:border-slate-800 dark:bg-[#0a1422] dark:hover:border-slate-700"
+                ,
+                signalPanelTone,
+                signalPanelHover
               )}
             >
               <div className="flex items-start justify-between gap-1">
@@ -1161,7 +1272,7 @@ function TimeframeSignalPanel({
                 <span
                   className={cn(
                     "inline-flex max-w-[52px] shrink-0 truncate rounded-full border px-1 py-0.5 text-[7px] font-semibold uppercase tracking-[0.08em]",
-                    getSignalLabelClass(signalLabel)
+                    signalTone.badge
                   )}
                 >
                   {compactSignalLabel ?? (isLoading ? "LOAD" : "EMPTY")}
@@ -1177,7 +1288,14 @@ function TimeframeSignalPanel({
                         {formatNumber(signalEntry, digits)}
                       </p>
                     </div>
-                    <div className="flex items-center justify-between gap-1 rounded-md border border-slate-200/75 bg-white/60 px-1.5 py-1 dark:border-slate-700/60 dark:bg-slate-950/45">
+                    <div
+                      className={cn(
+                        "flex items-center justify-between gap-1 rounded-md border px-1.5 py-1",
+                        isStopLossHit
+                          ? "border-rose-400/50 bg-rose-500/12 dark:border-rose-400/35 dark:bg-rose-500/18"
+                          : "border-slate-200/75 bg-white/60 dark:border-slate-700/60 dark:bg-slate-950/45"
+                      )}
+                    >
                       <p className="truncate uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400">SL</p>
                       <p className="truncate font-semibold text-rose-700 dark:text-rose-300">
                         {formatNumber(signalStopLoss, digits)}
@@ -1185,17 +1303,29 @@ function TimeframeSignalPanel({
                     </div>
                     <div className="space-y-1">
                       {[0, 1, 2].map((index) => (
+                        (() => {
+                          const level = index + 1;
+                          const tone = TARGET_LEVEL_TONES[index] ?? TARGET_LEVEL_TONES[0];
+                          const isHit = achievedLevels.includes(level);
+                          return (
                         <div
-                          key={`${timeframeWindow.key}-target-${index + 1}`}
-                          className="flex items-center justify-between gap-1 rounded-md border border-slate-200/75 bg-white/60 px-1.5 py-1 dark:border-slate-700/60 dark:bg-slate-950/45"
+                          key={`${timeframeWindow.key}-target-${level}`}
+                          className={cn(
+                            "flex items-center justify-between gap-1 rounded-md border px-1.5 py-1",
+                            isHit
+                              ? cn(tone.border, tone.bg)
+                              : "border-slate-200/75 bg-white/60 dark:border-slate-700/60 dark:bg-slate-950/45"
+                          )}
                         >
                           <p className="truncate text-[7px] font-semibold uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400 sm:text-[8px]">
-                            {index + 1}
+                            {level}
                           </p>
-                          <p className="truncate text-[7px] font-semibold text-emerald-700 dark:text-emerald-300 sm:text-[8px]">
+                          <p className={cn("truncate text-[7px] font-semibold sm:text-[8px]", isHit ? tone.text : "text-slate-700 dark:text-slate-300")}>
                             {formatNumber(signalTargets[index], digits)}
                           </p>
                         </div>
+                          );
+                        })()
                       ))}
                     </div>
                   </div>
@@ -2005,11 +2135,11 @@ function WatchlistPageContent() {
   const addSymbolSegmentOptions = useMemo(() => {
     const options = new Set<string>();
     for (const item of marketSegmentsQuery.data ?? []) {
-      const value = (item.segment ?? item.code ?? "").trim().toUpperCase();
+      const value = normalizeSegmentValue(item.segment ?? item.code ?? "");
       if (value && !value.includes("@") && value !== "BSE" && value !== "GLOBAL") options.add(value);
     }
     for (const item of allRows) {
-      const value = (item.segment ?? "").trim().toUpperCase();
+      const value = normalizeSegmentValue(item.segment ?? "");
       if (value && !value.includes("@") && value !== "--" && value !== "BSE" && value !== "GLOBAL") options.add(value);
     }
     for (const item of marketSymbolsQuery.data ?? []) {
@@ -2456,7 +2586,8 @@ function WatchlistPageContent() {
   const segmentOptions = useMemo(() => {
     const set = new Set<string>();
     for (const row of allRows) {
-      if (row.segment !== "--") set.add(row.segment);
+      const value = normalizeSegmentValue(row.segment);
+      if (value && value !== "--") set.add(value);
     }
     return ["ALL", ...Array.from(set).sort((a, b) => a.localeCompare(b))];
   }, [allRows]);
@@ -2822,8 +2953,8 @@ function WatchlistPageContent() {
         },
       },
       grid: {
-        vertLines: { color: isDark ? "rgba(51, 65, 85, 0.45)" : "rgba(148, 163, 184, 0.25)" },
-        horzLines: { color: isDark ? "rgba(51, 65, 85, 0.45)" : "rgba(148, 163, 184, 0.25)" },
+        vertLines: { color: "rgba(0, 0, 0, 0)" },
+        horzLines: { color: "rgba(0, 0, 0, 0)" },
       },
       rightPriceScale: { borderVisible: false },
       timeScale: {
@@ -3083,20 +3214,29 @@ function WatchlistPageContent() {
       addSignalPriceLine(currentSignalEntry, "Entry", "#0ea5e9", LineStyle.Solid, 2);
     }
     if (chartVisibility.showStopLossLine) {
-      addSignalPriceLine(currentSignalStopLoss, "SL", "#f43f5e", LineStyle.Dashed, 2);
+      addSignalPriceLine(
+        currentSignalStopLoss,
+        "SL",
+        "#ef4444",
+        LineStyle.Solid,
+        3,
+        "#fee2e2",
+        "#7f1d1d"
+      );
     }
     if (chartVisibility.showTargetLines) {
       currentSignalTargets.forEach((target, index) => {
         const level = index + 1;
         const isAchieved = currentSignalAchievedTargetLevels.includes(level);
+        const tone = TARGET_LEVEL_TONES[index] ?? TARGET_LEVEL_TONES[0];
         addSignalPriceLine(
           target,
           isAchieved ? `TP${level} HIT` : `TP${level}`,
-          isAchieved ? "#f59e0b" : "#22c55e",
+          isAchieved ? tone.line : tone.line,
           LineStyle.Solid,
           1,
-          isAchieved ? "#f59e0b" : "#22c55e",
-          isAchieved ? "#0f172a" : "#ecfdf5"
+          isAchieved ? tone.line : tone.line,
+          tone.axisText
         );
       });
     }
@@ -3833,12 +3973,8 @@ function WatchlistPageContent() {
                       <div className="flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-0.5 text-slate-600 dark:text-slate-300 sm:gap-x-3 sm:gap-y-0.5">
                         <span
                           className={cn(
-                            "shrink-0 font-semibold",
-                            currentSignalLabel === "BUY"
-                              ? "text-emerald-700 dark:text-emerald-300"
-                              : currentSignalLabel === "SELL" || currentSignalLabel === "STOPLOSS"
-                                ? "text-rose-700 dark:text-rose-300"
-                                : "text-amber-700 dark:text-amber-300"
+                            "shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em]",
+                            getSignalToneClasses(currentSignalLabel).badge
                           )}
                         >
                           {currentSignalLabel}
@@ -3858,20 +3994,37 @@ function WatchlistPageContent() {
                           </span>
                         ) : null}
                         {typeof currentSignalStopLoss === "number" ? (
-                          <span className="shrink-0">
+                          <span
+                            className={cn(
+                              "shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em]",
+                              currentSignalLabel === "STOPLOSS"
+                                ? "border-rose-400/60 bg-rose-500/15 text-rose-700 dark:border-rose-400/45 dark:bg-rose-500/18 dark:text-rose-200"
+                                : "border-rose-300/45 bg-rose-500/8 text-rose-700 dark:border-rose-400/35 dark:bg-rose-500/10 dark:text-rose-300"
+                            )}
+                          >
                             SL{" "}
-                            <span className="font-semibold text-rose-700 dark:text-rose-300">
+                            <span className="font-semibold">
                               {formatNumber(currentSignalStopLoss, chartLegendDigits)}
                             </span>
                           </span>
                         ) : null}
                         {currentSignalTargets.map((target, index) => {
                           const level = index + 1;
+                          const tone = TARGET_LEVEL_TONES[index] ?? TARGET_LEVEL_TONES[0];
+                          const isHit = currentSignalAchievedTargetLevels.includes(level);
 
                           return (
-                            <span key={`current-signal-target-${level}`} className="shrink-0">
-                              <span className="font-semibold">TP{level}</span>{" "}
-                              <span className="font-semibold text-emerald-700 dark:text-emerald-300">
+                            <span
+                              key={`current-signal-target-${level}`}
+                              className={cn(
+                                "shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em]",
+                                isHit
+                                  ? cn(tone.border, tone.bg, tone.text)
+                                  : "border-slate-300/70 bg-slate-100/70 text-slate-600 dark:border-slate-700/70 dark:bg-slate-800/60 dark:text-slate-300"
+                              )}
+                            >
+                              TP{level}{" "}
+                              <span className="font-semibold">
                                 {formatNumber(target, chartLegendDigits)}
                               </span>
                             </span>
@@ -4303,7 +4456,7 @@ function WatchlistPageContent() {
                           ? row.points >= 0
                           : false;
                     const changeClass = isUp ? "text-emerald-500" : "text-rose-500";
-                    const priceClass = "text-sky-600 dark:text-sky-300";
+                    const priceClass = "text-emerald-600 dark:text-emerald-300";
                     const highClass = "text-emerald-600 dark:text-emerald-300";
                     const lowClass = "text-rose-600 dark:text-rose-300";
                     const bidClass = "text-emerald-600 dark:text-emerald-300";
@@ -5006,7 +5159,7 @@ function WatchlistPageContent() {
                     <button
                       key={option}
                       type="button"
-                      onClick={() => setAddSymbolSegment(option)}
+                      onClick={() => setAddSymbolSegment(normalizeSegmentValue(option) || "ALL")}
                       className={cn(
                         "shrink-0 rounded-full px-3 py-1.5 text-[11px] font-semibold transition-all duration-200 sm:px-3.5 sm:text-xs",
                         isActive
@@ -5257,7 +5410,7 @@ function WatchlistPageContent() {
                           option === segmentFilter &&
                             "bg-sky-500/12 text-sky-700 dark:bg-sky-500/20 dark:text-sky-200"
                         )}
-                        onSelect={() => setSegmentFilter(option)}
+                        onSelect={() => setSegmentFilter(normalizeSegmentValue(option) || "ALL")}
                       >
                         {option}
                       </DropdownMenuItem>
