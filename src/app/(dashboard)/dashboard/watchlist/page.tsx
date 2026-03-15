@@ -1338,7 +1338,7 @@ function WatchlistPageContent() {
   const marketSymbolsQuery = useMarketSymbolsQuery(
     {
       limit: deferredSearchQuery.length >= 2 ? 72 : 32,
-      ...(deferredSearchQuery.length >= 2 ? { q: deferredSearchQuery } : {}),
+      ...(deferredSearchQuery.length >= 2 ? { search: deferredSearchQuery } : {}),
     },
     isAddSymbolDialogOpen && !chartMode
   );
