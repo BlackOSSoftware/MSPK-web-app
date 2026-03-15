@@ -440,7 +440,7 @@ export function ManageScriptsPanel({ className }: ManageScriptsPanelProps) {
         </div>
 
         <Dialog open={isAddSymbolDialogOpen} onOpenChange={setIsAddSymbolDialogOpen}>
-          <DialogContent className="flex h-auto max-h-[calc(100dvh-0.2rem)] w-[calc(100vw-0.2rem)] max-w-[calc(100vw-0.2rem)] flex-col overflow-hidden border border-slate-200/85 bg-[linear-gradient(180deg,rgba(255,255,255,0.995),rgba(248,250,252,0.98))] p-0 text-slate-900 shadow-[0_32px_90px_-48px_rgba(15,23,42,0.55)] min-[360px]:w-[calc(100vw-0.75rem)] min-[360px]:max-w-[calc(100vw-0.75rem)] sm:max-h-[84vh] sm:max-w-3xl dark:border-slate-700/80 dark:bg-[linear-gradient(180deg,rgba(3,10,20,0.99),rgba(8,15,28,0.98))] dark:text-slate-100">
+          <DialogContent className="flex h-auto max-h-[92dvh] w-[calc(100vw-0.2rem)] max-w-[calc(100vw-0.2rem)] flex-col overflow-hidden border border-slate-200/85 bg-[linear-gradient(180deg,rgba(255,255,255,0.995),rgba(248,250,252,0.98))] p-0 text-slate-900 shadow-[0_32px_90px_-48px_rgba(15,23,42,0.55)] min-[360px]:w-[calc(100vw-0.75rem)] min-[360px]:max-w-[calc(100vw-0.75rem)] sm:max-h-[84vh] sm:max-w-3xl dark:border-slate-700/80 dark:bg-[linear-gradient(180deg,rgba(3,10,20,0.99),rgba(8,15,28,0.98))] dark:text-slate-100">
             <DialogHeader className="shrink-0 gap-1.5 border-b border-slate-200/85 bg-[linear-gradient(120deg,rgba(255,255,255,0.98),rgba(240,249,255,0.94))] px-3 py-3 dark:border-slate-800/80 dark:[background-image:none] dark:bg-transparent sm:px-5 sm:py-5">
               <DialogTitle className="text-left text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
                 Add script
