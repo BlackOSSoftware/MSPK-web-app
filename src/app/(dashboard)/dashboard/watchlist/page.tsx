@@ -1962,19 +1962,19 @@ function WatchlistPageContent() {
     const options = new Set<string>();
     for (const item of marketSegmentsQuery.data ?? []) {
       const value = (item.segment ?? item.name ?? "").trim().toUpperCase();
-      if (value) options.add(value);
+      if (value && value !== "BSE") options.add(value);
     }
     for (const item of allRows) {
       const value = (item.segment ?? "").trim().toUpperCase();
-      if (value && value !== "--") options.add(value);
+      if (value && value !== "--" && value !== "BSE") options.add(value);
     }
     for (const item of marketSymbolsQuery.data ?? []) {
       const value = getMarketItemSegment(item);
-      if (value) options.add(value);
+      if (value && value !== "BSE") options.add(value);
     }
     for (const item of searchMarketQuery.data ?? []) {
       const value = getMarketItemSegment(item);
-      if (value) options.add(value);
+      if (value && value !== "BSE") options.add(value);
     }
     return ["ALL", ...Array.from(options).sort((a, b) => a.localeCompare(b))];
   }, [allRows, marketSegmentsQuery.data, marketSymbolsQuery.data, searchMarketQuery.data]);
