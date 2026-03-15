@@ -104,6 +104,16 @@ const CHART_BAR_SPACING_STEP = 2;
 const PRICE_LINE_CLICK_TOLERANCE_PX = 10;
 const DEFAULT_CHART_INTERVAL: ChartInterval = "5";
 const DEFAULT_CHART_TYPE: ChartType = "heikin";
+const SEGMENT_LABELS: Record<string, string> = {
+  EQUITY: "Equity",
+  INDICES: "Indices",
+  FNO: "Futures & Options",
+  COMMODITY: "Commodity",
+  COMEX: "Comex",
+  CURRENCY: "Currency",
+  FOREX: "Currency",
+  CRYPTO: "Crypto",
+};
 
 type SocketTick = {
   symbol: string;
@@ -914,15 +924,36 @@ function getMarketItemName(item: Pick<MarketSearchItem, "name"> | Pick<MarketSym
 }
 
 function getMarketItemSegment(
-  item: Pick<MarketSearchItem, "segment"> | Pick<MarketSymbol, "segment">
+  item: Pick<MarketSearchItem, "segment" | "segmentGroup"> | Pick<MarketSymbol, "segment" | "segmentGroup">
 ): string {
-  return (item.segment ?? "").trim().toUpperCase();
+  const segmentGroup =
+    "segmentGroup" in item ? (item as { segmentGroup?: string }).segmentGroup : undefined;
+  return (segmentGroup ?? item.segment ?? "").trim().toUpperCase();
 }
 
 function getMarketItemExchange(
   item: Pick<MarketSearchItem, "exchange"> | Pick<MarketSymbol, "exchange">
 ): string {
   return (item.exchange ?? "").trim().toUpperCase();
+}
+
+const DEDUPE_SUFFIX_PATTERN = /(\.PR|\.X)$/i;
+
+function getSymbolAliasBase(symbol: string): string {
+  const normalized = normalizeSymbol(symbol);
+  if (!normalized) return "";
+  return normalized.replace(DEDUPE_SUFFIX_PATTERN, "");
+}
+
+function getSearchDedupeKey(
+  item: Pick<MarketSearchItem, "symbol" | "name" | "segment" | "segmentGroup" | "exchange"> | Pick<MarketSymbol, "symbol" | "name" | "segment" | "segmentGroup" | "exchange">
+): string {
+  const symbol = getSymbolAliasBase(String(item.symbol ?? ""));
+  if (!symbol) return "";
+  const name = getMarketItemName(item).toUpperCase();
+  const segment = getMarketItemSegment(item);
+  const exchange = getMarketItemExchange(item);
+  return `${segment}|${exchange}|${symbol}|${name}`;
 }
 
 function isBseMarketItem(
@@ -1033,7 +1064,7 @@ function mapWatchlistRow(base: MarketTicker, live?: SocketTick): WatchlistRow | 
   return {
     symbol,
     name: base.name ?? "--",
-    segment: base.segment ?? "--",
+    segment: base.segmentGroup ?? base.segment ?? "--",
     exchange: base.exchange ?? "--",
     open: getFirstPositive(base.open),
     currentPrice,
@@ -1339,6 +1370,7 @@ function WatchlistPageContent() {
     {
       limit: deferredSearchQuery.length >= 2 ? 72 : 32,
       ...(deferredSearchQuery.length >= 2 ? { search: deferredSearchQuery } : {}),
+      ...(addSymbolSegment !== "ALL" ? { segment: addSymbolSegment } : {}),
     },
     isAddSymbolDialogOpen && !chartMode
   );
@@ -1351,6 +1383,10 @@ function WatchlistPageContent() {
       .map((item) => (item.symbol ? normalizeSymbol(item.symbol) : ""))
       .filter(Boolean);
   }, [chartMode, selectedSymbol, watchlistQuery.data]);
+  const selectedAliases = useMemo(
+    () => new Set(watchlistSymbols.map((symbol) => getSymbolAliasBase(symbol)).filter(Boolean)),
+    [watchlistSymbols]
+  );
   useEffect(() => {
     if (typeof window === "undefined") return;
     const savedFont = window.localStorage.getItem(WATCHLIST_APPEARANCE_STORAGE_KEY);
@@ -1631,8 +1667,7 @@ function WatchlistPageContent() {
   };
 
   const addSymbolResults = useMemo(() => {
-    const selected = new Set(watchlistSymbols);
-    const used = new Set<string>();
+    const usedKeys = new Set<string>();
     const merged: Array<MarketSearchItem | MarketSymbol> = [
       ...(deferredSearchQuery.length >= 2 ? searchMarketQuery.data ?? [] : []),
       ...(marketSymbolsQuery.data ?? []),
@@ -1651,12 +1686,21 @@ function WatchlistPageContent() {
     for (const item of merged) {
       if (!item.symbol) continue;
       const symbol = normalizeSymbol(item.symbol);
+      const aliasBase = getSymbolAliasBase(symbol);
       const segment = getMarketItemSegment(item);
       const exchange = getMarketItemExchange(item);
-      if (!symbol || selected.has(symbol) || used.has(symbol)) continue;
+      const dedupeKey = getSearchDedupeKey(item);
+      if (
+        !symbol ||
+        !aliasBase ||
+        (dedupeKey && usedKeys.has(dedupeKey))
+      ) {
+        continue;
+      }
       if (isBseMarketItem(item) || exchange.includes("BSE")) continue;
+      if (exchange === "GLOBAL") continue;
       if (addSymbolSegment !== "ALL" && segment !== addSymbolSegment) continue;
-      used.add(symbol);
+      usedKeys.add(dedupeKey || symbol);
       items.push({ ...item, symbol, segment });
       if (items.length >= 28) break;
     }
@@ -1961,20 +2005,20 @@ function WatchlistPageContent() {
   const addSymbolSegmentOptions = useMemo(() => {
     const options = new Set<string>();
     for (const item of marketSegmentsQuery.data ?? []) {
-      const value = (item.segment ?? item.name ?? "").trim().toUpperCase();
-      if (value && value !== "BSE") options.add(value);
+      const value = (item.segment ?? item.code ?? "").trim().toUpperCase();
+      if (value && !value.includes("@") && value !== "BSE" && value !== "GLOBAL") options.add(value);
     }
     for (const item of allRows) {
       const value = (item.segment ?? "").trim().toUpperCase();
-      if (value && value !== "--" && value !== "BSE") options.add(value);
+      if (value && !value.includes("@") && value !== "--" && value !== "BSE" && value !== "GLOBAL") options.add(value);
     }
     for (const item of marketSymbolsQuery.data ?? []) {
       const value = getMarketItemSegment(item);
-      if (value && value !== "BSE") options.add(value);
+      if (value && !value.includes("@") && value !== "BSE" && value !== "GLOBAL") options.add(value);
     }
     for (const item of searchMarketQuery.data ?? []) {
       const value = getMarketItemSegment(item);
-      if (value && value !== "BSE") options.add(value);
+      if (value && !value.includes("@") && value !== "BSE" && value !== "GLOBAL") options.add(value);
     }
     return ["ALL", ...Array.from(options).sort((a, b) => a.localeCompare(b))];
   }, [allRows, marketSegmentsQuery.data, marketSymbolsQuery.data, searchMarketQuery.data]);
@@ -3741,7 +3785,7 @@ function WatchlistPageContent() {
 
           <div className="flex flex-1 min-h-0 flex-col gap-3">
             <section
-              className="group relative min-h-[420px] flex-1 overflow-hidden rounded-2xl border border-slate-200/80 bg-white/80 p-2 shadow-[0_16px_40px_-30px_rgba(15,23,42,0.35)] focus:outline-none dark:border-slate-800 dark:bg-slate-950/70 touch-none sm:min-h-[520px] xl:min-h-0"
+              className="group relative min-h-[420px] flex-1 overflow-hidden rounded-2xl border border-slate-200/80 bg-white/80 p-2 shadow-[0_16px_40px_-30px_rgba(15,23,42,0.35)] focus:outline-none dark:border-slate-800 dark:bg-slate-950/70 touch-none sm:min-h-[520px] lg:min-h-[560px] 2xl:min-h-[620px]"
               tabIndex={0}
               onPointerDown={(event) => {
                 event.currentTarget.focus();
@@ -4957,6 +5001,7 @@ function WatchlistPageContent() {
               <div className="mt-2.5 flex gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:mt-3 sm:gap-2">
                 {addSymbolSegmentOptions.map((option) => {
                   const isActive = addSymbolSegment === option;
+                  const label = option === "ALL" ? "All" : SEGMENT_LABELS[option] ?? option;
                   return (
                     <button
                       key={option}
@@ -4969,7 +5014,7 @@ function WatchlistPageContent() {
                           : "border border-slate-200/85 bg-slate-100/85 text-slate-700 hover:border-slate-300/85 hover:bg-slate-200/75 dark:border-slate-700/80 dark:bg-slate-900/75 dark:text-slate-200 dark:hover:bg-slate-800/85"
                       )}
                     >
-                      {option === "ALL" ? "All" : option}
+                      {label}
                     </button>
                   );
                 })}
@@ -4977,7 +5022,9 @@ function WatchlistPageContent() {
 
               <div className="mt-2.5 flex flex-wrap items-center gap-2 text-[10px] text-slate-500 dark:text-slate-400 sm:mt-3 sm:text-[11px]">
                 <Badge className="rounded-full border border-sky-300/55 bg-sky-500/10 px-2.5 py-1 text-[10px] font-semibold text-sky-700 dark:border-sky-400/30 dark:bg-sky-500/12 dark:text-sky-200">
-                  {addSymbolSegment === "ALL" ? "All segments" : addSymbolSegment}
+                  {addSymbolSegment === "ALL"
+                    ? "All segments"
+                    : SEGMENT_LABELS[addSymbolSegment] ?? addSymbolSegment}
                 </Badge>
                 <span>{addSymbolResults.length} symbol{addSymbolResults.length === 1 ? "" : "s"} available</span>
                 {searchQuery.trim() !== deferredSearchQuery ? (
@@ -5013,10 +5060,12 @@ function WatchlistPageContent() {
                   <div className="divide-y divide-slate-200/85 dark:divide-slate-800/80">
                     {addSymbolResults.map((item) => {
                       const symbol = normalizeSymbol(item.symbol ?? "");
+                      const aliasBase = getSymbolAliasBase(symbol);
                       const segment = getMarketItemSegment(item) || "SEGMENT";
                       const exchange = getMarketItemExchange(item) || "EXCHANGE";
                       const name = getMarketItemName(item) || symbol;
                       const isAdding = addMutation.isPending && symbol === addingSymbol;
+                      const isAlreadyAdded = Boolean(aliasBase && selectedAliases.has(aliasBase));
                       return (
                         <div
                           key={`${symbol}-${segment}-${exchange}`}
@@ -5025,7 +5074,7 @@ function WatchlistPageContent() {
                           <button
                             type="button"
                             onClick={() => void handleAddSymbol(String(item.symbol ?? symbol))}
-                            disabled={addMutation.isPending || !activeWatchlistId}
+                            disabled={addMutation.isPending || !activeWatchlistId || isAlreadyAdded}
                             className="contents text-left disabled:pointer-events-none"
                           >
                             <div className="hidden h-11 w-11 items-center justify-center rounded-2xl border border-slate-200/85 bg-[linear-gradient(145deg,rgba(240,249,255,0.95),rgba(255,255,255,0.98))] text-sm font-bold uppercase tracking-[0.08em] text-slate-800 shadow-[0_10px_22px_-18px_rgba(14,165,233,0.5)] dark:border-slate-700/80 dark:bg-[linear-gradient(145deg,rgba(14,22,36,0.95),rgba(6,12,22,0.98))] dark:text-slate-100 sm:inline-flex"
@@ -5048,18 +5097,30 @@ function WatchlistPageContent() {
                             <span className="truncate font-semibold uppercase text-slate-700 dark:text-slate-200">
                               {exchange}
                             </span>
+                            {isAlreadyAdded ? (
+                              <span className="rounded-full border border-emerald-400/50 bg-emerald-500/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-emerald-700 dark:border-emerald-400/35 dark:bg-emerald-500/10 dark:text-emerald-300">
+                                Added
+                              </span>
+                            ) : null}
                           </div>
                           <div className="flex items-center justify-end">
                             <Button
                               type="button"
                               variant="outline"
                               onClick={() => void handleAddSymbol(String(item.symbol ?? symbol))}
-                              disabled={addMutation.isPending || !activeWatchlistId}
+                              disabled={addMutation.isPending || !activeWatchlistId || isAlreadyAdded}
                               className="h-9 min-w-[72px] rounded-xl border-slate-200/85 bg-white px-3 text-[11px] font-semibold text-slate-700 hover:bg-slate-100 active:scale-[0.98] dark:border-slate-700/80 dark:bg-slate-900/80 dark:text-slate-100 dark:hover:bg-slate-800 sm:h-9 sm:min-w-0 sm:rounded-full sm:px-0 sm:w-9"
-                              aria-label={`Add ${symbol}`}
+                              aria-label={isAlreadyAdded ? `${symbol} already added` : `Add ${symbol}`}
                             >
                               {addMutation.isPending && isAdding ? (
                                 <RefreshCw className="h-4 w-4 animate-spin" />
+                              ) : isAlreadyAdded ? (
+                                <>
+                                  <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-300" />
+                                  <span className="ml-1 text-emerald-700 dark:text-emerald-300 sm:hidden">
+                                    Added
+                                  </span>
+                                </>
                               ) : (
                                 <>
                                   <Plus className="h-4 w-4 sm:h-4 sm:w-4" />

@@ -1,6 +1,7 @@
 export type MarketSegment = {
   segment?: string;
   name?: string;
+  code?: string;
 };
 
 export type MarketSymbol = {
@@ -8,6 +9,7 @@ export type MarketSymbol = {
   symbol?: string;
   name?: string;
   segment?: string;
+  segmentGroup?: string;
   exchange?: string;
   price?: number;
   change?: number;
@@ -18,6 +20,7 @@ export type MarketTicker = {
   symbol: string;
   name?: string;
   segment?: string;
+  segmentGroup?: string;
   exchange?: string;
   price?: number;
   open?: number;
@@ -39,6 +42,7 @@ export type MarketSearchItem = {
   symbol?: string;
   name?: string;
   segment?: string;
+  segmentGroup?: string;
   exchange?: string;
   provider?: string | null;
   lotSize?: number;
