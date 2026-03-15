@@ -194,9 +194,14 @@ export default function DashboardLayout({
             <div className="flex-1 flex flex-col overflow-hidden relative w-full z-10">
                 <Header onMenuClick={() => setIsMobileMenuOpen(true)} />
 
-                <main className="flex-1 overflow-x-hidden overflow-y-auto p-2.5 pb-24 sm:p-4 sm:pb-24 md:p-5 md:pb-5 relative z-10 scroll-smooth">
+                <main className="relative z-10 flex-1 overflow-x-hidden overflow-y-auto p-2.5 pb-5 scroll-smooth scroll-pb-[calc(6.5rem+env(safe-area-inset-bottom))] sm:p-4 sm:pb-5 md:p-5 md:pb-5 md:scroll-pb-5">
                     {children}
                 </main>
+
+                <div
+                    aria-hidden="true"
+                    className="h-[calc(5.75rem+env(safe-area-inset-bottom))] shrink-0 md:hidden"
+                />
 
                 <MobileBottomNav />
             </div>

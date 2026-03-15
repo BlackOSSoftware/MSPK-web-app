@@ -35,6 +35,7 @@ import {
   ScanSearch,
   Search,
   SlidersHorizontal,
+  Smartphone,
   Trash2,
   Type,
 } from "lucide-react";
@@ -230,6 +231,11 @@ const CHART_INTERVALS: { label: string; value: ChartInterval }[] = [
   { label: "1W", value: "W" },
   { label: "1M", value: "M" },
 ];
+const SIGNAL_TIMEFRAME_WINDOWS = [
+  { key: "5m", label: "5 Min", chartInterval: "5" as ChartInterval },
+  { key: "15m", label: "15 Min", chartInterval: "15" as ChartInterval },
+  { key: "1h", label: "1 Hour", chartInterval: "60" as ChartInterval },
+] as const;
 const CHART_TYPES: { label: string; value: ChartType }[] = [
   { label: "Candles", value: "candle" },
   { label: "Heikin Ashi", value: "heikin" },
@@ -309,6 +315,13 @@ const INDIA_MARKET_OPEN_UTC_SEC = INDIA_MARKET_OPEN_LOCAL_SEC - INDIA_TIME_ZONE_
 const INDIA_EXCHANGES = new Set(["NSE", "BSE", "NFO", "MCX", "CDS", "BCD"]);
 
 type TableColumnId = (typeof DEFAULT_TABLE_COLUMNS)[number];
+type SignalTimeframeKey = (typeof SIGNAL_TIMEFRAME_WINDOWS)[number]["key"];
+
+const EMPTY_TIMEFRAME_SIGNAL_MAP: Record<SignalTimeframeKey, SignalItem | null> = {
+  "5m": null,
+  "15m": null,
+  "1h": null,
+};
 
 function toNumber(value: unknown): number | undefined {
   const parsed = Number(value);
@@ -416,6 +429,83 @@ function getCurrentSignalAchievedSummary(signal: SignalItem | null): string | nu
 
   const notes = String(signal.notes || "").trim();
   return /achieved/i.test(notes) ? notes : null;
+}
+
+function normalizeSignalTimeframe(value: unknown): SignalTimeframeKey | null {
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase();
+
+  if (!normalized) return null;
+  if (["5", "5m", "5min", "5mins", "5minute", "5minutes"].includes(normalized)) return "5m";
+  if (["15", "15m", "15min", "15mins", "15minute", "15minutes"].includes(normalized)) return "15m";
+  if (["60", "60m", "60min", "60mins", "1h", "1hr", "1hour"].includes(normalized)) return "1h";
+
+  return null;
+}
+
+function getSignalTimestamp(signal: SignalItem | null): string | undefined {
+  if (!signal) return undefined;
+  return signal.signalTime || signal.timestamp || signal.createdAt;
+}
+
+function getSignalTimestampValue(signal: SignalItem | null): number {
+  const rawTimestamp = getSignalTimestamp(signal);
+  if (!rawTimestamp) return 0;
+
+  const parsedTimestamp = new Date(rawTimestamp).getTime();
+  return Number.isFinite(parsedTimestamp) ? parsedTimestamp : 0;
+}
+
+function buildLatestSignalsByTimeframe(
+  signals?: SignalItem[]
+): Record<SignalTimeframeKey, SignalItem | null> {
+  const nextSignals: Record<SignalTimeframeKey, SignalItem | null> = {
+    ...EMPTY_TIMEFRAME_SIGNAL_MAP,
+  };
+
+  for (const signal of signals ?? []) {
+    const timeframeKey = normalizeSignalTimeframe(signal.timeframe);
+    if (!timeframeKey) continue;
+
+    const existingSignal = nextSignals[timeframeKey];
+    if (!existingSignal || getSignalTimestampValue(signal) >= getSignalTimestampValue(existingSignal)) {
+      nextSignals[timeframeKey] = signal;
+    }
+  }
+
+  return nextSignals;
+}
+
+function formatSignalTimestamp(value?: string): string {
+  if (!value) return "--";
+
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "--";
+
+  return new Intl.DateTimeFormat("en-IN", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
+function getSignalLabelClass(signalLabel: string | null): string {
+  if (signalLabel === "BUY") {
+    return "border-emerald-400/55 bg-emerald-500/12 text-emerald-700 dark:border-emerald-400/40 dark:bg-emerald-500/12 dark:text-emerald-200";
+  }
+
+  if (signalLabel === "SELL" || signalLabel === "STOPLOSS") {
+    return "border-rose-400/55 bg-rose-500/12 text-rose-700 dark:border-rose-400/40 dark:bg-rose-500/12 dark:text-rose-200";
+  }
+
+  if (signalLabel) {
+    return "border-amber-400/55 bg-amber-500/12 text-amber-700 dark:border-amber-400/40 dark:bg-amber-500/12 dark:text-amber-200";
+  }
+
+  return "border-slate-300/80 bg-slate-100/85 text-slate-500 dark:border-slate-700/70 dark:bg-slate-800/70 dark:text-slate-400";
 }
 
 function getLiveAchievedTargetLevels(signal: SignalItem | null, latestPrice: number | undefined): number[] {
@@ -956,6 +1046,153 @@ function mapWatchlistRow(base: MarketTicker, live?: SocketTick): WatchlistRow | 
     points,
     updatedAt: live?.timestamp,
   };
+}
+
+type TimeframeSignalPanelProps = {
+  activeInterval: ChartInterval;
+  digits: number;
+  isLoading: boolean;
+  onSelectInterval: (interval: ChartInterval) => void;
+  signalsByTimeframe: Record<SignalTimeframeKey, SignalItem | null>;
+  symbol?: string | null;
+  className?: string;
+};
+
+function TimeframeSignalPanel({
+  activeInterval,
+  digits,
+  isLoading,
+  onSelectInterval,
+  signalsByTimeframe,
+  symbol,
+  className,
+}: TimeframeSignalPanelProps) {
+  return (
+    <div className={cn("flex flex-col gap-1.5", className)}>
+      <div className="flex items-center justify-between gap-1.5 px-0.5">
+        <div className="min-w-0">
+          <p className="inline-flex items-center gap-1 text-[9px] uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+            <BarChart3 className="h-3 w-3" />
+            Timeframe Signals
+          </p>
+          <p className="truncate text-[10px] font-semibold text-slate-900 dark:text-slate-100">
+            {symbol ? `${symbol} 3-timeframe view` : "Fixed 5m / 15m / 1h boxes"}
+          </p>
+        </div>
+        {symbol ? (
+          <Badge className="hidden rounded-full border border-slate-300/80 bg-white/85 px-1.5 py-0.5 text-[8px] font-semibold text-slate-700 dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200 sm:inline-flex">
+            {symbol}
+          </Badge>
+        ) : null}
+      </div>
+
+      <div className="grid grid-cols-3 gap-1.5">
+        {SIGNAL_TIMEFRAME_WINDOWS.map((timeframeWindow) => {
+          const signal = signalsByTimeframe[timeframeWindow.key];
+          const signalLabel = getCurrentSignalLabel(signal);
+          const compactSignalLabel =
+            signalLabel === "TARGET HIT"
+              ? "TARGET"
+              : signalLabel === "STOPLOSS"
+                ? "STOP"
+                : signalLabel === "CLOSED"
+                  ? "CLOSE"
+                  : signalLabel === "PARTIAL"
+                    ? "PART"
+                    : signalLabel;
+          const signalEntry = getCurrentSignalEntry(signal);
+          const signalStopLoss = getCurrentSignalStopLoss(signal);
+          const signalTargets = getCurrentSignalTargets(signal).slice(0, 3);
+          const signalTime = formatSignalTimestamp(getSignalTimestamp(signal));
+          const isSelected = activeInterval === timeframeWindow.chartInterval;
+
+          return (
+            <button
+              key={timeframeWindow.key}
+              type="button"
+              onClick={() => onSelectInterval(timeframeWindow.chartInterval)}
+              className={cn(
+                "flex min-h-[154px] min-w-0 flex-col overflow-hidden rounded-lg border px-1.5 py-1.5 text-left transition sm:min-h-[164px] sm:px-2 sm:py-2",
+                isSelected
+                  ? "border-sky-400/55 bg-sky-500/10 shadow-[0_18px_30px_-28px_rgba(14,165,233,0.85)] dark:border-sky-400/40 dark:bg-sky-500/12"
+                  : "border-slate-200/85 bg-white/88 hover:border-slate-300/90 hover:bg-white dark:border-slate-800 dark:bg-[#0a1422] dark:hover:border-slate-700"
+              )}
+            >
+              <div className="flex items-start justify-between gap-1">
+                <div className="min-w-0">
+                  <p className="text-[8px] uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+                    {timeframeWindow.label}
+                  </p>
+                  <p className="mt-0.5 truncate text-[9px] font-semibold leading-tight text-slate-900 dark:text-slate-100 sm:text-[10px]">
+                    {compactSignalLabel ?? (isLoading ? "Loading" : "No signal")}
+                  </p>
+                </div>
+                <span
+                  className={cn(
+                    "inline-flex max-w-[52px] shrink-0 truncate rounded-full border px-1 py-0.5 text-[7px] font-semibold uppercase tracking-[0.08em]",
+                    getSignalLabelClass(signalLabel)
+                  )}
+                >
+                  {compactSignalLabel ?? (isLoading ? "LOAD" : "EMPTY")}
+                </span>
+              </div>
+
+              {signal ? (
+                <>
+                  <div className="mt-1.5 space-y-1 text-[8px] sm:text-[9px]">
+                    <div className="flex items-center justify-between gap-1 rounded-md border border-slate-200/75 bg-white/60 px-1.5 py-1 dark:border-slate-700/60 dark:bg-slate-950/45">
+                      <p className="truncate uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400">EN</p>
+                      <p className="truncate font-semibold text-slate-900 dark:text-slate-100">
+                        {formatNumber(signalEntry, digits)}
+                      </p>
+                    </div>
+                    <div className="flex items-center justify-between gap-1 rounded-md border border-slate-200/75 bg-white/60 px-1.5 py-1 dark:border-slate-700/60 dark:bg-slate-950/45">
+                      <p className="truncate uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400">SL</p>
+                      <p className="truncate font-semibold text-rose-700 dark:text-rose-300">
+                        {formatNumber(signalStopLoss, digits)}
+                      </p>
+                    </div>
+                    <div className="space-y-1">
+                      {[0, 1, 2].map((index) => (
+                        <div
+                          key={`${timeframeWindow.key}-target-${index + 1}`}
+                          className="flex items-center justify-between gap-1 rounded-md border border-slate-200/75 bg-white/60 px-1.5 py-1 dark:border-slate-700/60 dark:bg-slate-950/45"
+                        >
+                          <p className="truncate text-[7px] font-semibold uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400 sm:text-[8px]">
+                            {index + 1}
+                          </p>
+                          <p className="truncate text-[7px] font-semibold text-emerald-700 dark:text-emerald-300 sm:text-[8px]">
+                            {formatNumber(signalTargets[index], digits)}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="mt-auto border-t border-slate-200/75 pt-1.5 text-[7px] text-slate-500 dark:border-slate-700/70 dark:text-slate-400 sm:text-[8px]">
+                    <p className="truncate font-semibold text-slate-600 dark:text-slate-300">
+                      {signalTime}
+                    </p>
+                  </div>
+                </>
+              ) : (
+                <div className="mt-1.5 flex flex-1 flex-col justify-between">
+                  <div className="rounded-md border border-dashed border-slate-200/80 bg-white/45 px-1.5 py-1.5 text-[8px] leading-tight text-slate-500 dark:border-slate-700/70 dark:bg-slate-950/30 dark:text-slate-400 sm:text-[9px]">
+                    {isLoading
+                      ? "Loading..."
+                      : "No signal"}
+                  </div>
+                  <div className="mt-1.5 flex items-center justify-end text-[7px] text-slate-500 dark:text-slate-400 sm:text-[8px]">
+                    <span className="font-semibold">{isSelected ? "Active" : "Switch"}</span>
+                  </div>
+                </div>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 function WatchlistPageContent() {
@@ -2259,26 +2496,38 @@ function WatchlistPageContent() {
     [selectedRow, selectedSymbol, urlSymbol]
   );
   const activeChartSymbol = chartMode ? selectedSymbol || urlSymbol : null;
+  const signalPanelSymbol = chartMode ? activeChartSymbol : selectedSymbol;
+  const activeSignalsQuery = useSignalsQuery(
+    signalPanelSymbol
+      ? {
+          symbol: signalPanelSymbol,
+          status: "Active",
+          page: 1,
+          limit: 30,
+        }
+      : undefined,
+    Boolean(signalPanelSymbol)
+  );
+  const activeSignals = useMemo(() => activeSignalsQuery.data?.results ?? [], [activeSignalsQuery.data?.results]);
+  const activeSignalsByTimeframe = useMemo(
+    () => buildLatestSignalsByTimeframe(activeSignals),
+    [activeSignals]
+  );
+  const activeChartTimeframe = useMemo(() => normalizeSignalTimeframe(chartInterval), [chartInterval]);
   const shouldFetchCurrentSignal =
     Boolean(activeChartSymbol) &&
     (chartVisibility.showSignalSummary ||
       chartVisibility.showEntryLine ||
       chartVisibility.showStopLossLine ||
       chartVisibility.showTargetLines);
-  const currentSignalQuery = useSignalsQuery(
-    shouldFetchCurrentSignal && activeChartSymbol
-      ? {
-          symbol: activeChartSymbol,
-          status: "Active",
-          page: 1,
-          limit: 1,
-        }
-      : undefined,
-    shouldFetchCurrentSignal
-  );
   const currentSignal = useMemo<SignalItem | null>(
-    () => (shouldFetchCurrentSignal ? currentSignalQuery.data?.results?.[0] ?? null : null),
-    [currentSignalQuery.data?.results, shouldFetchCurrentSignal]
+    () =>
+      shouldFetchCurrentSignal
+        ? activeChartTimeframe
+          ? activeSignalsByTimeframe[activeChartTimeframe]
+          : activeSignals[0] ?? null
+        : null,
+    [activeChartTimeframe, activeSignals, activeSignalsByTimeframe, shouldFetchCurrentSignal]
   );
   const currentSignalLabel = useMemo(() => getCurrentSignalLabel(currentSignal), [currentSignal]);
   const currentSignalEntry = useMemo(() => getCurrentSignalEntry(currentSignal), [currentSignal]);
@@ -2800,8 +3049,8 @@ function WatchlistPageContent() {
           target,
           isAchieved ? `TP${level} HIT` : `TP${level}`,
           isAchieved ? "#f59e0b" : "#22c55e",
-          isAchieved ? LineStyle.Solid : LineStyle.LargeDashed,
-          isAchieved ? 3 : 1,
+          LineStyle.Solid,
+          1,
           isAchieved ? "#f59e0b" : "#22c55e",
           isAchieved ? "#0f172a" : "#ecfdf5"
         );
@@ -3170,7 +3419,7 @@ function WatchlistPageContent() {
     }
     const [historyResult, signalResult] = await Promise.all([
       historyQuery.refetch(),
-      shouldFetchCurrentSignal ? currentSignalQuery.refetch() : Promise.resolve(null),
+      signalPanelSymbol ? activeSignalsQuery.refetch() : Promise.resolve(null),
     ]);
     if (historyResult.error) {
       toast.error("Failed to refresh chart data");
@@ -3178,7 +3427,57 @@ function WatchlistPageContent() {
     if (signalResult && "error" in signalResult && signalResult.error) {
       toast.error("Failed to refresh signal data");
     }
-  }, [chartParams, currentSignalQuery, historyKey, historyQuery, shouldFetchCurrentSignal]);
+  }, [activeSignalsQuery, chartParams, historyKey, historyQuery, signalPanelSymbol]);
+  const handleRotateView = useCallback(async () => {
+    if (typeof window === "undefined") return;
+
+    const orientationApi = window.screen?.orientation as (ScreenOrientation & {
+      lock?: (orientation: string) => Promise<void>;
+    }) | null;
+    const rootElement = window.document.documentElement;
+
+    try {
+      if (!window.document.fullscreenElement && typeof rootElement.requestFullscreen === "function") {
+        await rootElement.requestFullscreen();
+      }
+
+      if (orientationApi && typeof orientationApi.lock === "function") {
+        await orientationApi.lock("landscape");
+        toast.success("Landscape view enabled");
+        return;
+      }
+
+      toast.info("Rotate your phone for a wider chart view.");
+    } catch {
+      if (window.matchMedia("(orientation: landscape)").matches) {
+        toast.success("Landscape view is already active");
+        return;
+      }
+
+      toast.info("Auto rotate is not supported here. Please rotate the phone manually.");
+    }
+  }, []);
+  useEffect(() => {
+    if (typeof document === "undefined" || typeof window === "undefined") return;
+
+    const handleFullscreenChange = () => {
+      if (document.fullscreenElement) return;
+
+      const orientationApi = window.screen?.orientation;
+      if (orientationApi && typeof orientationApi.unlock === "function") {
+        try {
+          orientationApi.unlock();
+        } catch {
+          // Ignore unlock failures on unsupported browsers.
+        }
+      }
+    };
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+    };
+  }, []);
   useEffect(() => {
     crosshairEnabledRef.current = crosshairEnabled;
     syncChartInteractionMode();
@@ -3242,6 +3541,17 @@ function WatchlistPageContent() {
                   className="h-5 w-5 rounded-full border-slate-300/80 bg-white/85 text-slate-600 shadow-none hover:bg-slate-100 hover:text-slate-900 dark:border-slate-700/70 dark:bg-slate-900/75 dark:text-slate-300 dark:hover:bg-slate-800/80 dark:hover:text-slate-100 sm:h-6 sm:w-6"
                 >
                   <Eye className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => void handleRotateView()}
+                  aria-label="Rotate screen for wider chart view"
+                  title="Rotate screen for wider chart view"
+                  className="h-5 w-5 rounded-full border-slate-300/80 bg-white/85 text-slate-600 shadow-none hover:bg-slate-100 hover:text-slate-900 dark:border-slate-700/70 dark:bg-slate-900/75 dark:text-slate-300 dark:hover:bg-slate-800/80 dark:hover:text-slate-100 sm:h-6 sm:w-6"
+                >
+                  <Smartphone className="h-2.5 w-2.5 rotate-90 translate-y-px sm:h-3 sm:w-3" />
                 </Button>
               </div>
               <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_56px_minmax(96px,112px)] items-center gap-1.5 sm:flex sm:flex-wrap sm:items-center sm:gap-2">
@@ -3429,176 +3739,188 @@ function WatchlistPageContent() {
             </div>
           </header>
 
-          <section
-            className="group relative flex-1 min-h-0 overflow-hidden rounded-2xl border border-slate-200/80 bg-white/80 p-2 shadow-[0_16px_40px_-30px_rgba(15,23,42,0.35)] focus:outline-none dark:border-slate-800 dark:bg-slate-950/70 touch-none"
-            tabIndex={0}
-            onPointerDown={(event) => {
-              event.currentTarget.focus();
-              triggerChartToolbar();
-            }}
-            onPointerMove={triggerChartToolbar}
-            onMouseEnter={triggerChartToolbar}
-          >
-            {shouldRenderChartLegend ? (
-              <div className="pointer-events-none absolute left-2 top-2 z-10 max-w-[calc(100%-3.25rem)] rounded-lg border border-transparent bg-transparent px-1.5 py-1 text-[9px] text-slate-600 shadow-none backdrop-blur-0 dark:text-slate-300 sm:left-3 sm:top-3 sm:max-w-[calc(100%-1.5rem)] sm:px-2 sm:py-1 sm:text-[11px]">
-                {chartVisibility.showOhlc && chartLegend ? (
-                  <div className="flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-0.5 whitespace-normal sm:gap-2">
-                    <span className="shrink-0">
-                      O{" "}
-                      <span className="font-semibold text-slate-900 dark:text-slate-100">
-                        {formatNumber(chartLegend.open, chartLegendDigits)}
-                      </span>
-                    </span>
-                    <span className="shrink-0">
-                      H{" "}
-                      <span className="font-semibold text-slate-900 dark:text-slate-100">
-                        {formatNumber(chartLegend.high, chartLegendDigits)}
-                      </span>
-                    </span>
-                    <span className="shrink-0">
-                      L{" "}
-                      <span className="font-semibold text-slate-900 dark:text-slate-100">
-                        {formatNumber(chartLegend.low, chartLegendDigits)}
-                      </span>
-                    </span>
-                    <span className="shrink-0">
-                      C{" "}
-                      <span className="font-semibold text-slate-900 dark:text-slate-100">
-                        {formatNumber(chartLegend.close, chartLegendDigits)}
-                      </span>
-                    </span>
-                  </div>
-                ) : null}
-                {shouldRenderSignalSummary ? (
-                  <div
-                    className={cn(
-                      chartVisibility.showOhlc && "mt-1 border-t border-slate-200/70 pt-1 dark:border-slate-700/70"
-                    )}
-                  >
-                    <div className="flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-0.5 text-slate-600 dark:text-slate-300 sm:gap-x-3 sm:gap-y-0.5">
-                      <span
-                        className={cn(
-                          "shrink-0 font-semibold",
-                          currentSignalLabel === "BUY"
-                            ? "text-emerald-700 dark:text-emerald-300"
-                            : currentSignalLabel === "SELL" || currentSignalLabel === "STOPLOSS"
-                              ? "text-rose-700 dark:text-rose-300"
-                              : "text-amber-700 dark:text-amber-300"
-                        )}
-                      >
-                        {currentSignalLabel}
-                      </span>
-                      {currentSignalAchievedSummary ? (
-                        <span className="hidden shrink-0 items-center gap-1 rounded-full border border-emerald-500/60 bg-emerald-600 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-white shadow-[0_12px_20px_-14px_rgba(22,163,74,0.95)] dark:border-emerald-400/55 dark:bg-emerald-500 dark:text-slate-950 sm:inline-flex">
-                          <Check className="h-3 w-3" />
-                          {currentSignalAchievedSummary}
+          <div className="flex flex-1 min-h-0 flex-col gap-3">
+            <section
+              className="group relative min-h-[420px] flex-1 overflow-hidden rounded-2xl border border-slate-200/80 bg-white/80 p-2 shadow-[0_16px_40px_-30px_rgba(15,23,42,0.35)] focus:outline-none dark:border-slate-800 dark:bg-slate-950/70 touch-none sm:min-h-[520px] xl:min-h-0"
+              tabIndex={0}
+              onPointerDown={(event) => {
+                event.currentTarget.focus();
+                triggerChartToolbar();
+              }}
+              onPointerMove={triggerChartToolbar}
+              onMouseEnter={triggerChartToolbar}
+            >
+              {shouldRenderChartLegend ? (
+                <div className="pointer-events-none absolute left-2 top-2 z-10 max-w-[calc(100%-3.25rem)] rounded-lg border border-transparent bg-transparent px-1.5 py-1 text-[9px] text-slate-600 shadow-none backdrop-blur-0 dark:text-slate-300 sm:left-3 sm:top-3 sm:max-w-[calc(100%-1.5rem)] sm:px-2 sm:py-1 sm:text-[11px]">
+                  {chartVisibility.showOhlc && chartLegend ? (
+                    <div className="flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-0.5 whitespace-normal sm:gap-2">
+                      <span className="shrink-0">
+                        O{" "}
+                        <span className="font-semibold text-slate-900 dark:text-slate-100">
+                          {formatNumber(chartLegend.open, chartLegendDigits)}
                         </span>
-                      ) : null}
-                      {typeof currentSignalEntry === "number" ? (
-                        <span className="shrink-0">
-                          Entry{" "}
-                          <span className="font-semibold text-slate-900 dark:text-slate-100">
-                            {formatNumber(currentSignalEntry, chartLegendDigits)}
+                      </span>
+                      <span className="shrink-0">
+                        H{" "}
+                        <span className="font-semibold text-slate-900 dark:text-slate-100">
+                          {formatNumber(chartLegend.high, chartLegendDigits)}
+                        </span>
+                      </span>
+                      <span className="shrink-0">
+                        L{" "}
+                        <span className="font-semibold text-slate-900 dark:text-slate-100">
+                          {formatNumber(chartLegend.low, chartLegendDigits)}
+                        </span>
+                      </span>
+                      <span className="shrink-0">
+                        C{" "}
+                        <span className="font-semibold text-slate-900 dark:text-slate-100">
+                          {formatNumber(chartLegend.close, chartLegendDigits)}
+                        </span>
+                      </span>
+                    </div>
+                  ) : null}
+                  {shouldRenderSignalSummary ? (
+                    <div
+                      className={cn(
+                        chartVisibility.showOhlc && "mt-1 border-t border-slate-200/70 pt-1 dark:border-slate-700/70"
+                      )}
+                    >
+                      <div className="flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-0.5 text-slate-600 dark:text-slate-300 sm:gap-x-3 sm:gap-y-0.5">
+                        <span
+                          className={cn(
+                            "shrink-0 font-semibold",
+                            currentSignalLabel === "BUY"
+                              ? "text-emerald-700 dark:text-emerald-300"
+                              : currentSignalLabel === "SELL" || currentSignalLabel === "STOPLOSS"
+                                ? "text-rose-700 dark:text-rose-300"
+                                : "text-amber-700 dark:text-amber-300"
+                          )}
+                        >
+                          {currentSignalLabel}
+                        </span>
+                        {currentSignalAchievedSummary ? (
+                          <span className="hidden shrink-0 items-center gap-1 rounded-full border border-emerald-500/60 bg-emerald-600 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-white shadow-[0_12px_20px_-14px_rgba(22,163,74,0.95)] dark:border-emerald-400/55 dark:bg-emerald-500 dark:text-slate-950 sm:inline-flex">
+                            <Check className="h-3 w-3" />
+                            {currentSignalAchievedSummary}
                           </span>
-                        </span>
-                      ) : null}
-                      {typeof currentSignalStopLoss === "number" ? (
-                        <span className="shrink-0">
-                          SL{" "}
-                          <span className="font-semibold text-rose-700 dark:text-rose-300">
-                            {formatNumber(currentSignalStopLoss, chartLegendDigits)}
-                          </span>
-                        </span>
-                      ) : null}
-                      {currentSignalTargets.map((target, index) => {
-                        const level = index + 1;
-
-                        return (
-                          <span key={`current-signal-target-${level}`} className="shrink-0">
-                            <span className="font-semibold">TP{level}</span>{" "}
-                            <span className="font-semibold text-emerald-700 dark:text-emerald-300">
-                              {formatNumber(target, chartLegendDigits)}
+                        ) : null}
+                        {typeof currentSignalEntry === "number" ? (
+                          <span className="shrink-0">
+                            Entry{" "}
+                            <span className="font-semibold text-slate-900 dark:text-slate-100">
+                              {formatNumber(currentSignalEntry, chartLegendDigits)}
                             </span>
                           </span>
-                        );
-                      })}
+                        ) : null}
+                        {typeof currentSignalStopLoss === "number" ? (
+                          <span className="shrink-0">
+                            SL{" "}
+                            <span className="font-semibold text-rose-700 dark:text-rose-300">
+                              {formatNumber(currentSignalStopLoss, chartLegendDigits)}
+                            </span>
+                          </span>
+                        ) : null}
+                        {currentSignalTargets.map((target, index) => {
+                          const level = index + 1;
+
+                          return (
+                            <span key={`current-signal-target-${level}`} className="shrink-0">
+                              <span className="font-semibold">TP{level}</span>{" "}
+                              <span className="font-semibold text-emerald-700 dark:text-emerald-300">
+                                {formatNumber(target, chartLegendDigits)}
+                              </span>
+                            </span>
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-            <div
-              className={cn(
-                chartToolbarClass,
-                isAdjustOpen || showChartToolbar
-                  ? "opacity-100 pointer-events-auto"
-                  : "opacity-0 pointer-events-none",
-                "sm:opacity-90"
-              )}
-              onPointerDown={triggerChartToolbar}
-            >
-              <button
-                type="button"
-                onClick={() => setCrosshairEnabled((prev) => !prev)}
+                  ) : null}
+                </div>
+              ) : null}
+              <div
                 className={cn(
-                  chartToolButtonClass,
-                  crosshairEnabled
-                    ? "border-sky-500/60 text-sky-600 dark:border-sky-400/60 dark:text-sky-300"
-                    : "opacity-80"
+                  chartToolbarClass,
+                  isAdjustOpen || showChartToolbar
+                    ? "opacity-100 pointer-events-auto"
+                    : "opacity-0 pointer-events-none",
+                  "sm:opacity-90"
                 )}
-                aria-label={crosshairEnabled ? "Hide crosshair" : "Show crosshair"}
-                title={crosshairEnabled ? "Hide crosshair" : "Show crosshair"}
+                onPointerDown={triggerChartToolbar}
               >
-                <Crosshair className="h-3 w-3 lg:h-4 lg:w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => handleChartZoom("out")}
-                className={chartToolButtonClass}
-                aria-label="Zoom out"
-                title="Zoom out"
-              >
-                <Minus className="h-3 w-3 lg:h-4 lg:w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => handleChartZoom("in")}
-                className={chartToolButtonClass}
-                aria-label="Zoom in"
-                title="Zoom in"
-              >
-                <Plus className="h-3 w-3 lg:h-4 lg:w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  triggerChartToolbar();
-                  void handleChartRefresh();
-                }}
-                className={cn(chartToolButtonClass, historyQuery.isFetching && "opacity-80")}
-                aria-label="Refresh chart"
-                title="Refresh chart"
-                disabled={historyQuery.isFetching}
-              >
-                <RefreshCw
+                <button
+                  type="button"
+                  onClick={() => setCrosshairEnabled((prev) => !prev)}
                   className={cn(
-                    "h-3 w-3 lg:h-4 lg:w-4",
-                    historyQuery.isFetching && "animate-spin"
+                    chartToolButtonClass,
+                    crosshairEnabled
+                      ? "border-sky-500/60 text-sky-600 dark:border-sky-400/60 dark:text-sky-300"
+                      : "opacity-80"
                   )}
-                />
-              </button>
-              <button
-                type="button"
-                onClick={handleChartReset}
-                className={chartToolButtonClass}
-                aria-label="Reset chart"
-                title="Reset chart"
-              >
-                <RotateCcw className="h-3 w-3 lg:h-4 lg:w-4" />
-              </button>
-            </div>
-            <div ref={setChartContainer} className="h-full w-full touch-none select-none" />
-          </section>
+                  aria-label={crosshairEnabled ? "Hide crosshair" : "Show crosshair"}
+                  title={crosshairEnabled ? "Hide crosshair" : "Show crosshair"}
+                >
+                  <Crosshair className="h-3 w-3 lg:h-4 lg:w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleChartZoom("out")}
+                  className={chartToolButtonClass}
+                  aria-label="Zoom out"
+                  title="Zoom out"
+                >
+                  <Minus className="h-3 w-3 lg:h-4 lg:w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleChartZoom("in")}
+                  className={chartToolButtonClass}
+                  aria-label="Zoom in"
+                  title="Zoom in"
+                >
+                  <Plus className="h-3 w-3 lg:h-4 lg:w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    triggerChartToolbar();
+                    void handleChartRefresh();
+                  }}
+                  className={cn(chartToolButtonClass, historyQuery.isFetching && "opacity-80")}
+                  aria-label="Refresh chart"
+                  title="Refresh chart"
+                  disabled={historyQuery.isFetching}
+                >
+                  <RefreshCw
+                    className={cn(
+                      "h-3 w-3 lg:h-4 lg:w-4",
+                      historyQuery.isFetching && "animate-spin"
+                    )}
+                  />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleChartReset}
+                  className={chartToolButtonClass}
+                  aria-label="Reset chart"
+                  title="Reset chart"
+                >
+                  <RotateCcw className="h-3 w-3 lg:h-4 lg:w-4" />
+                </button>
+              </div>
+              <div ref={setChartContainer} className="h-full w-full touch-none select-none" />
+            </section>
+
+            <TimeframeSignalPanel
+              activeInterval={chartInterval}
+              className="w-full"
+              digits={chartLegendDigits}
+              isLoading={activeSignalsQuery.isFetching}
+              onSelectInterval={setChartInterval}
+              signalsByTimeframe={activeSignalsByTimeframe}
+              symbol={signalPanelSymbol}
+            />
+          </div>
           <Dialog open={isChartVisibilityDialogOpen} onOpenChange={setIsChartVisibilityDialogOpen}>
             <DialogContent className="flex h-auto max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden border border-slate-200/85 bg-[linear-gradient(170deg,rgba(255,255,255,0.98),rgba(241,245,249,0.95))] p-0 text-slate-900 shadow-[0_28px_70px_-42px_rgba(15,23,42,0.48)] sm:max-h-[min(82vh,720px)] sm:max-w-md dark:border-slate-700/80 dark:bg-[linear-gradient(170deg,rgba(7,16,27,0.98),rgba(6,12,22,0.96))] dark:text-slate-100">
               <DialogHeader className="shrink-0 border-b border-slate-200/85 bg-[linear-gradient(120deg,rgba(240,249,255,0.9),rgba(255,255,255,0.88))] px-4 py-3 dark:border-slate-800/80 dark:[background-image:none] dark:bg-transparent sm:px-5 sm:py-4">
@@ -4754,12 +5076,6 @@ function WatchlistPageContent() {
               </div>
             </div>
 
-            <div className="mt-2.5 flex flex-col gap-2 rounded-[1.15rem] border border-slate-200/85 bg-white/88 px-3 py-2.5 text-[10px] text-slate-500 dark:border-slate-800/80 dark:bg-slate-950/50 dark:text-slate-400 sm:mt-3 sm:flex-row sm:items-center sm:justify-between sm:gap-2 sm:rounded-2xl sm:px-4 sm:py-2 sm:text-[11px]">
-              <span>Press Enter to add the first visible symbol quickly.</span>
-              <Button type="button" className="h-9 w-full rounded-xl px-4 sm:w-auto" onClick={() => setIsAddSymbolDialogOpen(false)}>
-                Done
-              </Button>
-            </div>
           </div>
         </DialogContent>
       </Dialog>
@@ -5143,119 +5459,141 @@ function WatchlistPageContent() {
                   </div>
                 </div>
 
-                <div className="min-w-0 rounded-xl border border-slate-200/85 bg-white/90 p-2.5 shadow-[0_14px_28px_-22px_rgba(15,23,42,0.35)] dark:border-slate-800 dark:bg-[#0a1422] dark:shadow-none sm:p-3">
-                  <div className="flex min-w-0 flex-col gap-2 min-[420px]:flex-row min-[420px]:items-center min-[420px]:justify-between">
-                    <div className="min-w-0">
-                      <p className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
-                        <BarChart3 className="h-3.5 w-3.5" />
-                        Chart
-                      </p>
-                      <p className="min-w-0 break-words text-xs font-semibold text-slate-900 dark:text-slate-100 sm:text-sm">
-                        {selectedRow.symbol} price action
-                      </p>
-                    </div>
-                    <div className="flex min-w-0 flex-wrap items-center gap-1.5 sm:gap-2">
-                      <div className="no-scrollbar flex max-w-full items-center gap-1 overflow-x-auto rounded-full border border-slate-200/80 bg-slate-100/80 p-0.5 dark:border-slate-700/70 dark:bg-slate-900/70 sm:p-1">
-                        {CHART_INTERVALS.map((interval) => (
-                          <button
-                            key={interval.value}
-                            type="button"
-                            onClick={() => setChartInterval(interval.value)}
-                            className={cn(
-                              "rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] transition sm:px-2.5 sm:py-1 sm:text-[10px] sm:tracking-[0.12em]",
-                              chartInterval === interval.value
-                                ? "bg-sky-500 text-white shadow-[0_6px_14px_-10px_rgba(14,165,233,0.9)]"
-                                : "text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white"
-                            )}
-                          >
-                            {interval.label}
-                          </button>
-                        ))}
+                <div className="flex flex-col gap-3">
+                  <div className="min-w-0 flex-1 rounded-xl border border-slate-200/85 bg-white/90 p-2.5 shadow-[0_14px_28px_-22px_rgba(15,23,42,0.35)] dark:border-slate-800 dark:bg-[#0a1422] dark:shadow-none sm:p-3">
+                    <div className="flex min-w-0 flex-col gap-2 min-[420px]:flex-row min-[420px]:items-center min-[420px]:justify-between">
+                      <div className="min-w-0">
+                        <p className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+                          <BarChart3 className="h-3.5 w-3.5" />
+                          Chart
+                        </p>
+                        <p className="min-w-0 break-words text-xs font-semibold text-slate-900 dark:text-slate-100 sm:text-sm">
+                          {selectedRow.symbol} price action
+                        </p>
                       </div>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
+                      <div className="flex min-w-0 flex-wrap items-center gap-1.5 sm:gap-2">
+                        <div className="no-scrollbar flex max-w-full items-center gap-1 overflow-x-auto rounded-full border border-slate-200/80 bg-slate-100/80 p-0.5 dark:border-slate-700/70 dark:bg-slate-900/70 sm:p-1">
+                          {CHART_INTERVALS.map((interval) => (
+                            <button
+                              key={interval.value}
+                              type="button"
+                              onClick={() => setChartInterval(interval.value)}
+                              className={cn(
+                                "rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] transition sm:px-2.5 sm:py-1 sm:text-[10px] sm:tracking-[0.12em]",
+                                chartInterval === interval.value
+                                  ? "bg-sky-500 text-white shadow-[0_6px_14px_-10px_rgba(14,165,233,0.9)]"
+                                  : "text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white"
+                              )}
+                            >
+                              {interval.label}
+                            </button>
+                          ))}
+                        </div>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="h-7 w-[132px] justify-between gap-2 overflow-hidden border-slate-300/80 bg-white/90 px-2 text-[9px] font-semibold uppercase tracking-[0.1em] text-slate-700 dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200 sm:h-8 sm:w-[150px] sm:px-3 sm:text-[10px] sm:tracking-[0.12em]"
+                          >
+                            <span className="inline-flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+                              <ActiveChartTypeIcon className="h-3.5 w-3.5" />
+                              <span className="truncate">{chartType === "heikin" ? "Heikin Ashi" : "Candles"}</span>
+                            </span>
+                            <ChevronDown className="h-3 w-3 shrink-0 opacity-70" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent
+                            align="start"
+                            collisionPadding={12}
+                            sideOffset={8}
+                            className="w-[max(7.5rem,var(--radix-dropdown-menu-trigger-width))] max-w-[calc(100vw-2rem)] border border-slate-300/85 bg-white/95 p-1 dark:border-slate-700/80 dark:bg-slate-950/95"
+                          >
+                            {CHART_TYPES.map((type) => (
+                              <DropdownMenuItem
+                                key={type.value}
+                                onSelect={(event) => {
+                                  event.preventDefault();
+                                  setChartType(type.value);
+                                }}
+                                className={cn(
+                                  "flex cursor-pointer items-center justify-between gap-2 rounded-md px-2 py-2 text-[11px] font-semibold text-slate-700 transition-colors hover:bg-sky-500/10 hover:text-sky-700 focus:bg-sky-500/10 focus:text-sky-700 data-[highlighted]:bg-sky-500/10 data-[highlighted]:text-sky-700 dark:text-slate-200 dark:hover:bg-sky-500/20 dark:hover:text-slate-100 dark:focus:bg-sky-500/20 dark:focus:text-slate-100 dark:data-[highlighted]:bg-sky-500/20 dark:data-[highlighted]:text-slate-100",
+                                  chartType === type.value &&
+                                    "bg-sky-500/10 text-sky-700 dark:bg-sky-500/20 dark:text-slate-100"
+                                )}
+                              >
+                                <span className="inline-flex min-w-0 items-center gap-1.5">
+                                  {(() => {
+                                    const TypeIcon = getChartTypeIcon(type.value);
+                                    return <TypeIcon className="h-3.5 w-3.5 opacity-80" />;
+                                  })()}
+                                  <span className="truncate">{type.label}</span>
+                                </span>
+                                {chartType === type.value ? (
+                                  <span className="h-1.5 w-1.5 rounded-full bg-sky-500 shadow-[0_0_8px_rgba(14,165,233,0.8)]" />
+                                ) : null}
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                         <Button
                           type="button"
                           variant="outline"
-                          className="h-7 w-[132px] justify-between gap-2 overflow-hidden border-slate-300/80 bg-white/90 px-2 text-[9px] font-semibold uppercase tracking-[0.1em] text-slate-700 dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200 sm:h-8 sm:w-[150px] sm:px-3 sm:text-[10px] sm:tracking-[0.12em]"
+                          onClick={() => void handleChartRefresh()}
+                          disabled={historyQuery.isFetching}
+                          className="h-7 max-w-full border-slate-300/80 bg-white/90 px-2 text-[9px] font-semibold uppercase tracking-[0.1em] text-slate-700 dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200 sm:h-8 sm:px-3 sm:text-[10px] sm:tracking-[0.12em]"
                         >
-                          <span className="inline-flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
-                            <ActiveChartTypeIcon className="h-3.5 w-3.5" />
-                            <span className="truncate">{chartType === "heikin" ? "Heikin Ashi" : "Candles"}</span>
-                          </span>
-                          <ChevronDown className="h-3 w-3 shrink-0 opacity-70" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent
-                          align="start"
-                          collisionPadding={12}
-                          sideOffset={8}
-                          className="w-[max(7.5rem,var(--radix-dropdown-menu-trigger-width))] max-w-[calc(100vw-2rem)] border border-slate-300/85 bg-white/95 p-1 dark:border-slate-700/80 dark:bg-slate-950/95"
+                          <RefreshCw
+                            className={cn("mr-1.5 h-3.5 w-3.5", historyQuery.isFetching && "animate-spin")}
+                          />
+                          Refresh
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => void handleRotateView()}
+                          aria-label="Rotate screen for wider chart view"
+                          title="Rotate screen for wider chart view"
+                          className="h-7 w-7 shrink-0 border-slate-300/80 bg-white/90 px-0 text-slate-700 dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200 sm:h-8 sm:w-8"
                         >
-                          {CHART_TYPES.map((type) => (
-                            <DropdownMenuItem
-                              key={type.value}
-                              onSelect={(event) => {
-                                event.preventDefault();
-                                setChartType(type.value);
-                              }}
-                              className={cn(
-                                "flex cursor-pointer items-center justify-between gap-2 rounded-md px-2 py-2 text-[11px] font-semibold text-slate-700 transition-colors hover:bg-sky-500/10 hover:text-sky-700 focus:bg-sky-500/10 focus:text-sky-700 data-[highlighted]:bg-sky-500/10 data-[highlighted]:text-sky-700 dark:text-slate-200 dark:hover:bg-sky-500/20 dark:hover:text-slate-100 dark:focus:bg-sky-500/20 dark:focus:text-slate-100 dark:data-[highlighted]:bg-sky-500/20 dark:data-[highlighted]:text-slate-100",
-                                chartType === type.value &&
-                                  "bg-sky-500/10 text-sky-700 dark:bg-sky-500/20 dark:text-slate-100"
-                              )}
-                            >
-                              <span className="inline-flex min-w-0 items-center gap-1.5">
-                                {(() => {
-                                  const TypeIcon = getChartTypeIcon(type.value);
-                                  return <TypeIcon className="h-3.5 w-3.5 opacity-80" />;
-                                })()}
-                                <span className="truncate">{type.label}</span>
-                              </span>
-                              {chartType === type.value ? (
-                                <span className="h-1.5 w-1.5 rounded-full bg-sky-500 shadow-[0_0_8px_rgba(14,165,233,0.8)]" />
-                              ) : null}
-                            </DropdownMenuItem>
-                          ))}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => void handleChartRefresh()}
-                        disabled={historyQuery.isFetching}
-                        className="h-7 max-w-full border-slate-300/80 bg-white/90 px-2 text-[9px] font-semibold uppercase tracking-[0.1em] text-slate-700 dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200 sm:h-8 sm:px-3 sm:text-[10px] sm:tracking-[0.12em]"
-                      >
-                        <RefreshCw
-                          className={cn("mr-1.5 h-3.5 w-3.5", historyQuery.isFetching && "animate-spin")}
-                        />
-                        Refresh
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => openChartWindow(selectedRow.symbol)}
-                        className="h-7 max-w-full border-slate-300/80 bg-white/90 px-2 text-[9px] font-semibold uppercase tracking-[0.1em] text-slate-700 dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200 sm:h-8 sm:px-3 sm:text-[10px] sm:tracking-[0.12em]"
-                      >
-                        <ScanSearch className="mr-1.5 h-3.5 w-3.5" />
-                        Open Full Chart
-                      </Button>
+                          <Smartphone className="h-3.5 w-3.5 rotate-90 translate-y-px" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => openChartWindow(selectedRow.symbol)}
+                          className="h-7 max-w-full border-slate-300/80 bg-white/90 px-2 text-[9px] font-semibold uppercase tracking-[0.1em] text-slate-700 dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200 sm:h-8 sm:px-3 sm:text-[10px] sm:tracking-[0.12em]"
+                        >
+                          <ScanSearch className="mr-1.5 h-3.5 w-3.5" />
+                          Open Full Chart
+                        </Button>
+                      </div>
                     </div>
+
+                    <div className="mt-3 h-[260px] w-full rounded-lg border border-slate-200/80 bg-white/70 p-2 sm:h-[320px] dark:border-slate-700/70 dark:bg-slate-950/60">
+                      <div ref={setChartContainer} className="h-full w-full" />
+                    </div>
+
+                    {historyQuery.isFetching ? (
+                      <div className="mt-3 flex justify-center">
+                        <CandleLoader size="sm" />
+                      </div>
+                    ) : historyCandles.length === 0 ? (
+                      <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                        No chart data available right now.
+                      </p>
+                    ) : null}
                   </div>
 
-                  <div className="mt-3 h-[260px] w-full rounded-lg border border-slate-200/80 bg-white/70 p-2 sm:h-[320px] dark:border-slate-700/70 dark:bg-slate-950/60">
-                    <div ref={setChartContainer} className="h-full w-full" />
-                  </div>
-
-                  {historyQuery.isFetching ? (
-                    <div className="mt-3 flex justify-center">
-                      <CandleLoader size="sm" />
-                    </div>
-                  ) : historyCandles.length === 0 ? (
-                    <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                      No chart data available right now.
-                    </p>
-                  ) : null}
+                  <TimeframeSignalPanel
+                    activeInterval={chartInterval}
+                    className="w-full"
+                    digits={detailDigits}
+                    isLoading={activeSignalsQuery.isFetching}
+                    onSelectInterval={setChartInterval}
+                    signalsByTimeframe={activeSignalsByTimeframe}
+                    symbol={selectedRow.symbol}
+                  />
                 </div>
 
                 <div className="flex flex-wrap items-center justify-end gap-2">
