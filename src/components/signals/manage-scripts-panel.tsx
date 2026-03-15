@@ -80,6 +80,7 @@ export function ManageScriptsPanel({ className }: ManageScriptsPanelProps) {
   const queryClient = useQueryClient();
   const [symbolInput, setSymbolInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchSegmentFilter, setSearchSegmentFilter] = useState("ALL");
   const [selectedSegmentFilter, setSelectedSegmentFilter] = useState("ALL");
   const [removingSymbol, setRemovingSymbol] = useState<string | null>(null);
 
@@ -192,13 +193,20 @@ export function ManageScriptsPanel({ className }: ManageScriptsPanelProps) {
       if (!item.symbol) continue;
       const symbol = normalizeSymbol(item.symbol);
       if (selected.has(symbol) || used.has(symbol)) continue;
+      if (
+        searchSegmentFilter !== "ALL" &&
+        getSegmentBucketLabel(item.segment, item.exchange, item.symbol, item.name) !==
+          searchSegmentFilter
+      ) {
+        continue;
+      }
       used.add(symbol);
       suggestions.push({ ...item, symbol });
       if (suggestions.length >= 10) break;
     }
 
     return suggestions;
-  }, [searchMarketQuery.data, selectedSymbols]);
+  }, [searchMarketQuery.data, searchSegmentFilter, selectedSymbols]);
 
   const hasExactSuggestion = useMemo(
     () => searchSuggestions.some((item) => item.symbol === pendingSymbol),
@@ -281,7 +289,20 @@ export function ManageScriptsPanel({ className }: ManageScriptsPanelProps) {
               <Plus className="h-3.5 w-3.5" />
               Add Script
             </div>
-            <span className="text-[10px] text-slate-500 dark:text-slate-400">Quick search</span>
+            <div className="flex items-center gap-2 text-[10px] text-slate-500 dark:text-slate-400">
+              <span>Quick search</span>
+              <select
+                value={searchSegmentFilter}
+                onChange={(event) => setSearchSegmentFilter(event.target.value)}
+                className="h-7 rounded-full border border-slate-300/80 bg-white/85 px-2.5 text-[10px] font-semibold text-slate-700 outline-none transition-all duration-200 hover:border-sky-500/40 dark:border-slate-700/70 dark:bg-slate-950/50 dark:text-slate-200 dark:hover:border-sky-400/45"
+              >
+                {["ALL", "COMEX", "COMMODITY", "CRYPTO", "CURRENCY", "EQUITY", "FNO", "INDICES"].map((segment) => (
+                  <option key={segment} value={segment}>
+                    {segment === "ALL" ? "All segments" : segment}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <div className="relative">
