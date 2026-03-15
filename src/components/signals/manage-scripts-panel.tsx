@@ -6,6 +6,13 @@ import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { CandleLoader } from "@/components/ui/candle-loader";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import {
@@ -145,6 +152,7 @@ export function ManageScriptsPanel({ className }: ManageScriptsPanelProps) {
   const [selectedSegmentFilter, setSelectedSegmentFilter] = useState("ALL");
   const [addingSymbol, setAddingSymbol] = useState<string | null>(null);
   const [removingSymbol, setRemovingSymbol] = useState<string | null>(null);
+  const [isAddSymbolDialogOpen, setIsAddSymbolDialogOpen] = useState(false);
 
   const watchlistsQuery = useMarketUserWatchlistsQuery(true);
   const watchlistQuery = useMarketUserWatchlistQuery(true, {
@@ -175,6 +183,13 @@ export function ManageScriptsPanel({ className }: ManageScriptsPanelProps) {
 
     return () => window.clearTimeout(timer);
   }, [symbolInput]);
+
+  useEffect(() => {
+    if (isAddSymbolDialogOpen) return;
+    setSymbolInput("");
+    setSearchQuery("");
+    setAddSymbolSegment("ALL");
+  }, [isAddSymbolDialogOpen]);
 
   const selectedScripts = useMemo(
     () =>
@@ -406,152 +421,194 @@ export function ManageScriptsPanel({ className }: ManageScriptsPanelProps) {
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
             <Input
               value={symbolInput}
-              onChange={(event) => setSymbolInput(event.target.value)}
+              onChange={(event) => {
+                setSymbolInput(event.target.value);
+                if (!isAddSymbolDialogOpen) setIsAddSymbolDialogOpen(true);
+              }}
+              onFocus={() => setIsAddSymbolDialogOpen(true)}
+              onClick={() => setIsAddSymbolDialogOpen(true)}
               onKeyDown={(event) => {
-                if (event.key === "Enter" && addSymbolResults[0]?.symbol) {
+                if (event.key === "Enter") {
                   event.preventDefault();
-                  void handleAddSymbol(addSymbolResults[0].symbol);
+                  setIsAddSymbolDialogOpen(true);
                 }
               }}
-              placeholder="Symbol, name, segment, or exchange"
+              placeholder="Search scripts (opens dialog)"
               className="h-11 border-slate-300/80 bg-white/90 pl-9 transition-all duration-200 focus-visible:ring-2 focus-visible:ring-sky-500/25 dark:border-slate-700/70 dark:bg-slate-950/65 dark:focus-visible:ring-sky-400/30"
             />
           </div>
+        </div>
 
-          <div className="mt-2.5 flex gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {addSymbolSegmentOptions.map((option) => {
-              const isActive = addSymbolSegment === option;
-              const label = option === "ALL" ? "All" : SEGMENT_LABELS[option] ?? option;
-              return (
-                <button
-                  key={option}
-                  type="button"
-                  onClick={() => setAddSymbolSegment(option)}
-                  className={cn(
-                    "shrink-0 rounded-full px-3 py-1.5 text-[11px] font-semibold transition-all duration-200",
-                    isActive
-                      ? "bg-slate-900 text-white shadow-[0_10px_25px_-18px_rgba(15,23,42,0.75)] dark:bg-white dark:text-slate-900"
-                      : "border border-slate-200/85 bg-slate-100/85 text-slate-700 hover:border-slate-300/85 hover:bg-slate-200/75 dark:border-slate-700/80 dark:bg-slate-900/75 dark:text-slate-200 dark:hover:bg-slate-800/85"
-                  )}
-                >
-                  {label}
-                </button>
-              );
-            })}
-          </div>
+        <Dialog open={isAddSymbolDialogOpen} onOpenChange={setIsAddSymbolDialogOpen}>
+          <DialogContent className="flex h-auto max-h-[calc(100dvh-0.2rem)] w-[calc(100vw-0.2rem)] max-w-[calc(100vw-0.2rem)] flex-col overflow-hidden border border-slate-200/85 bg-[linear-gradient(180deg,rgba(255,255,255,0.995),rgba(248,250,252,0.98))] p-0 text-slate-900 shadow-[0_32px_90px_-48px_rgba(15,23,42,0.55)] min-[360px]:w-[calc(100vw-0.75rem)] min-[360px]:max-w-[calc(100vw-0.75rem)] sm:max-h-[84vh] sm:max-w-3xl dark:border-slate-700/80 dark:bg-[linear-gradient(180deg,rgba(3,10,20,0.99),rgba(8,15,28,0.98))] dark:text-slate-100">
+            <DialogHeader className="shrink-0 gap-1.5 border-b border-slate-200/85 bg-[linear-gradient(120deg,rgba(255,255,255,0.98),rgba(240,249,255,0.94))] px-3 py-3 dark:border-slate-800/80 dark:[background-image:none] dark:bg-transparent sm:px-5 sm:py-5">
+              <DialogTitle className="text-left text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+                Add script
+              </DialogTitle>
+              <DialogDescription className="text-left text-sm text-slate-600 dark:text-slate-400">
+                Search and add scripts by segment without changing your current selection.
+              </DialogDescription>
+            </DialogHeader>
 
-          <div className="mt-2.5 flex flex-wrap items-center gap-2 text-[10px] text-slate-500 dark:text-slate-400">
-            <span className="rounded-full border border-sky-300/55 bg-sky-500/10 px-2.5 py-1 text-[10px] font-semibold text-sky-700 dark:border-sky-400/30 dark:bg-sky-500/12 dark:text-sky-200">
-              {addSymbolSegment === "ALL"
-                ? "All segments"
-                : SEGMENT_LABELS[addSymbolSegment] ?? addSymbolSegment}
-            </span>
-            <span>{addSymbolResults.length} symbol{addSymbolResults.length === 1 ? "" : "s"} available</span>
-            {symbolInput.trim() !== deferredSearchQuery ? (
-              <span className="text-[10px] text-slate-400 dark:text-slate-500">Updating...</span>
-            ) : null}
-          </div>
-
-          <div className="mt-2.5 min-h-0 overflow-hidden rounded-2xl border border-slate-200/85 bg-white/92 shadow-[0_18px_40px_-32px_rgba(15,23,42,0.35)] dark:border-slate-800/80 dark:bg-slate-950/55">
-            <div className="flex items-center justify-between gap-3 border-b border-slate-200/85 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500 dark:border-slate-800/80 dark:text-slate-400">
-              <span>Available symbols</span>
-              <span className="truncate text-right">{deferredSearchQuery.length >= 2 ? "Live search" : "Suggested list"}</span>
-            </div>
-
-            <div className="max-h-[320px] overflow-y-auto overscroll-contain [scrollbar-gutter:stable]">
-              {addSymbolLoading ? (
-                <div className="flex min-h-[200px] items-center justify-center px-4">
-                  <CandleLoader size="sm" />
+            <div className="flex flex-1 min-h-0 flex-col overflow-hidden px-2.5 pb-2.5 pt-2.5 sm:px-5 sm:pb-5">
+              <div className="rounded-[1.15rem] border border-slate-200/85 bg-white/90 p-2.5 shadow-[0_16px_40px_-32px_rgba(15,23,42,0.35)] dark:border-slate-800/80 dark:bg-slate-950/55 sm:rounded-2xl sm:p-3">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
+                  <Input
+                    value={symbolInput}
+                    onChange={(event) => setSymbolInput(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && addSymbolResults[0]?.symbol) {
+                        event.preventDefault();
+                        void handleAddSymbol(addSymbolResults[0].symbol);
+                      }
+                    }}
+                    placeholder="Symbol, name, segment, or exchange"
+                    className="h-11 rounded-2xl border-slate-200/90 bg-slate-50/95 pl-10 pr-3 text-[13px] shadow-none focus-visible:ring-sky-500/30 dark:border-slate-700/80 dark:bg-slate-900/75 sm:h-12 sm:pl-11 sm:pr-4 sm:text-sm"
+                  />
                 </div>
-              ) : addSymbolResults.length === 0 ? (
-                <div className="flex min-h-[200px] flex-col items-center justify-center px-5 text-center">
-                  <div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-500 dark:bg-slate-900/80 dark:text-slate-400">
-                    <ScanSearch className="h-5 w-5" />
-                  </div>
-                  <p className="mt-3 text-sm font-semibold text-slate-900 dark:text-slate-100">
-                    No symbols found
-                  </p>
-                  <p className="mt-1 max-w-sm text-xs text-slate-500 dark:text-slate-400">
-                    Try another keyword or switch the segment filter to browse more instruments.
-                  </p>
-                </div>
-              ) : (
-                <div className="divide-y divide-slate-200/85 dark:divide-slate-800/80">
-                  {addSymbolResults.map((item) => {
-                    const symbol = normalizeSymbol(item.symbol ?? "");
-                    const aliasBase = getSymbolAliasBase(symbol);
-                    const segment = getMarketItemSegment(item) || "SEGMENT";
-                    const exchange = getMarketItemExchange(item) || "EXCHANGE";
-                    const name = getMarketItemName(item) || symbol;
-                    const isAdding = addMutation.isPending && symbol === addingSymbol;
-                    const isAlreadyAdded = Boolean(aliasBase && selectedAliases.has(aliasBase));
+
+                <div className="mt-2.5 flex gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:mt-3 sm:gap-2">
+                  {addSymbolSegmentOptions.map((option) => {
+                    const isActive = addSymbolSegment === option;
+                    const label = option === "ALL" ? "All" : SEGMENT_LABELS[option] ?? option;
                     return (
-                      <div
-                        key={`${symbol}-${segment}-${exchange}`}
-                        className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2.5 px-3 py-2.5 transition-colors hover:bg-slate-50/90 dark:hover:bg-slate-900/60 sm:grid-cols-[minmax(0,1.2fr)_minmax(110px,0.45fr)_auto]"
+                      <button
+                        key={option}
+                        type="button"
+                        onClick={() => setAddSymbolSegment(option)}
+                        className={cn(
+                          "shrink-0 rounded-full px-3 py-1.5 text-[11px] font-semibold transition-all duration-200 sm:px-3.5 sm:text-xs",
+                          isActive
+                            ? "bg-slate-900 text-white shadow-[0_10px_25px_-18px_rgba(15,23,42,0.75)] dark:bg-white dark:text-slate-900"
+                            : "border border-slate-200/85 bg-slate-100/85 text-slate-700 hover:border-slate-300/85 hover:bg-slate-200/75 dark:border-slate-700/80 dark:bg-slate-900/75 dark:text-slate-200 dark:hover:bg-slate-800/85"
+                        )}
                       >
-                        <button
-                          type="button"
-                          onClick={() => void handleAddSymbol(String(item.symbol ?? symbol))}
-                          disabled={addMutation.isPending || isAlreadyAdded}
-                          className="contents text-left disabled:pointer-events-none"
-                        >
-                          <div className="min-w-0">
-                            <p className="truncate text-[13px] font-semibold text-slate-900 dark:text-slate-100 sm:text-sm">
-                              {symbol}
-                            </p>
-                            <p className="truncate text-[11px] text-slate-500 dark:text-slate-400 sm:text-xs">{name}</p>
-                            <div className="mt-1 flex items-center gap-2 text-[10px] text-slate-500 dark:text-slate-400 sm:hidden">
-                              <span className="font-semibold uppercase text-slate-700 dark:text-slate-200">{exchange}</span>
-                              <span className="truncate">{segment}</span>
-                            </div>
-                          </div>
-                        </button>
-                        <div className="hidden min-w-0 items-center gap-2 text-xs text-slate-500 dark:text-slate-400 sm:flex">
-                          <span className="truncate lowercase">{segment.toLowerCase()}</span>
-                          <span className="truncate font-semibold uppercase text-slate-700 dark:text-slate-200">
-                            {exchange}
-                          </span>
-                          {isAlreadyAdded ? (
-                            <span className="rounded-full border border-emerald-400/50 bg-emerald-500/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-emerald-700 dark:border-emerald-400/35 dark:bg-emerald-500/10 dark:text-emerald-300">
-                              Added
-                            </span>
-                          ) : null}
-                        </div>
-                        <div className="flex items-center justify-end">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => void handleAddSymbol(String(item.symbol ?? symbol))}
-                            disabled={addMutation.isPending || isAlreadyAdded}
-                            className="h-9 min-w-[72px] rounded-xl border-slate-200/85 bg-white px-3 text-[11px] font-semibold text-slate-700 hover:bg-slate-100 active:scale-[0.98] dark:border-slate-700/80 dark:bg-slate-900/80 dark:text-slate-100 dark:hover:bg-slate-800 sm:h-9 sm:min-w-0 sm:rounded-full sm:px-0 sm:w-9"
-                            aria-label={isAlreadyAdded ? `${symbol} already added` : `Add ${symbol}`}
-                          >
-                            {addMutation.isPending && isAdding ? (
-                              <RefreshCw className="h-4 w-4 animate-spin" />
-                            ) : isAlreadyAdded ? (
-                              <>
-                                <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-300" />
-                                <span className="ml-1 text-emerald-700 dark:text-emerald-300 sm:hidden">
-                                  Added
-                                </span>
-                              </>
-                            ) : (
-                              <>
-                                <Plus className="h-4 w-4" />
-                                <span className="ml-1 sm:hidden">Add</span>
-                              </>
-                            )}
-                          </Button>
-                        </div>
-                      </div>
+                        {label}
+                      </button>
                     );
                   })}
                 </div>
-              )}
+
+                <div className="mt-2.5 flex flex-wrap items-center gap-2 text-[10px] text-slate-500 dark:text-slate-400 sm:mt-3 sm:text-[11px]">
+                  <span className="rounded-full border border-sky-300/55 bg-sky-500/10 px-2.5 py-1 text-[10px] font-semibold text-sky-700 dark:border-sky-400/30 dark:bg-sky-500/12 dark:text-sky-200">
+                    {addSymbolSegment === "ALL"
+                      ? "All segments"
+                      : SEGMENT_LABELS[addSymbolSegment] ?? addSymbolSegment}
+                  </span>
+                  <span>{addSymbolResults.length} symbol{addSymbolResults.length === 1 ? "" : "s"} available</span>
+                  {symbolInput.trim() !== deferredSearchQuery ? (
+                    <span className="text-[10px] text-slate-400 dark:text-slate-500">Updating...</span>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="mt-2.5 min-h-0 flex-1 overflow-hidden rounded-[1.15rem] border border-slate-200/85 bg-white/92 shadow-[0_20px_48px_-36px_rgba(15,23,42,0.42)] dark:border-slate-800/80 dark:bg-slate-950/55 sm:mt-3 sm:rounded-2xl">
+                <div className="flex items-center justify-between gap-3 border-b border-slate-200/85 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500 dark:border-slate-800/80 dark:text-slate-400 sm:px-4 sm:text-[11px] sm:tracking-[0.14em]">
+                  <span>Available symbols</span>
+                  <span className="truncate text-right">{deferredSearchQuery.length >= 2 ? "Live search" : "Suggested list"}</span>
+                </div>
+
+                <div className="max-h-[58vh] overflow-y-auto overscroll-contain [scrollbar-gutter:stable] sm:max-h-[54vh]">
+                  {addSymbolLoading ? (
+                    <div className="flex min-h-[220px] items-center justify-center px-4 sm:min-h-[240px]">
+                      <CandleLoader size="md" />
+                    </div>
+                  ) : addSymbolResults.length === 0 ? (
+                    <div className="flex min-h-[220px] flex-col items-center justify-center px-5 text-center sm:min-h-[240px] sm:px-6">
+                      <div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-500 dark:bg-slate-900/80 dark:text-slate-400">
+                        <ScanSearch className="h-5 w-5" />
+                      </div>
+                      <p className="mt-3 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                        No symbols found
+                      </p>
+                      <p className="mt-1 max-w-sm text-xs text-slate-500 dark:text-slate-400">
+                        Try another keyword or switch the segment filter to browse more instruments.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-slate-200/85 dark:divide-slate-800/80">
+                      {addSymbolResults.map((item) => {
+                        const symbol = normalizeSymbol(item.symbol ?? "");
+                        const aliasBase = getSymbolAliasBase(symbol);
+                        const segment = getMarketItemSegment(item) || "SEGMENT";
+                        const exchange = getMarketItemExchange(item) || "EXCHANGE";
+                        const name = getMarketItemName(item) || symbol;
+                        const isAdding = addMutation.isPending && symbol === addingSymbol;
+                        const isAlreadyAdded = Boolean(aliasBase && selectedAliases.has(aliasBase));
+                        return (
+                          <div
+                            key={`${symbol}-${segment}-${exchange}`}
+                            className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2.5 px-2.5 py-2.5 transition-colors hover:bg-slate-50/90 dark:hover:bg-slate-900/60 sm:grid-cols-[56px_minmax(0,1.2fr)_minmax(110px,0.45fr)_auto] sm:gap-3 sm:px-4 sm:py-3"
+                          >
+                            <button
+                              type="button"
+                              onClick={() => void handleAddSymbol(String(item.symbol ?? symbol))}
+                              disabled={addMutation.isPending || isAlreadyAdded}
+                              className="contents text-left disabled:pointer-events-none"
+                            >
+                              <div className="hidden h-11 w-11 items-center justify-center rounded-2xl border border-slate-200/85 bg-[linear-gradient(145deg,rgba(240,249,255,0.95),rgba(255,255,255,0.98))] text-sm font-bold uppercase tracking-[0.08em] text-slate-800 shadow-[0_10px_22px_-18px_rgba(14,165,233,0.5)] dark:border-slate-700/80 dark:bg-[linear-gradient(145deg,rgba(14,22,36,0.95),rgba(6,12,22,0.98))] dark:text-slate-100 sm:inline-flex"
+                              >
+                                {symbol.slice(0, 2)}
+                              </div>
+                              <div className="min-w-0">
+                                <p className="truncate text-[13px] font-semibold text-slate-900 dark:text-slate-100 sm:text-sm">
+                                  {symbol}
+                                </p>
+                                <p className="truncate text-[11px] text-slate-500 dark:text-slate-400 sm:text-xs">{name}</p>
+                                <div className="mt-1 flex items-center gap-2 text-[10px] text-slate-500 dark:text-slate-400 sm:hidden">
+                                  <span className="font-semibold uppercase text-slate-700 dark:text-slate-200">{exchange}</span>
+                                  <span className="truncate">{segment}</span>
+                                </div>
+                              </div>
+                            </button>
+                            <div className="hidden min-w-0 items-center gap-2 text-xs text-slate-500 dark:text-slate-400 sm:flex">
+                              <span className="truncate lowercase">{segment.toLowerCase()}</span>
+                              <span className="truncate font-semibold uppercase text-slate-700 dark:text-slate-200">
+                                {exchange}
+                              </span>
+                              {isAlreadyAdded ? (
+                                <span className="rounded-full border border-emerald-400/50 bg-emerald-500/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-emerald-700 dark:border-emerald-400/35 dark:bg-emerald-500/10 dark:text-emerald-300">
+                                  Added
+                                </span>
+                              ) : null}
+                            </div>
+                            <div className="flex items-center justify-end">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => void handleAddSymbol(String(item.symbol ?? symbol))}
+                                disabled={addMutation.isPending || isAlreadyAdded}
+                                className="h-9 min-w-[72px] rounded-xl border-slate-200/85 bg-white px-3 text-[11px] font-semibold text-slate-700 hover:bg-slate-100 active:scale-[0.98] dark:border-slate-700/80 dark:bg-slate-900/80 dark:text-slate-100 dark:hover:bg-slate-800 sm:h-9 sm:min-w-0 sm:rounded-full sm:px-0 sm:w-9"
+                                aria-label={isAlreadyAdded ? `${symbol} already added` : `Add ${symbol}`}
+                              >
+                                {addMutation.isPending && isAdding ? (
+                                  <RefreshCw className="h-4 w-4 animate-spin" />
+                                ) : isAlreadyAdded ? (
+                                  <>
+                                    <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-300" />
+                                    <span className="ml-1 text-emerald-700 dark:text-emerald-300 sm:hidden">
+                                      Added
+                                    </span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Plus className="h-4 w-4" />
+                                    <span className="ml-1 sm:hidden">Add</span>
+                                  </>
+                                )}
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
+          </DialogContent>
+        </Dialog>
 
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           {segmentUsageRows.map(([segment, count]) => (
