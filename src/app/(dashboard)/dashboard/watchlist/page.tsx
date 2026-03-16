@@ -8,9 +8,11 @@ import {
   type IChartApi,
   type IPriceLine,
   type ISeriesApi,
+  type LineData,
   type LineWidth,
   type MouseEventParams,
   LineStyle,
+  type SeriesMarker,
   TrackingModeExitMode,
   type UTCTimestamp,
 } from "lightweight-charts";
@@ -186,6 +188,17 @@ type HistoryCandle = {
   close: number;
   volume?: number;
 };
+type ChartCandle = HistoryCandle & {
+  color?: string;
+  borderColor?: string;
+  wickColor?: string;
+};
+type SupertrendTrend = -1 | 0 | 1;
+type SupertrendSnapshot = {
+  value: number;
+  trend: SupertrendTrend;
+};
+type ChartMarker = SeriesMarker<UTCTimestamp>;
 type TickPoint = {
   time: number;
   price: number;
@@ -201,6 +214,7 @@ type ChartVisibilitySettings = {
   showEntryLine: boolean;
   showStopLossLine: boolean;
   showTargetLines: boolean;
+  showStructureTargets: boolean;
 };
 
 const DEFAULT_CHART_VISIBILITY_SETTINGS: ChartVisibilitySettings = {
@@ -209,6 +223,7 @@ const DEFAULT_CHART_VISIBILITY_SETTINGS: ChartVisibilitySettings = {
   showEntryLine: true,
   showStopLossLine: true,
   showTargetLines: true,
+  showStructureTargets: false,
 };
 
 const CHART_VISIBILITY_OPTIONS: Array<{
@@ -240,6 +255,11 @@ const CHART_VISIBILITY_OPTIONS: Array<{
     key: "showTargetLines",
     label: "Target lines",
     description: "Horizontal lines for TP1, TP2, and TP3.",
+  },
+  {
+    key: "showStructureTargets",
+    label: "Structure targets",
+    description: "HH/HL or LH/LL levels near recent swing points.",
   },
 ];
 const toUTCTimestamp = (value: number): UTCTimestamp => value as UTCTimestamp;
@@ -349,6 +369,11 @@ const HISTORY_CANDLE_COUNT = 500;
 const MAX_TICK_HISTORY_LENGTH = 5000;
 const TICK_HISTORY_WINDOW_SEC = 12 * 60 * 60;
 const CHART_UPDATE_THROTTLE_MS = 250;
+const SUPER_TREND_PERIOD = 14;
+const SUPER_TREND_MULTIPLIER = 1.5;
+const SUPER_TREND_UP_COLOR = "#22C55E";
+const SUPER_TREND_DOWN_COLOR = "#EF4444";
+const RANGE_TARGET_MULTIPLIERS = { t1: 5, t2: 10, t3: 15 };
 const INDIA_TIME_ZONE = "Asia/Kolkata";
 const INDIA_TIME_ZONE_OFFSET_SEC = 5.5 * 60 * 60;
 const INDIA_MARKET_OPEN_LOCAL_SEC = 9 * 60 * 60 + 15 * 60;
@@ -830,6 +855,235 @@ function calculateHeikinAshi(candles: HistoryCandle[]): HistoryCandle[] {
   return haCandles;
 }
 
+type StructurePivotLabel = "HH" | "LH" | "HL" | "LL" | "H" | "L";
+type StructurePivot = {
+  time: UTCTimestamp;
+  price: number;
+  kind: "H" | "L";
+  label: StructurePivotLabel;
+  index: number;
+};
+
+function isPriceNear(left: number, right: number): boolean {
+  if (!Number.isFinite(left) || !Number.isFinite(right)) return false;
+  const diff = Math.abs(left - right);
+  const rel = Math.max(Math.abs(left), Math.abs(right));
+  const tolerance = Math.max(1e-4, rel * 1e-6);
+  return diff <= tolerance;
+}
+
+function calculateStructurePivots(candles: HistoryCandle[], period = 5): StructurePivot[] {
+  if (candles.length < period * 2 + 1) return [];
+
+  const raw: Array<{ time: UTCTimestamp; price: number; kind: "H" | "L"; index: number }> = [];
+  for (let i = period; i < candles.length - period; i += 1) {
+    const candle = candles[i];
+    const high = candle?.high;
+    const low = candle?.low;
+    if (typeof high !== "number" || typeof low !== "number") continue;
+    if (!Number.isFinite(high) || !Number.isFinite(low)) continue;
+
+    let isHigh = true;
+    let isLow = true;
+    for (let j = 1; j <= period; j += 1) {
+      const left = candles[i - j];
+      const right = candles[i + j];
+      if ((left?.high ?? -Infinity) > high || (right?.high ?? -Infinity) > high) isHigh = false;
+      if ((left?.low ?? Infinity) < low || (right?.low ?? Infinity) < low) isLow = false;
+      if (!isHigh && !isLow) break;
+    }
+
+    if (isHigh) raw.push({ time: candle.time, price: high, kind: "H", index: i });
+    if (isLow) raw.push({ time: candle.time, price: low, kind: "L", index: i });
+  }
+
+  if (raw.length === 0) return [];
+
+  raw.sort((left, right) => left.index - right.index);
+
+  const filtered: typeof raw = [];
+  let last: (typeof raw)[number] | null = null;
+  for (const current of raw) {
+    if (!last) {
+      filtered.push(current);
+      last = current;
+      continue;
+    }
+    if (current.kind === last.kind) {
+      if (current.kind === "H") {
+        if (current.price > last.price) {
+          filtered[filtered.length - 1] = current;
+          last = current;
+        }
+      } else {
+        if (current.price < last.price) {
+          filtered[filtered.length - 1] = current;
+          last = current;
+        }
+      }
+      continue;
+    }
+    filtered.push(current);
+    last = current;
+  }
+
+  const pivots: StructurePivot[] = [];
+  let prevHigh: (typeof raw)[number] | null = null;
+  let prevLow: (typeof raw)[number] | null = null;
+  for (const pivot of filtered) {
+    if (pivot.kind === "H") {
+      const label: StructurePivotLabel = prevHigh ? (pivot.price > prevHigh.price ? "HH" : "LH") : "H";
+      prevHigh = pivot;
+      pivots.push({ ...pivot, label });
+      continue;
+    }
+    const label: StructurePivotLabel = prevLow ? (pivot.price < prevLow.price ? "LL" : "HL") : "L";
+    prevLow = pivot;
+    pivots.push({ ...pivot, label });
+  }
+
+  return pivots;
+}
+
+function applySupertrendToCandles(
+  candles: HistoryCandle[],
+  period = SUPER_TREND_PERIOD,
+  multiplier = SUPER_TREND_MULTIPLIER
+): {
+  candles: ChartCandle[];
+  line: LineData[];
+  latest: SupertrendSnapshot | null;
+  markers: ChartMarker[];
+} {
+  if (candles.length === 0) {
+    return { candles: [], line: [], latest: null, markers: [] };
+  }
+
+  const fallbackColor = (candle: HistoryCandle) =>
+    candle.close >= candle.open ? SUPER_TREND_UP_COLOR : SUPER_TREND_DOWN_COLOR;
+
+  if (candles.length < period + 1) {
+    const colored = candles.map((candle) => {
+      const color = fallbackColor(candle);
+      return { ...candle, color, borderColor: color, wickColor: color };
+    });
+    return { candles: colored, line: [], latest: null, markers: [] };
+  }
+
+  const tr: number[] = new Array(candles.length).fill(0);
+  for (let i = 0; i < candles.length; i += 1) {
+    if (i === 0) {
+      tr[i] = candles[i].high - candles[i].low;
+      continue;
+    }
+    const high = candles[i].high;
+    const low = candles[i].low;
+    const prevClose = candles[i - 1].close;
+    tr[i] = Math.max(
+      high - low,
+      Math.abs(high - prevClose),
+      Math.abs(low - prevClose)
+    );
+  }
+
+  const atr: Array<number | undefined> = new Array(candles.length).fill(undefined);
+  let sumTR = 0;
+  for (let i = 0; i < period; i += 1) {
+    sumTR += tr[i] ?? 0;
+  }
+  atr[period - 1] = sumTR / period;
+  for (let i = period; i < candles.length; i += 1) {
+    const prevAtr = atr[i - 1] ?? atr[i - 2] ?? 0;
+    atr[i] = (prevAtr * (period - 1) + tr[i]) / period;
+  }
+
+  const up: Array<number | undefined> = new Array(candles.length).fill(undefined);
+  const dn: Array<number | undefined> = new Array(candles.length).fill(undefined);
+  const trend: number[] = new Array(candles.length).fill(0);
+
+  for (let i = period; i < candles.length; i += 1) {
+    const currentAtr = atr[i];
+    if (typeof currentAtr !== "number" || !Number.isFinite(currentAtr)) continue;
+    const src = (candles[i].high + candles[i].low) / 2;
+    let currentUp = src - multiplier * currentAtr;
+    let currentDn = src + multiplier * currentAtr;
+
+    const prevUp = up[i - 1] ?? currentUp;
+    const prevDn = dn[i - 1] ?? currentDn;
+    const prevClose = candles[i - 1].close;
+
+    if (prevClose > prevUp) {
+      currentUp = Math.max(currentUp, prevUp);
+    }
+    if (prevClose < prevDn) {
+      currentDn = Math.min(currentDn, prevDn);
+    }
+
+    up[i] = currentUp;
+    dn[i] = currentDn;
+
+    let currentTrend = trend[i - 1] || 1;
+    const close = candles[i].close;
+    if (currentTrend === -1 && close > prevDn) {
+      currentTrend = 1;
+    } else if (currentTrend === 1 && close < prevUp) {
+      currentTrend = -1;
+    }
+    trend[i] = currentTrend;
+  }
+
+  const line: LineData[] = [];
+  const markers: ChartMarker[] = [];
+  const colored = candles.map((candle, index) => {
+    const currentTrend = trend[index];
+    const trendColor =
+      currentTrend === 1
+        ? SUPER_TREND_UP_COLOR
+        : currentTrend === -1
+          ? SUPER_TREND_DOWN_COLOR
+          : fallbackColor(candle);
+    const value =
+      currentTrend === 1 ? up[index] : currentTrend === -1 ? dn[index] : undefined;
+    if (typeof value === "number" && Number.isFinite(value)) {
+      line.push({ time: candle.time, value, color: trendColor });
+    }
+    return { ...candle, color: trendColor, borderColor: trendColor, wickColor: trendColor };
+  });
+
+  for (let i = 1; i < candles.length; i += 1) {
+    const prevTrend = trend[i - 1];
+    const nextTrend = trend[i];
+    if (prevTrend === -1 && nextTrend === 1) {
+      markers.push({
+        time: candles[i].time,
+        position: "belowBar",
+        shape: "arrowUp",
+        color: SUPER_TREND_UP_COLOR,
+      });
+    } else if (prevTrend === 1 && nextTrend === -1) {
+      markers.push({
+        time: candles[i].time,
+        position: "aboveBar",
+        shape: "arrowDown",
+        color: SUPER_TREND_DOWN_COLOR,
+      });
+    }
+  }
+
+  let latest: SupertrendSnapshot | null = null;
+  for (let i = candles.length - 1; i >= 0; i -= 1) {
+    const currentTrend = trend[i] as SupertrendTrend;
+    const value =
+      currentTrend === 1 ? up[i] : currentTrend === -1 ? dn[i] : undefined;
+    if (typeof value === "number" && Number.isFinite(value)) {
+      latest = { value, trend: currentTrend };
+      break;
+    }
+  }
+
+  return { candles: colored, line, latest, markers };
+}
+
 function normalizeSymbol(symbol: string): string {
   return symbol.trim().toUpperCase();
 }
@@ -1186,6 +1440,8 @@ type TimeframeSignalPanelProps = {
   activeInterval: ChartInterval;
   digits: number;
   isLoading: boolean;
+  liveTrailingStop: number | null;
+  liveTrailingStopTrend: SupertrendTrend | null;
   onSelectInterval: (interval: ChartInterval) => void;
   signalsByTimeframe: Record<SignalTimeframeKey, SignalItem | null>;
   symbol?: string | null;
@@ -1196,6 +1452,8 @@ function TimeframeSignalPanel({
   activeInterval,
   digits,
   isLoading,
+  liveTrailingStop,
+  liveTrailingStopTrend,
   onSelectInterval,
   signalsByTimeframe,
   symbol,
@@ -1244,6 +1502,12 @@ function TimeframeSignalPanel({
           const isSelected = activeInterval === timeframeWindow.chartInterval;
           const signalPanelTone = signalLabel ? signalTone.panel : "";
           const signalPanelHover = signalLabel ? signalTone.hover : "";
+          const trailingTone =
+            liveTrailingStopTrend === 1
+              ? "border-emerald-400/50 bg-emerald-500/12 text-emerald-700 dark:border-emerald-400/35 dark:bg-emerald-500/18 dark:text-emerald-200"
+              : liveTrailingStopTrend === -1
+                ? "border-rose-400/50 bg-rose-500/12 text-rose-700 dark:border-rose-400/35 dark:bg-rose-500/18 dark:text-rose-200"
+                : "border-slate-200/75 bg-white/60 text-slate-700 dark:border-slate-700/60 dark:bg-slate-950/45 dark:text-slate-300";
 
           return (
             <button
@@ -1301,6 +1565,21 @@ function TimeframeSignalPanel({
                         {formatNumber(signalStopLoss, digits)}
                       </p>
                     </div>
+                    {isSelected && typeof liveTrailingStop === "number" ? (
+                      <div
+                        className={cn(
+                          "flex items-center justify-between gap-1 rounded-md border px-1.5 py-1",
+                          trailingTone
+                        )}
+                      >
+                        <p className="truncate uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400">
+                          TSL
+                        </p>
+                        <p className="truncate font-semibold">
+                          {formatNumber(liveTrailingStop, digits)}
+                        </p>
+                      </div>
+                    ) : null}
                     <div className="space-y-1">
                       {[0, 1, 2].map((index) => (
                         (() => {
@@ -1407,6 +1686,7 @@ function WatchlistPageContent() {
   const [crosshairEnabled, setCrosshairEnabled] = useState(true);
   const [isAdjustOpen, setIsAdjustOpen] = useState(false);
   const [showChartToolbar, setShowChartToolbar] = useState(false);
+  const [currentSupertrend, setCurrentSupertrend] = useState<SupertrendSnapshot | null>(null);
   const chartBarSpacingRef = useRef(CHART_BAR_SPACING_DEFAULT);
   const chartManualZoomRef = useRef(false);
   const crosshairEnabledRef = useRef(true);
@@ -1461,10 +1741,11 @@ function WatchlistPageContent() {
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const supertrendSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const signalPriceLinesRef = useRef<IPriceLine[]>([]);
   const touchCrosshairPointerIdRef = useRef<number | null>(null);
   const chartRawCandlesRef = useRef<HistoryCandle[]>([]);
-  const chartCandlesRef = useRef<HistoryCandle[]>([]);
+  const chartCandlesRef = useRef<ChartCandle[]>([]);
   const lastChartUpdateRef = useRef(0);
   const historyCacheRef = useRef<Record<string, HistoryCandle[]>>({});
   const chartKeyRef = useRef<string>("");
@@ -1647,6 +1928,10 @@ function WatchlistPageContent() {
           typeof parsed.showTargetLines === "boolean"
             ? parsed.showTargetLines
             : prev.showTargetLines,
+        showStructureTargets:
+          typeof parsed.showStructureTargets === "boolean"
+            ? parsed.showStructureTargets
+            : prev.showStructureTargets,
       }));
     } catch {
       // ignore invalid storage payload
@@ -2694,7 +2979,8 @@ function WatchlistPageContent() {
     (chartVisibility.showSignalSummary ||
       chartVisibility.showEntryLine ||
       chartVisibility.showStopLossLine ||
-      chartVisibility.showTargetLines);
+      chartVisibility.showTargetLines ||
+      chartVisibility.showStructureTargets);
   const currentSignal = useMemo<SignalItem | null>(
     () =>
       shouldFetchCurrentSignal
@@ -2704,6 +2990,7 @@ function WatchlistPageContent() {
         : null,
     [activeChartTimeframe, activeSignals, activeSignalsByTimeframe, shouldFetchCurrentSignal]
   );
+  const currentSignalDirection = useMemo(() => getSignalDirection(currentSignal), [currentSignal]);
   const currentSignalLabel = useMemo(() => getCurrentSignalLabel(currentSignal), [currentSignal]);
   const currentSignalEntry = useMemo(() => getCurrentSignalEntry(currentSignal), [currentSignal]);
   const currentSignalStopLoss = useMemo(() => getCurrentSignalStopLoss(currentSignal), [currentSignal]);
@@ -2735,6 +3022,12 @@ function WatchlistPageContent() {
         : getCurrentSignalAchievedSummary(currentSignal),
     [currentSignal, currentSignalAchievedTargetLevels]
   );
+  const currentTrailingStop = useMemo(() => {
+    if (!currentSignalLabel) return null;
+    if (!currentSupertrend || !Number.isFinite(currentSupertrend.value)) return null;
+    return currentSupertrend.value;
+  }, [currentSignalLabel, currentSupertrend]);
+  const currentTrailingStopTrend = currentSupertrend?.trend ?? null;
   const shouldRenderSignalSummary = chartVisibility.showSignalSummary && Boolean(currentSignalLabel);
   const shouldRenderChartLegend = Boolean(chartLegend) && (chartVisibility.showOhlc || shouldRenderSignalSummary);
   const toggleChartVisibility = useCallback((key: keyof ChartVisibilitySettings) => {
@@ -2900,6 +3193,56 @@ function WatchlistPageContent() {
     return [];
   }, [selectedSymbol, historyCandles, chartInterval, intervalSeconds, historyKey, isIndianChartMarket]);
 
+  const derivedRangeTargets = useMemo(() => {
+    if (!currentSignalDirection) return null;
+    if (seedCandles.length === 0) return null;
+
+    const signalMs = getSignalTimestampValue(currentSignal);
+    if (!signalMs) return null;
+
+    const signalSec = Math.floor(signalMs / 1000);
+    if (!Number.isFinite(signalSec) || signalSec <= 0) return null;
+
+    const bucketTime = normalizeCandleTime(
+      signalSec,
+      chartInterval,
+      intervalSeconds,
+      isIndianChartMarket
+    );
+    const candle = seedCandles.find((item) => item.time === bucketTime);
+    if (!candle) return null;
+
+    const entryPrice =
+      typeof currentSignalEntry === "number" && Number.isFinite(currentSignalEntry) && currentSignalEntry > 0
+        ? currentSignalEntry
+        : candle.close;
+    const range = Math.abs(candle.high - candle.low);
+    if (!Number.isFinite(entryPrice) || entryPrice <= 0) return null;
+    if (!Number.isFinite(range) || range <= 0) return null;
+
+    const sign = currentSignalDirection === "BUY" ? 1 : -1;
+    const { t1, t2, t3 } = RANGE_TARGET_MULTIPLIERS;
+    const targets = [
+      entryPrice + sign * range * t1,
+      entryPrice + sign * range * t2,
+      entryPrice + sign * range * t3,
+    ].filter((value) => typeof value === "number" && Number.isFinite(value) && value > 0);
+
+    return targets.length ? targets : null;
+  }, [
+    chartInterval,
+    currentSignal,
+    currentSignalDirection,
+    currentSignalEntry,
+    intervalSeconds,
+    isIndianChartMarket,
+    seedCandles,
+  ]);
+
+  const effectiveSignalTargets = useMemo(() => {
+    return derivedRangeTargets?.slice(0, 3) ?? currentSignalTargets;
+  }, [currentSignalTargets, derivedRangeTargets]);
+
   useEffect(() => {
     if (!selectedSymbol || !chartContainerRef.current || !chartContainerReady) return;
     chartManualZoomRef.current = false;
@@ -2967,14 +3310,22 @@ function WatchlistPageContent() {
       },
     });
     const series = chart.addCandlestickSeries({
-      upColor: "#22C55E",
-      downColor: "#EF4444",
-      wickUpColor: "#22C55E",
-      wickDownColor: "#EF4444",
+      upColor: SUPER_TREND_UP_COLOR,
+      downColor: SUPER_TREND_DOWN_COLOR,
+      wickUpColor: SUPER_TREND_UP_COLOR,
+      wickDownColor: SUPER_TREND_DOWN_COLOR,
       borderVisible: false,
+    });
+    const supertrendSeries = chart.addLineSeries({
+      color: SUPER_TREND_UP_COLOR,
+      lineWidth: 2,
+      priceLineVisible: false,
+      lastValueVisible: false,
+      crosshairMarkerVisible: false,
     });
     chartRef.current = chart;
     candleSeriesRef.current = series;
+    supertrendSeriesRef.current = supertrendSeries;
 
     const handleCrosshairMove = (param: MouseEventParams) => {
       if (!crosshairEnabledRef.current) {
@@ -3123,6 +3474,7 @@ function WatchlistPageContent() {
       container.removeEventListener("pointercancel", handleTouchPointerEnd, true);
       signalPriceLinesRef.current = [];
       candleSeriesRef.current = null;
+      supertrendSeriesRef.current = null;
       chartRef.current = null;
       chart.remove();
     };
@@ -3135,17 +3487,26 @@ function WatchlistPageContent() {
     if (seedCandles.length === 0) {
       if (!sameKey) {
         candleSeriesRef.current.setData([]);
+        candleSeriesRef.current.setMarkers([]);
+        supertrendSeriesRef.current?.setData([]);
+        supertrendSeriesRef.current?.setMarkers([]);
         chartRawCandlesRef.current = [];
         chartCandlesRef.current = [];
+        setCurrentSupertrendSafe(null);
         setHasChartData(false);
         chartKeyRef.current = nextKey;
       }
       return;
     }
     const displayCandles = chartType === "heikin" ? calculateHeikinAshi(seedCandles) : seedCandles;
-    candleSeriesRef.current.setData(displayCandles);
+    const { candles: coloredCandles, line, latest, markers } = applySupertrendToCandles(displayCandles);
+    candleSeriesRef.current.setData(coloredCandles);
+    candleSeriesRef.current.setMarkers([]);
+    supertrendSeriesRef.current?.setData(line);
+    supertrendSeriesRef.current?.setMarkers(markers);
     chartRawCandlesRef.current = [...seedCandles];
-    chartCandlesRef.current = [...displayCandles];
+    chartCandlesRef.current = [...coloredCandles];
+    setCurrentSupertrendSafe(latest);
     chartKeyRef.current = nextKey;
     lastChartUpdateRef.current = 0;
     setHasChartData(seedCandles.length > 0);
@@ -3162,8 +3523,13 @@ function WatchlistPageContent() {
     const rawCandles = chartRawCandlesRef.current;
     if (rawCandles.length === 0) return;
     const displayCandles = chartType === "heikin" ? calculateHeikinAshi(rawCandles) : rawCandles;
-    candleSeriesRef.current.setData(displayCandles);
-    chartCandlesRef.current = [...displayCandles];
+    const { candles: coloredCandles, line, latest, markers } = applySupertrendToCandles(displayCandles);
+    candleSeriesRef.current.setData(coloredCandles);
+    candleSeriesRef.current.setMarkers([]);
+    supertrendSeriesRef.current?.setData(line);
+    supertrendSeriesRef.current?.setMarkers(markers);
+    chartCandlesRef.current = [...coloredCandles];
+    setCurrentSupertrendSafe(latest);
     if (!chartHoverRef.current) {
       updateLegendFromLatest();
     }
@@ -3225,7 +3591,7 @@ function WatchlistPageContent() {
       );
     }
     if (chartVisibility.showTargetLines) {
-      currentSignalTargets.forEach((target, index) => {
+      effectiveSignalTargets.forEach((target, index) => {
         const level = index + 1;
         const isAchieved = currentSignalAchievedTargetLevels.includes(level);
         const tone = TARGET_LEVEL_TONES[index] ?? TARGET_LEVEL_TONES[0];
@@ -3239,6 +3605,56 @@ function WatchlistPageContent() {
           tone.axisText
         );
       });
+    }
+
+    if (chartVisibility.showStructureTargets && currentSignalDirection && seedCandles.length >= MIN_HISTORY_CANDLES) {
+      const displayCandles = chartType === "heikin" ? calculateHeikinAshi(seedCandles) : seedCandles;
+      const windowed = displayCandles.slice(-250);
+      const pivots = calculateStructurePivots(windowed, 5);
+      const wantedLabels =
+        currentSignalDirection === "BUY"
+          ? new Set<StructurePivotLabel>(["HH", "HL"])
+          : new Set<StructurePivotLabel>(["LH", "LL"]);
+      const fallbackLabels = new Set<StructurePivotLabel>(["H", "L"]);
+      const primary = pivots.filter((pivot) => wantedLabels.has(pivot.label));
+      const candidates =
+        primary.length >= 3
+          ? primary
+          : pivots.filter((pivot) => wantedLabels.has(pivot.label) || fallbackLabels.has(pivot.label));
+
+      const reserved = [
+        chartVisibility.showEntryLine ? currentSignalEntry : undefined,
+        chartVisibility.showStopLossLine ? currentSignalStopLoss : undefined,
+        ...(chartVisibility.showTargetLines ? effectiveSignalTargets : []),
+      ].filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+      const axisLabelColor =
+        currentSignalDirection === "BUY" ? "rgba(34, 197, 94, 0.55)" : "rgba(239, 68, 68, 0.55)";
+      const axisLabelTextColor =
+        currentSignalDirection === "BUY" ? TARGET_LEVEL_TONES[0].axisText : "#7f1d1d";
+      const baseRgb = currentSignalDirection === "BUY" ? "34, 197, 94" : "239, 68, 68";
+      const counters: Partial<Record<StructurePivotLabel, number>> = {};
+
+      let added = 0;
+      for (let i = candidates.length - 1; i >= 0 && added < 3; i -= 1) {
+        const pivot = candidates[i];
+        if (!Number.isFinite(pivot.price) || pivot.price <= 0) continue;
+        if (reserved.some((value) => isPriceNear(value, pivot.price))) continue;
+
+        const nextCount = (counters[pivot.label] ?? 0) + 1;
+        counters[pivot.label] = nextCount;
+
+        addSignalPriceLine(
+          pivot.price,
+          `${pivot.label}${nextCount}`,
+          pivot.kind === "H" ? `rgba(${baseRgb}, 0.85)` : `rgba(${baseRgb}, 0.55)`,
+          pivot.kind === "H" ? LineStyle.Dashed : LineStyle.Dotted,
+          1,
+          axisLabelColor,
+          axisLabelTextColor
+        );
+        reserved.push(pivot.price);
+        added += 1;
+      }
     }
 
     return () => {
@@ -3257,10 +3673,13 @@ function WatchlistPageContent() {
     chartVisibility.showEntryLine,
     chartVisibility.showStopLossLine,
     chartVisibility.showTargetLines,
+    chartVisibility.showStructureTargets,
     currentSignalEntry,
     currentSignalAchievedTargetLevels,
+    currentSignalDirection,
     currentSignalStopLoss,
-    currentSignalTargets,
+    effectiveSignalTargets,
+    seedCandles,
     selectedSymbol,
   ]);
 
@@ -3293,7 +3712,6 @@ function WatchlistPageContent() {
     }
 
     let updatedRaw: HistoryCandle;
-    let shouldReset = false;
     if (!lastRaw || bucketTime > lastTime) {
       const seededOpen: number = lastRaw?.close ?? price;
       updatedRaw = {
@@ -3306,7 +3724,6 @@ function WatchlistPageContent() {
       rawCandles.push(updatedRaw);
       if (rawCandles.length > HISTORY_CANDLE_COUNT) {
         rawCandles.splice(0, rawCandles.length - HISTORY_CANDLE_COUNT);
-        shouldReset = true;
       }
     } else {
       updatedRaw = {
@@ -3319,61 +3736,14 @@ function WatchlistPageContent() {
     }
 
     chartRawCandlesRef.current = rawCandles;
-
-    if (chartType === "heikin") {
-      let displayCandles = chartCandlesRef.current;
-      if (shouldReset || displayCandles.length === 0 || displayCandles.length !== rawCandles.length) {
-        displayCandles = calculateHeikinAshi(rawCandles);
-        candleSeriesRef.current.setData(displayCandles);
-      } else {
-        let displayUpdated: HistoryCandle;
-        if (isNewBucket) {
-          const prevHa = displayCandles[displayCandles.length - 1];
-          if (!prevHa) {
-            displayUpdated = { ...updatedRaw };
-          } else {
-            const haOpen = (prevHa.open + prevHa.close) / 2;
-            const haClose = (updatedRaw.open + updatedRaw.high + updatedRaw.low + updatedRaw.close) / 4;
-            const haHigh = Math.max(updatedRaw.high, haOpen, haClose);
-            const haLow = Math.min(updatedRaw.low, haOpen, haClose);
-            displayUpdated = {
-              time: updatedRaw.time,
-              open: haOpen,
-              high: haHigh,
-              low: haLow,
-              close: haClose,
-              volume: updatedRaw.volume,
-            };
-          }
-          displayCandles = [...displayCandles, displayUpdated];
-        } else {
-          const currentHa = displayCandles[displayCandles.length - 1];
-          const haOpen = currentHa ? currentHa.open : updatedRaw.open;
-          const haClose = (updatedRaw.open + updatedRaw.high + updatedRaw.low + updatedRaw.close) / 4;
-          const haHigh = Math.max(updatedRaw.high, haOpen, haClose);
-          const haLow = Math.min(updatedRaw.low, haOpen, haClose);
-          displayUpdated = {
-            time: updatedRaw.time,
-            open: haOpen,
-            high: haHigh,
-            low: haLow,
-            close: haClose,
-            volume: updatedRaw.volume,
-          };
-          displayCandles = [...displayCandles];
-          displayCandles[displayCandles.length - 1] = displayUpdated;
-        }
-        candleSeriesRef.current.update(displayUpdated);
-      }
-      chartCandlesRef.current = displayCandles;
-    } else {
-      chartCandlesRef.current = rawCandles;
-      if (shouldReset) {
-        candleSeriesRef.current.setData(rawCandles);
-      } else {
-        candleSeriesRef.current.update(updatedRaw);
-      }
-    }
+    const displayCandles = chartType === "heikin" ? calculateHeikinAshi(rawCandles) : rawCandles;
+    const { candles: coloredCandles, line, latest, markers } = applySupertrendToCandles(displayCandles);
+    candleSeriesRef.current.setData(coloredCandles);
+    candleSeriesRef.current.setMarkers([]);
+    supertrendSeriesRef.current?.setData(line);
+    supertrendSeriesRef.current?.setMarkers(markers);
+    chartCandlesRef.current = [...coloredCandles];
+    setCurrentSupertrendSafe(latest);
     if (isNewBucket && !chartManualZoomRef.current) {
       fitChartToContent();
     }
@@ -3523,6 +3893,14 @@ function WatchlistPageContent() {
     }
     return 2;
   }, [chartLegend, selectedRow]);
+  const supertrendSnapshotRef = useRef<SupertrendSnapshot | null>(null);
+  const setCurrentSupertrendSafe = useCallback((next: SupertrendSnapshot | null) => {
+    const prev = supertrendSnapshotRef.current;
+    if (!prev && !next) return;
+    if (prev && next && prev.value === next.value && prev.trend === next.trend) return;
+    supertrendSnapshotRef.current = next;
+    setCurrentSupertrend(next);
+  }, []);
   const setChartLegendSafe = (next: HistoryCandle | null) => {
     const prev = chartLegendRef.current;
     if (
@@ -3996,10 +4374,10 @@ function WatchlistPageContent() {
                         {typeof currentSignalStopLoss === "number" ? (
                           <span
                             className={cn(
-                              "shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em]",
+                              "shrink-0 text-[10px] font-semibold uppercase tracking-[0.12em]",
                               currentSignalLabel === "STOPLOSS"
-                                ? "border-rose-400/60 bg-rose-500/15 text-rose-700 dark:border-rose-400/45 dark:bg-rose-500/18 dark:text-rose-200"
-                                : "border-rose-300/45 bg-rose-500/8 text-rose-700 dark:border-rose-400/35 dark:bg-rose-500/10 dark:text-rose-300"
+                                ? "text-rose-700 dark:text-rose-200"
+                                : "text-rose-600 dark:text-rose-300"
                             )}
                           >
                             SL{" "}
@@ -4008,7 +4386,24 @@ function WatchlistPageContent() {
                             </span>
                           </span>
                         ) : null}
-                        {currentSignalTargets.map((target, index) => {
+                        {typeof currentTrailingStop === "number" ? (
+                          <span
+                            className={cn(
+                              "shrink-0 text-[10px] font-semibold uppercase tracking-[0.12em]",
+                              currentTrailingStopTrend === 1
+                                ? "text-emerald-700 dark:text-emerald-200"
+                                : currentTrailingStopTrend === -1
+                                  ? "text-rose-700 dark:text-rose-200"
+                                  : "text-slate-500 dark:text-slate-300"
+                            )}
+                          >
+                            TSL{" "}
+                            <span className="font-semibold">
+                              {formatNumber(currentTrailingStop, chartLegendDigits)}
+                            </span>
+                          </span>
+                        ) : null}
+                        {effectiveSignalTargets.map((target, index) => {
                           const level = index + 1;
                           const tone = TARGET_LEVEL_TONES[index] ?? TARGET_LEVEL_TONES[0];
                           const isHit = currentSignalAchievedTargetLevels.includes(level);
@@ -4017,10 +4412,8 @@ function WatchlistPageContent() {
                             <span
                               key={`current-signal-target-${level}`}
                               className={cn(
-                                "shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em]",
-                                isHit
-                                  ? cn(tone.border, tone.bg, tone.text)
-                                  : "border-slate-300/70 bg-slate-100/70 text-slate-600 dark:border-slate-700/70 dark:bg-slate-800/60 dark:text-slate-300"
+                                "shrink-0 text-[10px] font-semibold uppercase tracking-[0.12em]",
+                                isHit ? "text-emerald-700 dark:text-emerald-200" : "text-emerald-600/80 dark:text-emerald-300/80"
                               )}
                             >
                               TP{level}{" "}
@@ -4113,6 +4506,8 @@ function WatchlistPageContent() {
               className="w-full"
               digits={chartLegendDigits}
               isLoading={activeSignalsQuery.isFetching}
+              liveTrailingStop={currentTrailingStop}
+              liveTrailingStopTrend={currentTrailingStopTrend}
               onSelectInterval={setChartInterval}
               signalsByTimeframe={activeSignalsByTimeframe}
               symbol={signalPanelSymbol}
@@ -5804,6 +6199,8 @@ function WatchlistPageContent() {
                     className="w-full"
                     digits={detailDigits}
                     isLoading={activeSignalsQuery.isFetching}
+                    liveTrailingStop={currentTrailingStop}
+                    liveTrailingStopTrend={currentTrailingStopTrend}
                     onSelectInterval={setChartInterval}
                     signalsByTimeframe={activeSignalsByTimeframe}
                     symbol={selectedRow.symbol}
