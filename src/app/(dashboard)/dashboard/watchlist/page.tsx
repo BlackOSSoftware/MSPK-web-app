@@ -11,6 +11,7 @@ import {
   type LineData,
   type LineWidth,
   type MouseEventParams,
+  LineType,
   LineStyle,
   type SeriesMarker,
   TrackingModeExitMode,
@@ -110,7 +111,7 @@ const SEGMENT_LABELS: Record<string, string> = {
   EQUITY: "Equity",
   INDICES: "Indices",
   FNO: "Futures & Options",
-  COMMODITY: "Commodity",
+  COMMODITY: "MCX",
   COMEX: "Comex",
   CURRENCY: "Currency",
   FOREX: "Currency",
@@ -1045,7 +1046,8 @@ function applySupertrendToCandles(
     const value =
       currentTrend === 1 ? up[index] : currentTrend === -1 ? dn[index] : undefined;
     if (typeof value === "number" && Number.isFinite(value)) {
-      line.push({ time: candle.time, value, color: trendColor });
+      // Keep the line visually neutral; candles + arrows already convey trend direction.
+      line.push({ time: candle.time, value });
     }
     return { ...candle, color: trendColor, borderColor: trendColor, wickColor: trendColor };
   });
@@ -3317,7 +3319,9 @@ function WatchlistPageContent() {
       borderVisible: false,
     });
     const supertrendSeries = chart.addLineSeries({
-      color: SUPER_TREND_UP_COLOR,
+      color: "rgba(100, 116, 139, 0.55)", // subtle slate in both light/dark
+      lineType: LineType.WithSteps,
+      lineStyle: LineStyle.Dotted,
       lineWidth: 2,
       priceLineVisible: false,
       lastValueVisible: false,
@@ -3489,7 +3493,6 @@ function WatchlistPageContent() {
         candleSeriesRef.current.setData([]);
         candleSeriesRef.current.setMarkers([]);
         supertrendSeriesRef.current?.setData([]);
-        supertrendSeriesRef.current?.setMarkers([]);
         chartRawCandlesRef.current = [];
         chartCandlesRef.current = [];
         setCurrentSupertrendSafe(null);
@@ -3501,9 +3504,8 @@ function WatchlistPageContent() {
     const displayCandles = chartType === "heikin" ? calculateHeikinAshi(seedCandles) : seedCandles;
     const { candles: coloredCandles, line, latest, markers } = applySupertrendToCandles(displayCandles);
     candleSeriesRef.current.setData(coloredCandles);
-    candleSeriesRef.current.setMarkers([]);
+    candleSeriesRef.current.setMarkers(markers);
     supertrendSeriesRef.current?.setData(line);
-    supertrendSeriesRef.current?.setMarkers(markers);
     chartRawCandlesRef.current = [...seedCandles];
     chartCandlesRef.current = [...coloredCandles];
     setCurrentSupertrendSafe(latest);
@@ -3525,9 +3527,8 @@ function WatchlistPageContent() {
     const displayCandles = chartType === "heikin" ? calculateHeikinAshi(rawCandles) : rawCandles;
     const { candles: coloredCandles, line, latest, markers } = applySupertrendToCandles(displayCandles);
     candleSeriesRef.current.setData(coloredCandles);
-    candleSeriesRef.current.setMarkers([]);
+    candleSeriesRef.current.setMarkers(markers);
     supertrendSeriesRef.current?.setData(line);
-    supertrendSeriesRef.current?.setMarkers(markers);
     chartCandlesRef.current = [...coloredCandles];
     setCurrentSupertrendSafe(latest);
     if (!chartHoverRef.current) {
@@ -3739,9 +3740,8 @@ function WatchlistPageContent() {
     const displayCandles = chartType === "heikin" ? calculateHeikinAshi(rawCandles) : rawCandles;
     const { candles: coloredCandles, line, latest, markers } = applySupertrendToCandles(displayCandles);
     candleSeriesRef.current.setData(coloredCandles);
-    candleSeriesRef.current.setMarkers([]);
+    candleSeriesRef.current.setMarkers(markers);
     supertrendSeriesRef.current?.setData(line);
-    supertrendSeriesRef.current?.setMarkers(markers);
     chartCandlesRef.current = [...coloredCandles];
     setCurrentSupertrendSafe(latest);
     if (isNewBucket && !chartManualZoomRef.current) {
