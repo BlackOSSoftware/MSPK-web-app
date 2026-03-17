@@ -378,6 +378,25 @@ const SUPER_TREND_MULTIPLIER = 1.5;
 const SUPER_TREND_UP_COLOR = "#22C55E";
 const SUPER_TREND_DOWN_COLOR = "#EF4444";
 const RANGE_TARGET_MULTIPLIERS = { t1: 5, t2: 10, t3: 15 };
+const LIVE_SYMBOL_ALIASES = new Map<string, string>([
+  ["NIFTY", "NSE:NIFTY 50-INDEX"],
+  ["NIFTY1!", "NSE:NIFTY 50-INDEX"],
+  ["NIFTY50", "NSE:NIFTY 50-INDEX"],
+  ["NSE:NIFTY", "NSE:NIFTY 50-INDEX"],
+  ["NSE:NIFTY50", "NSE:NIFTY 50-INDEX"],
+  ["NSE:NIFTY 50", "NSE:NIFTY 50-INDEX"],
+  ["BANKNIFTY", "NSE:NIFTY BANK-INDEX"],
+  ["BANKNIFTY1!", "NSE:NIFTY BANK-INDEX"],
+  ["NSE:BANKNIFTY", "NSE:NIFTY BANK-INDEX"],
+  ["NSE:NIFTYBANK", "NSE:NIFTY BANK-INDEX"],
+  ["NSE:NIFTY BANK", "NSE:NIFTY BANK-INDEX"],
+  ["FINNIFTY", "NSE:NIFTY FIN SERVICE-INDEX"],
+  ["FINNIFTY1!", "NSE:NIFTY FIN SERVICE-INDEX"],
+  ["NSE:FINNIFTY", "NSE:NIFTY FIN SERVICE-INDEX"],
+  ["NSE:NIFTY FIN SERVICE", "NSE:NIFTY FIN SERVICE-INDEX"],
+  ["INDIAVIX", "NSE:INDIA VIX"],
+  ["NSE:INDIAVIX", "NSE:INDIA VIX"],
+]);
 const INDIA_TIME_ZONE = "Asia/Kolkata";
 const INDIA_TIME_ZONE_OFFSET_SEC = 5.5 * 60 * 60;
 const INDIA_MARKET_OPEN_LOCAL_SEC = 9 * 60 * 60 + 15 * 60;
@@ -1090,7 +1109,9 @@ function applySupertrendToCandles(
 }
 
 function normalizeSymbol(symbol: string): string {
-  return symbol.trim().toUpperCase();
+  const normalized = symbol.trim().toUpperCase();
+  if (!normalized) return "";
+  return LIVE_SYMBOL_ALIASES.get(normalized) ?? normalized;
 }
 
 function normalizeSegmentValue(value: unknown): string {
@@ -1874,7 +1895,7 @@ function WatchlistPageContent() {
 
   useEffect(() => {
     if (!urlSymbol) return;
-    setSelectedSymbol(urlSymbol);
+    setSelectedSymbol(normalizeSymbol(urlSymbol));
   }, [urlSymbol]);
 
   useEffect(() => {
@@ -3059,10 +3080,11 @@ function WatchlistPageContent() {
   }, [selectedRow]);
 
   const openChartWindow = (symbol: string) => {
-    if (!symbol) return;
+    const resolvedSymbol = normalizeSymbol(symbol);
+    if (!resolvedSymbol) return;
     const params = new URLSearchParams({
       chart: "1",
-      symbol,
+      symbol: resolvedSymbol,
       interval: DEFAULT_CHART_INTERVAL,
       type: DEFAULT_CHART_TYPE,
     });
