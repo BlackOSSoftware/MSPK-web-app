@@ -740,7 +740,7 @@ function formatChartTimeLabel(
 ): string {
   const date = toDateFromChartTime(time);
   if (!date) return "";
-  const intraday = interval !== "D" && interval !== "W" && interval !== "M";
+  const intraday = interval !== "D" && interval !== "W";
   const options: Intl.DateTimeFormatOptions = intraday
     ? {
         hour: "2-digit",
@@ -771,12 +771,8 @@ function intervalToSeconds(interval: ChartInterval): number {
   switch (interval) {
     case "1":
       return 1 * 60;
-    case "2":
-      return 2 * 60;
     case "5":
       return 5 * 60;
-    case "10":
-      return 10 * 60;
     case "15":
       return 15 * 60;
     case "60":
@@ -785,8 +781,6 @@ function intervalToSeconds(interval: ChartInterval): number {
       return 24 * 60 * 60;
     case "W":
       return 7 * 24 * 60 * 60;
-    case "M":
-      return 30 * 24 * 60 * 60;
     default:
       return 15 * 60;
   }
@@ -818,7 +812,7 @@ function getBucketStart(
   bucketOffsetSec = 0,
   timezoneOffsetSec = 0
 ): UTCTimestamp {
-  if (interval === "D" || interval === "W" || interval === "M") {
+  if (interval === "D" || interval === "W") {
     const safeZoneOffset = Number.isFinite(timezoneOffsetSec) ? timezoneOffsetSec : 0;
     const date = new Date((timeSec + safeZoneOffset) * 1000);
     if (interval === "D") {
@@ -827,9 +821,6 @@ function getBucketStart(
       const day = date.getUTCDay();
       const diff = date.getUTCDate() - day + (day === 0 ? -6 : 1);
       date.setUTCDate(diff);
-      date.setUTCHours(0, 0, 0, 0);
-    } else {
-      date.setUTCDate(1);
       date.setUTCHours(0, 0, 0, 0);
     }
     return toUTCTimestamp(Math.floor(date.getTime() / 1000) - safeZoneOffset);
@@ -842,7 +833,7 @@ function getBucketStart(
 
 function getChartBucketOffset(interval: ChartInterval, intervalSec: number, isIndianMarket = false): number {
   if (!Number.isFinite(intervalSec) || intervalSec <= 0) return 0;
-  if (interval === "D" || interval === "W" || interval === "M") return 0;
+  if (interval === "D" || interval === "W") return 0;
   if (!isIndianMarket) return 0;
   return normalizeBucketOffset(INDIA_MARKET_OPEN_UTC_SEC, intervalSec);
 }
@@ -3422,7 +3413,7 @@ function WatchlistPageContent() {
       rightPriceScale: { borderVisible: false },
       timeScale: {
         borderVisible: false,
-        timeVisible: chartInterval !== "D" && chartInterval !== "W" && chartInterval !== "M",
+        timeVisible: chartInterval !== "D" && chartInterval !== "W",
         barSpacing: chartBarSpacingRef.current,
         tickMarkFormatter: chartTimeZone
           ? (time: unknown) => formatChartTimeLabel(time, chartInterval, chartTimeZone, false)
