@@ -181,7 +181,7 @@ type WatchlistRow = {
   isLocked?: boolean;
 };
 
-type ChartInterval = "1" | "2" | "5" | "10" | "15" | "60" | "D" | "W" | "M";
+type ChartInterval = "1" | "5" | "15" | "60" | "D" | "W";
 type ChartType = "candle" | "heikin";
 type HistoryCandle = {
   time: UTCTimestamp;
@@ -286,14 +286,11 @@ const DEFAULT_TABLE_COLUMNS = [
 
 const CHART_INTERVALS: { label: string; value: ChartInterval }[] = [
   { label: "1m", value: "1" },
-  { label: "2m", value: "2" },
   { label: "5m", value: "5" },
-  { label: "10m", value: "10" },
   { label: "15m", value: "15" },
   { label: "1h", value: "60" },
   { label: "1D", value: "D" },
   { label: "1W", value: "W" },
-  { label: "1M", value: "M" },
 ];
 const SIGNAL_TIMEFRAME_WINDOWS = [
   { key: "5m", label: "5 Min", chartInterval: "5" as ChartInterval },
@@ -1980,14 +1977,11 @@ function WatchlistPageContent() {
     const normalized = urlInterval.toUpperCase();
     if (
       normalized === "1" ||
-      normalized === "2" ||
       normalized === "5" ||
-      normalized === "10" ||
       normalized === "15" ||
       normalized === "60" ||
       normalized === "D" ||
-      normalized === "W" ||
-      normalized === "M"
+      normalized === "W"
     ) {
       setChartInterval(normalized as ChartInterval);
     }
