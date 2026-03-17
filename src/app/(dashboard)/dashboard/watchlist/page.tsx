@@ -69,6 +69,7 @@ import {
   MARKET_QUERY_KEY,
   USER_MARKET_WATCHLISTS_QUERY_KEY,
   useMarketHistoryQuery,
+  useMarketLoginKiteUrlQuery,
   useMarketSegmentsQuery,
   useMarketSearchQuery,
   useMarketSymbolsQuery,
@@ -3089,6 +3090,21 @@ function WatchlistPageContent() {
     };
   }, [selectedSymbol, chartInterval, intervalSeconds]);
 
+  const kiteLoginUrlQuery = useMarketLoginKiteUrlQuery(false);
+  const openKiteLogin = useCallback(async () => {
+    try {
+      const result = await kiteLoginUrlQuery.refetch();
+      const url = (result.data as { url?: unknown } | undefined)?.url;
+      if (typeof url === "string" && url.trim()) {
+        window.open(url, "_blank", "noopener,noreferrer");
+        return;
+      }
+      toast.error("Zerodha login URL nahi mil raha. Please backend settings check karein.");
+    } catch {
+      toast.error("Zerodha login start nahi ho paya. Please retry.");
+    }
+  }, [kiteLoginUrlQuery]);
+
   const historyQuery = useMarketHistoryQuery(
     chartParams ?? { symbol: "", resolution: DEFAULT_CHART_INTERVAL, from: 0, to: 0, count: HISTORY_CANDLE_COUNT },
     Boolean(chartParams)
@@ -4333,6 +4349,20 @@ function WatchlistPageContent() {
               ) : historyQuery.isFetching ? (
                 <div className="flex items-center">
                   <CandleLoader size="sm" />
+                </div>
+              ) : historyQuery.isError ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-medium text-rose-600 dark:text-rose-300">
+                    Zerodha/Kite session expired or invalid. Please reconnect.
+                  </span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={openKiteLogin}
+                    className="h-7 rounded-full px-3 text-[10px] font-semibold uppercase tracking-[0.12em]"
+                  >
+                    Connect Zerodha
+                  </Button>
                 </div>
               ) : historyCandles.length === 0 ? (
                 <span className="text-xs text-slate-500 dark:text-slate-400">No chart data available.</span>
