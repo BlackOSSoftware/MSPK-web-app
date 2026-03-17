@@ -6,19 +6,27 @@ import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Build;
+import android.util.Log;
 
 import androidx.core.app.NotificationCompat;
+import androidx.core.app.NotificationManagerCompat;
 
 import com.google.firebase.messaging.FirebaseMessagingService;
 import com.google.firebase.messaging.RemoteMessage;
+import com.capacitorjs.plugins.pushnotifications.PushNotificationsPlugin;
 
 import java.util.Map;
 
 public class MspkFirebaseMessagingService extends FirebaseMessagingService {
     private static final String CHANNEL_ID = "mspk-alerts";
+    private static final String TAG = "MSPKPushService";
 
     @Override
     public void onMessageReceived(RemoteMessage message) {
+        super.onMessageReceived(message);
+        Log.d(TAG, "FCM message received. Notification=" + (message.getNotification() != null) + " Data=" + message.getData());
+        PushNotificationsPlugin.sendRemoteMessage(message);
+
         String title = null;
         String body = null;
 
@@ -44,6 +52,11 @@ public class MspkFirebaseMessagingService extends FirebaseMessagingService {
 
         createChannelIfNeeded();
 
+        if (!NotificationManagerCompat.from(this).areNotificationsEnabled()) {
+            Log.w(TAG, "Notifications are disabled for this app. System tray notification will not appear.");
+            return;
+        }
+
         Intent intent = new Intent(this, MainActivity.class);
         intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         PendingIntent pendingIntent = PendingIntent.getActivity(
@@ -59,12 +72,24 @@ public class MspkFirebaseMessagingService extends FirebaseMessagingService {
                 .setContentText(body)
                 .setAutoCancel(true)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setDefaults(NotificationCompat.DEFAULT_ALL)
+                .setStyle(new NotificationCompat.BigTextStyle().bigText(body))
                 .setContentIntent(pendingIntent);
 
         NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
         if (manager != null) {
             manager.notify((int) System.currentTimeMillis(), builder.build());
+            Log.d(TAG, "System notification shown on channel=" + CHANNEL_ID);
         }
+    }
+
+    @Override
+    public void onNewToken(String token) {
+        super.onNewToken(token);
+        Log.d(TAG, "FCM token refreshed.");
+        PushNotificationsPlugin.onNewToken(token);
     }
 
     private void createChannelIfNeeded() {
@@ -72,13 +97,22 @@ public class MspkFirebaseMessagingService extends FirebaseMessagingService {
             NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
             if (manager == null) return;
 
-            NotificationChannel channel = new NotificationChannel(
-                    CHANNEL_ID,
-                    "MSPK Alerts",
-                    NotificationManager.IMPORTANCE_HIGH
-            );
-            channel.setDescription("Trading alerts and system notifications");
-            manager.createNotificationChannel(channel);
+            NotificationChannel existing = manager.getNotificationChannel(CHANNEL_ID);
+            if (existing == null) {
+                NotificationChannel channel = new NotificationChannel(
+                        CHANNEL_ID,
+                        "MSPK Alerts",
+                        NotificationManager.IMPORTANCE_HIGH
+                );
+                channel.setDescription("Trading alerts and system notifications");
+                channel.enableVibration(true);
+                channel.enableLights(true);
+                manager.createNotificationChannel(channel);
+                Log.d(TAG, "Notification channel created: " + CHANNEL_ID);
+            } else {
+                Log.d(TAG, "Notification channel exists: " + CHANNEL_ID + " importance=" + existing.getImportance());
+            }
         }
     }
+
 }

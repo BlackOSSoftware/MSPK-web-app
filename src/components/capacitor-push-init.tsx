@@ -41,6 +41,13 @@ export function CapacitorPushInit() {
     const REGISTERED_KEY = "native_fcm_registered_token_v2";
     const LAST_NOTIFICATION_KEY = "native_last_notification";
     const LAST_ERROR_KEY = "native_push_error";
+    const LAST_PERMISSION_KEY = "native_push_permission";
+
+    const resolvePlatform = () => {
+      const platform = Capacitor.getPlatform();
+      if (platform === "ios") return "ios";
+      return "android";
+    };
 
     const tryRegisterToken = async () => {
       const token = window.localStorage.getItem(TOKEN_KEY);
@@ -50,7 +57,7 @@ export function CapacitorPushInit() {
       if (!getAuthToken()) return;
 
       try {
-        await registerTokenMutation.mutateAsync({ token, platform: "android" });
+        await registerTokenMutation.mutateAsync({ token, platform: resolvePlatform() });
         window.localStorage.setItem(REGISTERED_KEY, token);
       } catch {
         // ignore registration errors
@@ -58,8 +65,28 @@ export function CapacitorPushInit() {
     };
 
     const init = async () => {
-      const permission = await PushNotifications.requestPermissions();
-      if (permission.receive !== "granted") return;
+      let permission = await PushNotifications.checkPermissions();
+      if (permission.receive === "prompt") {
+        permission = await PushNotifications.requestPermissions();
+      }
+
+      try {
+        window.localStorage.setItem(LAST_PERMISSION_KEY, permission.receive || "unknown");
+      } catch {
+        // ignore storage errors
+      }
+
+      if (permission.receive !== "granted") {
+        try {
+          window.localStorage.setItem(LAST_ERROR_KEY, "permission_denied");
+        } catch {
+          // ignore storage errors
+        }
+        console.warn("[native-push] Permission denied:", permission.receive);
+        return;
+      }
+
+      await LocalNotifications.requestPermissions();
 
       await LocalNotifications.createChannel({
         id: "mspk-alerts",
@@ -71,6 +98,7 @@ export function CapacitorPushInit() {
       });
 
       await PushNotifications.register();
+      console.log("[native-push] Registering for push notifications");
 
       const registrationListener = await PushNotifications.addListener(
         "registration",
@@ -85,6 +113,7 @@ export function CapacitorPushInit() {
               window.localStorage.setItem(TOKEN_KEY, token.value);
               window.localStorage.removeItem(LAST_ERROR_KEY);
               await tryRegisterToken();
+              console.log("[native-push] Token registered with backend");
             }
           } catch {
             // ignore token registration errors
@@ -98,6 +127,7 @@ export function CapacitorPushInit() {
         } catch {
           // ignore storage errors
         }
+        console.warn("[native-push] Registration error", error);
       });
 
       const receivedListener = await PushNotifications.addListener("pushNotificationReceived", async (notification) => {
@@ -106,7 +136,8 @@ export function CapacitorPushInit() {
         } catch {
           // ignore storage errors
         }
-        await LocalNotifications.requestPermissions();
+        console.log("[native-push] Foreground push received", notification);
+
         await LocalNotifications.schedule({
           notifications: [
             {
