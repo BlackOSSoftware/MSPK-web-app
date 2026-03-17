@@ -107,7 +107,7 @@ function getMarketItemExchange(
 const DEDUPE_SUFFIX_PATTERN = /(\.PR|\.X)$/i;
 
 function getSymbolAliasBase(symbol: string): string {
-  const normalized = normalizeSymbol(symbol);
+  const normalized = normalizeSymbol(symbol).split(":").pop() ?? "";
   if (!normalized) return "";
   return normalized.replace(DEDUPE_SUFFIX_PATTERN, "");
 }
@@ -118,10 +118,7 @@ function getSearchDedupeKey(
 ): string {
   const symbol = getSymbolAliasBase(String(item.symbol ?? ""));
   if (!symbol) return "";
-  const name = getMarketItemName(item).toUpperCase();
-  const segment = getMarketItemSegment(item);
-  const exchange = getMarketItemExchange(item);
-  return `${segment}|${exchange}|${symbol}|${name}`;
+  return symbol;
 }
 
 function isBseMarketItem(

@@ -6,6 +6,10 @@
   :root {
     --font-heading: 'Outfit', sans-serif;
     --font-primary: 'Outfit', sans-serif;
+    --safe-top: env(safe-area-inset-top);
+    --safe-bottom: env(safe-area-inset-bottom);
+    --native-safe-top: 0px;
+    --native-safe-bottom: 0px;
 
     /* MSPK Brand Glass */
     --background: 218 40% 9%;
@@ -37,6 +41,11 @@
     --ring: 220 86% 52%;
 
     --radius: 1rem;
+  }
+
+  .native-platform {
+    --safe-top: max(env(safe-area-inset-top), var(--native-safe-top), 24px);
+    --safe-bottom: max(env(safe-area-inset-bottom), var(--native-safe-bottom), 24px);
   }
 
   .dark {
@@ -95,6 +104,8 @@
     font-family: var(--font-primary), sans-serif;
     min-height: 100vh;
     position: relative;
+    padding-top: var(--safe-top);
+    padding-bottom: var(--safe-bottom);
     background-image:
       radial-gradient(circle at 12% 12%, hsl(var(--primary) / 0.22), transparent 38%),
       radial-gradient(circle at 82% 14%, hsl(var(--accent) / 0.16), transparent 34%),

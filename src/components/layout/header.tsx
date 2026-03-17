@@ -43,7 +43,7 @@ export function Header({ onMenuClick }: HeaderProps) {
         .join("") || "T";
 
     return (
-        <header className="h-14 sm:h-16 bg-white px-2.5 sm:px-4 md:px-6 sticky top-0 z-50 relative overflow-hidden border-b border-slate-900/[0.12] dark:border-white/5 dark:bg-card dark:backdrop-blur-xl">
+        <header className="h-[calc(3.5rem+var(--safe-top))] sm:h-[calc(4rem+var(--safe-top))] pt-[var(--safe-top)] bg-white px-2.5 sm:px-4 md:px-6 sticky top-0 z-50 relative overflow-hidden border-b border-slate-900/[0.12] dark:border-white/5 dark:bg-card dark:backdrop-blur-xl">
             <div className="absolute inset-x-0 top-0 hidden dark:block h-px bg-gradient-to-r from-transparent via-primary/60 to-transparent" />
             <div className="absolute inset-0 pointer-events-none hidden dark:block bg-[radial-gradient(circle_at_left,hsl(var(--primary)/0.16),transparent_55%),radial-gradient(circle_at_right,hsl(var(--accent)/0.14),transparent_45%)]" />
 

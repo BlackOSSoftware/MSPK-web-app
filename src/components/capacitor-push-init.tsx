@@ -17,6 +17,26 @@ export function CapacitorPushInit() {
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
 
+    const root = document.documentElement;
+    root.classList.add("native-platform");
+    document.body?.classList.add("native-platform");
+
+    const updateNativeSafeArea = () => {
+      const viewport = window.visualViewport;
+      if (!viewport) return;
+      const safeTop = Math.max(0, viewport.offsetTop);
+      const safeBottom = Math.max(0, window.innerHeight - (viewport.height + viewport.offsetTop));
+      root.style.setProperty("--native-safe-top", `${safeTop}px`);
+      root.style.setProperty("--native-safe-bottom", `${safeBottom}px`);
+      document.body?.style.setProperty("--native-safe-top", `${safeTop}px`);
+      document.body?.style.setProperty("--native-safe-bottom", `${safeBottom}px`);
+    };
+
+    updateNativeSafeArea();
+    window.addEventListener("resize", updateNativeSafeArea);
+    window.visualViewport?.addEventListener("resize", updateNativeSafeArea);
+    window.visualViewport?.addEventListener("scroll", updateNativeSafeArea);
+
     const TOKEN_KEY = "native_fcm_token";
     const REGISTERED_KEY = "native_fcm_registered_token_v2";
     const LAST_NOTIFICATION_KEY = "native_last_notification";
@@ -124,6 +144,11 @@ export function CapacitorPushInit() {
 
     return () => {
       if (cleanup) cleanup();
+      window.removeEventListener("resize", updateNativeSafeArea);
+      window.visualViewport?.removeEventListener("resize", updateNativeSafeArea);
+      window.visualViewport?.removeEventListener("scroll", updateNativeSafeArea);
+      root.classList.remove("native-platform");
+      document.body?.classList.remove("native-platform");
     };
   }, [registerTokenMutation]);
 

@@ -176,22 +176,22 @@ export function Sidebar({
                     {navigation.map((item) => (
                         <SidebarItem key={item.name} item={item} collapsed={collapsed} onNavigate={onNavigate} />
                     ))}
-                </nav>
 
-                <div className={cn(collapsed ? "p-1.5" : "p-2.5 sm:p-3")}>
-                    <button
-                        onClick={handleLogout}
-                        className={cn(
-                            "w-full rounded-xl border border-rose-500/35 bg-rose-500/10 text-rose-700 transition-all duration-300 hover:bg-rose-500/18 dark:text-rose-300 dark:hover:shadow-[0_10px_30px_-18px_rgba(244,63,94,0.75)]",
-                            collapsed ? "flex h-10 items-center justify-center" : "flex h-10 items-center justify-center gap-2 text-xs sm:text-sm font-semibold"
-                        )}
-                        title="Logout"
-                        disabled={logoutMutation.isPending}
-                    >
-                        <LogOut size={18} />
-                        {!collapsed && <span>Logout</span>}
-                    </button>
-                </div>
+                    <div className={cn("pt-2", collapsed ? "px-0" : "px-0")}>
+                        <button
+                            onClick={handleLogout}
+                            className={cn(
+                                "w-full rounded-xl border border-rose-500/35 bg-rose-500/10 text-rose-700 transition-all duration-300 hover:bg-rose-500/18 dark:text-rose-300 dark:hover:shadow-[0_10px_30px_-18px_rgba(244,63,94,0.75)]",
+                                collapsed ? "flex h-10 items-center justify-center" : "flex h-10 items-center justify-center gap-2 text-xs sm:text-sm font-semibold"
+                            )}
+                            title="Logout"
+                            disabled={logoutMutation.isPending}
+                        >
+                            <LogOut size={18} />
+                            {!collapsed && <span>Logout</span>}
+                        </button>
+                    </div>
+                </nav>
             </div>
 
         </aside>

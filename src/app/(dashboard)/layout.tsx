@@ -180,11 +180,11 @@ export default function DashboardLayout({
     };
 
     if (shouldRedirectToDashboard) {
-        return <div className="flex h-screen bg-white dark:bg-background" />;
+        return <div className="flex min-h-[100dvh] bg-white dark:bg-background" />;
     }
 
     return (
-        <div className="flex h-screen bg-white dark:bg-background overflow-hidden font-sans">
+        <div className="flex min-h-[100dvh] bg-white dark:bg-background overflow-hidden font-sans">
             <AuthSessionGuard />
             {/* Desktop Sidebar - Fixed/Collapsible */}
             <div className="hidden md:block h-full z-40 transition-all duration-300">
@@ -194,13 +194,13 @@ export default function DashboardLayout({
             <div className="flex-1 flex flex-col overflow-hidden relative w-full z-10">
                 <Header onMenuClick={() => setIsMobileMenuOpen(true)} />
 
-                <main className="relative z-10 flex-1 overflow-x-hidden overflow-y-auto p-2.5 pb-5 scroll-smooth scroll-pb-[calc(6.5rem+env(safe-area-inset-bottom))] sm:p-4 sm:pb-5 md:p-5 md:pb-5 md:scroll-pb-5">
+                <main className="relative z-10 flex-1 overflow-x-hidden overflow-y-auto p-2.5 pb-5 scroll-smooth scroll-pb-[calc(6.5rem+var(--safe-bottom))] sm:p-4 sm:pb-5 md:p-5 md:pb-5 md:scroll-pb-5">
                     {children}
                 </main>
 
                 <div
                     aria-hidden="true"
-                    className="h-[calc(5.75rem+env(safe-area-inset-bottom))] shrink-0 md:hidden"
+                    className="h-[calc(5.75rem+var(--safe-bottom))] shrink-0 md:hidden"
                 />
 
                 <MobileBottomNav />

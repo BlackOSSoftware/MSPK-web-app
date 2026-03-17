@@ -26,7 +26,7 @@ export function MobileBottomNav() {
     path === "/dashboard" ? pathname === "/dashboard" : pathname === path || pathname.startsWith(`${path}/`);
 
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 px-2 pb-[max(env(safe-area-inset-bottom),0.45rem)] pt-1.5">
+    <nav className="md:hidden fixed bottom-[var(--safe-bottom)] left-0 right-0 z-40 px-2 pb-2 pt-1.5">
       <div className="mx-auto max-w-xl rounded-2xl border border-sky-300/35 bg-[linear-gradient(170deg,rgba(255,255,255,0.93),rgba(235,245,255,0.9))] p-1 shadow-[0_16px_40px_-28px_rgba(14,165,233,0.65)] backdrop-blur-xl dark:border-sky-300/20 dark:bg-[linear-gradient(170deg,rgba(2,8,30,0.95),rgba(8,20,48,0.9))]">
         <div className="grid grid-cols-5 gap-1">
           {items.map((item) => {

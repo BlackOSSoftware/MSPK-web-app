@@ -3,6 +3,23 @@ apply plugin: 'com.android.application'
 android {
     namespace = "com.mspktrade.solution"
     compileSdk = rootProject.ext.compileSdkVersion
+
+    def releaseStoreFile = project.hasProperty("RELEASE_STORE_FILE") ? project.property("RELEASE_STORE_FILE") : null
+    def releaseStorePassword = project.hasProperty("RELEASE_STORE_PASSWORD") ? project.property("RELEASE_STORE_PASSWORD") : null
+    def releaseKeyAlias = project.hasProperty("RELEASE_KEY_ALIAS") ? project.property("RELEASE_KEY_ALIAS") : null
+    def releaseKeyPassword = project.hasProperty("RELEASE_KEY_PASSWORD") ? project.property("RELEASE_KEY_PASSWORD") : null
+
+    signingConfigs {
+        release {
+            if (releaseStoreFile && releaseStorePassword && releaseKeyAlias && releaseKeyPassword) {
+                storeFile rootProject.file(releaseStoreFile)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
+        }
+    }
+
     defaultConfig {
         applicationId "com.mspktrade.solution"
         minSdkVersion rootProject.ext.minSdkVersion
@@ -20,6 +37,7 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.release
         }
     }
 }

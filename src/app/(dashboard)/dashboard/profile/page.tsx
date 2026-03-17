@@ -7,6 +7,7 @@ import {
   Copy,
   Crown,
   IdCard,
+  LogOut,
   Mail,
   MapPin,
   Phone,
@@ -14,16 +15,18 @@ import {
   ShieldCheck,
   Sparkles,
   UserRound,
+  type LucideIcon,
 } from "lucide-react";
 import { useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { useMeQuery } from "@/hooks/use-auth";
+import { useLogoutMutation, useMeQuery } from "@/hooks/use-auth";
 import { shareApp } from "@/lib/app-share";
 
 export default function ProfilePage() {
   const router = useRouter();
   const meQuery = useMeQuery();
+  const logoutMutation = useLogoutMutation();
 
   const profile = useMemo(() => {
     const me = meQuery.data;
@@ -114,7 +117,12 @@ export default function ProfilePage() {
     }
   };
 
-  const actionRows = [
+  const actionRows: {
+    label: string;
+    icon: LucideIcon;
+    onClick: () => Promise<void> | void;
+    tone?: "danger";
+  }[] = [
     {
       label: "Edit Profile",
       icon: UserRound,
@@ -129,6 +137,33 @@ export default function ProfilePage() {
       label: "Share App",
       icon: Share2,
       onClick: handleShareApp,
+    },
+    {
+      label: "Logout",
+      icon: LogOut,
+      onClick: async () => {
+        const action = async () => {
+          try {
+            await logoutMutation.mutateAsync();
+          } finally {
+            router.replace("/login");
+          }
+        };
+
+        const requestLeave =
+          typeof window !== "undefined"
+            ? (window as { __requestDashboardLeave?: (request: { href?: string; action?: () => Promise<void> | void }) => void })
+              .__requestDashboardLeave
+            : undefined;
+
+        if (requestLeave) {
+          requestLeave({ href: "/login", action });
+          return;
+        }
+
+        await action();
+      },
+      tone: "danger",
     },
   ];
 
@@ -276,10 +311,10 @@ export default function ProfilePage() {
                 key={row.label}
                 type="button"
                 onClick={row.onClick}
-                className="w-full flex items-center justify-between px-4 py-3 text-sm text-foreground"
+                className={`w-full flex items-center justify-between px-4 py-3 text-sm ${row.tone === "danger" ? "text-rose-600" : "text-foreground"}`}
               >
                 <span className="inline-flex items-center gap-2">
-                  <row.icon size={16} className="text-muted-foreground" />
+                  <row.icon size={16} className={row.tone === "danger" ? "text-rose-500" : "text-muted-foreground"} />
                   {row.label}
                 </span>
                 <ChevronRight size={16} className="text-muted-foreground" />

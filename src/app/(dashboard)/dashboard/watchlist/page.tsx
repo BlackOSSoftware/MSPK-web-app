@@ -298,6 +298,8 @@ const SIGNAL_TIMEFRAME_WINDOWS = [
   { key: "15m", label: "15 Min", chartInterval: "15" as ChartInterval },
   { key: "1h", label: "1 Hour", chartInterval: "60" as ChartInterval },
 ] as const;
+const SUPER_TREND_ALLOWED_INTERVALS: ChartInterval[] = ["5", "15", "60"];
+const isSupertrendAllowed = (interval: ChartInterval) => SUPER_TREND_ALLOWED_INTERVALS.includes(interval);
 const CHART_TYPES: { label: string; value: ChartType }[] = [
   { label: "Candles", value: "candle" },
   { label: "Heikin Ashi", value: "heikin" },
@@ -1297,7 +1299,7 @@ function getMarketItemExchange(
 const DEDUPE_SUFFIX_PATTERN = /(\.PR|\.X)$/i;
 
 function getSymbolAliasBase(symbol: string): string {
-  const normalized = normalizeSymbol(symbol);
+  const normalized = normalizeSymbol(symbol).split(":").pop() ?? "";
   if (!normalized) return "";
   return normalized.replace(DEDUPE_SUFFIX_PATTERN, "");
 }
@@ -1307,10 +1309,7 @@ function getSearchDedupeKey(
 ): string {
   const symbol = getSymbolAliasBase(String(item.symbol ?? ""));
   if (!symbol) return "";
-  const name = getMarketItemName(item).toUpperCase();
-  const segment = getMarketItemSegment(item);
-  const exchange = getMarketItemExchange(item);
-  return `${segment}|${exchange}|${symbol}|${name}`;
+  return symbol;
 }
 
 function isBseMarketItem(
@@ -1462,10 +1461,10 @@ function TimeframeSignalPanel({
   className,
 }: TimeframeSignalPanelProps) {
   return (
-    <div className={cn("flex flex-col gap-1.5", className)}>
-      <div className="flex items-center justify-between gap-1.5 px-0.5">
+    <div className={cn("flex flex-col gap-2", className)}>
+      <div className="flex items-center justify-between gap-2 px-0.5">
         <div className="min-w-0">
-          <p className="inline-flex items-center gap-1 text-[9px] uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+          <p className="inline-flex items-center gap-1 text-[9px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
             <BarChart3 className="h-3 w-3" />
             Timeframe Signals
           </p>
@@ -1474,13 +1473,13 @@ function TimeframeSignalPanel({
           </p>
         </div>
         {symbol ? (
-          <Badge className="hidden rounded-full border border-slate-300/80 bg-white/85 px-1.5 py-0.5 text-[8px] font-semibold text-slate-700 dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200 sm:inline-flex">
+          <Badge className="hidden rounded-full border border-slate-300/80 bg-white/85 px-2 py-0.5 text-[8px] font-semibold text-slate-700 dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200 sm:inline-flex">
             {symbol}
           </Badge>
         ) : null}
       </div>
 
-      <div className="grid grid-cols-3 gap-1.5">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         {SIGNAL_TIMEFRAME_WINDOWS.map((timeframeWindow) => {
           const signal = signalsByTimeframe[timeframeWindow.key];
           const signalLabel = getCurrentSignalLabel(signal);
@@ -1517,10 +1516,10 @@ function TimeframeSignalPanel({
               type="button"
               onClick={() => onSelectInterval(timeframeWindow.chartInterval)}
               className={cn(
-                "flex min-h-[154px] min-w-0 flex-col overflow-hidden rounded-lg border px-1.5 py-1.5 text-left transition sm:min-h-[164px] sm:px-2 sm:py-2",
+                "group flex min-h-[148px] min-w-0 flex-col overflow-hidden rounded-2xl border px-2 py-2 text-left transition sm:min-h-[170px] sm:px-2.5 sm:py-2.5",
                 isSelected
-                  ? "border-sky-400/55 bg-sky-500/10 shadow-[0_18px_30px_-28px_rgba(14,165,233,0.85)] dark:border-sky-400/40 dark:bg-sky-500/12"
-                  : "border-slate-200/85 bg-white/88 hover:border-slate-300/90 hover:bg-white dark:border-slate-800 dark:bg-[#0a1422] dark:hover:border-slate-700"
+                  ? "border-sky-400/60 bg-[linear-gradient(160deg,rgba(14,165,233,0.15),rgba(59,130,246,0.08))] shadow-[0_18px_30px_-24px_rgba(14,165,233,0.65)] dark:border-sky-400/40 dark:bg-[linear-gradient(160deg,rgba(14,165,233,0.2),rgba(2,6,23,0.5))]"
+                  : "border-slate-200/85 bg-[linear-gradient(160deg,rgba(248,250,252,0.95),rgba(241,245,249,0.7))] hover:border-slate-300/90 dark:border-slate-800 dark:bg-[linear-gradient(160deg,rgba(15,23,42,0.7),rgba(2,6,23,0.6))] dark:hover:border-slate-700"
                 ,
                 signalPanelTone,
                 signalPanelHover
@@ -1528,7 +1527,7 @@ function TimeframeSignalPanel({
             >
               <div className="flex items-start justify-between gap-1">
                 <div className="min-w-0">
-                  <p className="text-[8px] uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+                  <p className="text-[8px] uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
                     {timeframeWindow.label}
                   </p>
                   <p className="mt-0.5 truncate text-[9px] font-semibold leading-tight text-slate-900 dark:text-slate-100 sm:text-[10px]">
@@ -1537,7 +1536,7 @@ function TimeframeSignalPanel({
                 </div>
                 <span
                   className={cn(
-                    "inline-flex max-w-[52px] shrink-0 truncate rounded-full border px-1 py-0.5 text-[7px] font-semibold uppercase tracking-[0.08em]",
+                    "inline-flex max-w-[64px] shrink-0 truncate rounded-full border px-1.5 py-0.5 text-[7px] font-semibold uppercase tracking-[0.12em]",
                     signalTone.badge
                   )}
                 >
@@ -1851,6 +1850,10 @@ function WatchlistPageContent() {
   const activeWatchlist = useMemo(
     () => userWatchlists.find((item) => item.id === activeWatchlistId) ?? null,
     [userWatchlists, activeWatchlistId]
+  );
+  const isSystemAllWatchlist = useMemo(
+    () => String(activeWatchlist?.name || "").trim().toLowerCase() === "all",
+    [activeWatchlist?.name]
   );
   const watchlistBusy =
     createWatchlistMutation.isPending ||
@@ -3502,13 +3505,23 @@ function WatchlistPageContent() {
       return;
     }
     const displayCandles = chartType === "heikin" ? calculateHeikinAshi(seedCandles) : seedCandles;
-    const { candles: coloredCandles, line, latest, markers } = applySupertrendToCandles(displayCandles);
-    candleSeriesRef.current.setData(coloredCandles);
-    candleSeriesRef.current.setMarkers(markers);
-    supertrendSeriesRef.current?.setData(line);
-    chartRawCandlesRef.current = [...seedCandles];
-    chartCandlesRef.current = [...coloredCandles];
-    setCurrentSupertrendSafe(latest);
+    const allowSupertrend = isSupertrendAllowed(chartInterval);
+    if (!allowSupertrend) {
+      candleSeriesRef.current.setData(displayCandles);
+      candleSeriesRef.current.setMarkers([]);
+      supertrendSeriesRef.current?.setData([]);
+      chartRawCandlesRef.current = [...seedCandles];
+      chartCandlesRef.current = [...displayCandles];
+      setCurrentSupertrendSafe(null);
+    } else {
+      const { candles: coloredCandles, line, latest, markers } = applySupertrendToCandles(displayCandles);
+      candleSeriesRef.current.setData(coloredCandles);
+      candleSeriesRef.current.setMarkers(markers);
+      supertrendSeriesRef.current?.setData([]);
+      chartRawCandlesRef.current = [...seedCandles];
+      chartCandlesRef.current = [...coloredCandles];
+      setCurrentSupertrendSafe(latest);
+    }
     chartKeyRef.current = nextKey;
     lastChartUpdateRef.current = 0;
     setHasChartData(seedCandles.length > 0);
@@ -3518,23 +3531,32 @@ function WatchlistPageContent() {
     if (!chartHoverRef.current) {
       updateLegendFromLatest();
     }
-  }, [seedCandles, historyKey]);
+  }, [seedCandles, historyKey, chartInterval, chartType]);
 
   useEffect(() => {
     if (!candleSeriesRef.current) return;
     const rawCandles = chartRawCandlesRef.current;
     if (rawCandles.length === 0) return;
     const displayCandles = chartType === "heikin" ? calculateHeikinAshi(rawCandles) : rawCandles;
-    const { candles: coloredCandles, line, latest, markers } = applySupertrendToCandles(displayCandles);
-    candleSeriesRef.current.setData(coloredCandles);
-    candleSeriesRef.current.setMarkers(markers);
-    supertrendSeriesRef.current?.setData(line);
-    chartCandlesRef.current = [...coloredCandles];
-    setCurrentSupertrendSafe(latest);
+    const allowSupertrend = isSupertrendAllowed(chartInterval);
+    if (!allowSupertrend) {
+      candleSeriesRef.current.setData(displayCandles);
+      candleSeriesRef.current.setMarkers([]);
+      supertrendSeriesRef.current?.setData([]);
+      chartCandlesRef.current = [...displayCandles];
+      setCurrentSupertrendSafe(null);
+    } else {
+      const { candles: coloredCandles, line, latest, markers } = applySupertrendToCandles(displayCandles);
+      candleSeriesRef.current.setData(coloredCandles);
+      candleSeriesRef.current.setMarkers(markers);
+      supertrendSeriesRef.current?.setData([]);
+      chartCandlesRef.current = [...coloredCandles];
+      setCurrentSupertrendSafe(latest);
+    }
     if (!chartHoverRef.current) {
       updateLegendFromLatest();
     }
-  }, [chartType]);
+  }, [chartType, chartInterval]);
 
   useEffect(() => {
     const series = candleSeriesRef.current;
@@ -3738,12 +3760,21 @@ function WatchlistPageContent() {
 
     chartRawCandlesRef.current = rawCandles;
     const displayCandles = chartType === "heikin" ? calculateHeikinAshi(rawCandles) : rawCandles;
-    const { candles: coloredCandles, line, latest, markers } = applySupertrendToCandles(displayCandles);
-    candleSeriesRef.current.setData(coloredCandles);
-    candleSeriesRef.current.setMarkers(markers);
-    supertrendSeriesRef.current?.setData(line);
-    chartCandlesRef.current = [...coloredCandles];
-    setCurrentSupertrendSafe(latest);
+    const allowSupertrend = isSupertrendAllowed(chartInterval);
+    if (!allowSupertrend) {
+      candleSeriesRef.current.setData(displayCandles);
+      candleSeriesRef.current.setMarkers([]);
+      supertrendSeriesRef.current?.setData([]);
+      chartCandlesRef.current = [...displayCandles];
+      setCurrentSupertrendSafe(null);
+    } else {
+      const { candles: coloredCandles, line, latest, markers } = applySupertrendToCandles(displayCandles);
+      candleSeriesRef.current.setData(coloredCandles);
+      candleSeriesRef.current.setMarkers(markers);
+      supertrendSeriesRef.current?.setData([]);
+      chartCandlesRef.current = [...coloredCandles];
+      setCurrentSupertrendSafe(latest);
+    }
     if (isNewBucket && !chartManualZoomRef.current) {
       fitChartToContent();
     }
@@ -3834,6 +3865,10 @@ function WatchlistPageContent() {
       toast.error("Select or create a watchlist first");
       return;
     }
+    if (isSystemAllWatchlist) {
+      toast.info('The "All" watchlist is read-only. Select a folder to edit.');
+      return;
+    }
     if (watchlistSymbols.includes(normalizedTarget)) {
       toast.info(`${normalizedTarget} already in watchlist`);
       return;
@@ -3856,6 +3891,10 @@ function WatchlistPageContent() {
   const handleRemoveSymbol = async (symbol: string) => {
     if (!activeWatchlistId) {
       toast.error("Select or create a watchlist first");
+      return;
+    }
+    if (isSystemAllWatchlist) {
+      toast.info('The "All" watchlist is read-only. Select a folder to edit.');
       return;
     }
     setRemovingSymbol(symbol);
@@ -5622,7 +5661,7 @@ function WatchlistPageContent() {
                           <button
                             type="button"
                             onClick={() => void handleAddSymbol(String(item.symbol ?? symbol))}
-                            disabled={addMutation.isPending || !activeWatchlistId || isAlreadyAdded}
+                            disabled={addMutation.isPending || !activeWatchlistId || isAlreadyAdded || isSystemAllWatchlist}
                             className="contents text-left disabled:pointer-events-none"
                           >
                             <div className="hidden h-11 w-11 items-center justify-center rounded-2xl border border-slate-200/85 bg-[linear-gradient(145deg,rgba(240,249,255,0.95),rgba(255,255,255,0.98))] text-sm font-bold uppercase tracking-[0.08em] text-slate-800 shadow-[0_10px_22px_-18px_rgba(14,165,233,0.5)] dark:border-slate-700/80 dark:bg-[linear-gradient(145deg,rgba(14,22,36,0.95),rgba(6,12,22,0.98))] dark:text-slate-100 sm:inline-flex"
@@ -5656,7 +5695,7 @@ function WatchlistPageContent() {
                               type="button"
                               variant="outline"
                               onClick={() => void handleAddSymbol(String(item.symbol ?? symbol))}
-                              disabled={addMutation.isPending || !activeWatchlistId || isAlreadyAdded}
+                              disabled={addMutation.isPending || !activeWatchlistId || isAlreadyAdded || isSystemAllWatchlist}
                               className="h-9 min-w-[72px] rounded-xl border-slate-200/85 bg-white px-3 text-[11px] font-semibold text-slate-700 hover:bg-slate-100 active:scale-[0.98] dark:border-slate-700/80 dark:bg-slate-900/80 dark:text-slate-100 dark:hover:bg-slate-800 sm:h-9 sm:min-w-0 sm:rounded-full sm:px-0 sm:w-9"
                               aria-label={isAlreadyAdded ? `${symbol} already added` : `Add ${symbol}`}
                             >
