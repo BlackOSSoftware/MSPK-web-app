@@ -33,6 +33,7 @@ export type MarketTicker = {
   points?: number;
   change?: number;
   isUp?: boolean;
+  isLocked?: boolean;
   lotSize?: number;
   color?: string;
   provider?: string | null;

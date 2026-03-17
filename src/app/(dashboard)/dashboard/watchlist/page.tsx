@@ -178,6 +178,7 @@ type WatchlistRow = {
   changePercent?: number;
   points?: number;
   updatedAt?: string;
+  isLocked?: boolean;
 };
 
 type ChartInterval = "1" | "2" | "5" | "10" | "15" | "60" | "D" | "W" | "M";
@@ -1456,6 +1457,7 @@ function mapWatchlistRow(base: MarketTicker, live?: SocketTick): WatchlistRow | 
     changePercent: live?.changePercent ?? base.change,
     points,
     updatedAt: live?.timestamp,
+    isLocked: base.isLocked,
   };
 }
 
@@ -1817,6 +1819,15 @@ function WatchlistPageContent() {
       .map((item) => (item.symbol ? normalizeSymbol(item.symbol) : ""))
       .filter(Boolean);
   }, [chartMode, selectedSymbol, watchlistQuery.data]);
+  const lockedSymbols = useMemo(() => {
+    const items = watchlistQuery.data ?? [];
+    return new Set(
+      items
+        .filter((item) => Boolean(item.isLocked))
+        .map((item) => (item.symbol ? normalizeSymbol(item.symbol) : ""))
+        .filter(Boolean)
+    );
+  }, [watchlistQuery.data]);
   const selectedAliases = useMemo(
     () => new Set(watchlistSymbols.map((symbol) => getSymbolAliasBase(symbol)).filter(Boolean)),
     [watchlistSymbols]
@@ -2470,11 +2481,12 @@ function WatchlistPageContent() {
     const storedOrder = savedRowOrders[activeWatchlistId] ?? [];
     if (!storedOrder.length) return allRows;
 
+    const orderSet = new Set(storedOrder);
     const rowMap = new Map(allRows.map((row) => [normalizeSymbol(row.symbol), row]));
     const ordered = storedOrder
       .map((symbol) => rowMap.get(symbol))
       .filter((row): row is WatchlistRow => Boolean(row));
-    const remaining = allRows.filter((row) => !storedOrder.includes(normalizeSymbol(row.symbol)));
+    const remaining = allRows.filter((row) => !orderSet.has(normalizeSymbol(row.symbol)));
     return [...ordered, ...remaining];
   }, [activeWatchlistId, allRows, savedRowOrders]);
 
@@ -2664,9 +2676,14 @@ function WatchlistPageContent() {
     const currentSymbols = allRows.map((row) => normalizeSymbol(row.symbol));
     if (!currentSymbols.length) return;
     const storedSymbols = savedRowOrders[activeWatchlistId] ?? [];
-    const nextSymbols = [...storedSymbols.filter((symbol) => currentSymbols.includes(symbol))];
+    const currentSet = new Set(currentSymbols);
+    const nextSymbols = [...storedSymbols.filter((symbol) => currentSet.has(symbol))];
+    const nextSet = new Set(nextSymbols);
     for (const symbol of currentSymbols) {
-      if (!nextSymbols.includes(symbol)) nextSymbols.push(symbol);
+      if (!nextSet.has(symbol)) {
+        nextSymbols.push(symbol);
+        nextSet.add(symbol);
+      }
     }
     if (areSameSymbolOrder(storedSymbols, nextSymbols)) return;
     saveRowOrderToLocal(activeWatchlistId, nextSymbols);
@@ -3935,6 +3952,11 @@ function WatchlistPageContent() {
       toast.info('The "All" watchlist is read-only. Select a folder to edit.');
       return;
     }
+    const normalized = normalizeSymbol(symbol);
+    if (lockedSymbols.has(normalized)) {
+      toast.info("This symbol is locked by admin");
+      return;
+    }
     setRemovingSymbol(symbol);
     try {
       await removeMutation.mutateAsync({ symbol, watchlistId: activeWatchlistId });
@@ -4947,6 +4969,7 @@ function WatchlistPageContent() {
                     const lowClass = "text-rose-600 dark:text-rose-300";
                     const bidClass = "text-emerald-600 dark:text-emerald-300";
                     const askClass = "text-rose-600 dark:text-rose-300";
+                    const isLocked = Boolean(row.isLocked);
 
                     return (
                       <div
@@ -4996,8 +5019,11 @@ function WatchlistPageContent() {
                               void handleRemoveSymbol(row.symbol);
                             }}
                             className="inline-flex h-9 w-9 shrink-0 items-center justify-center self-center rounded-lg border border-rose-500/25 bg-rose-500/10 text-rose-700 transition-colors hover:bg-rose-500/16 dark:border-rose-400/35 dark:bg-rose-500/12 dark:text-rose-200"
-                            disabled={removeMutation.isPending && removingSymbol === row.symbol}
+                            disabled={
+                              (removeMutation.isPending && removingSymbol === row.symbol) || isLocked
+                            }
                             aria-label={`Remove ${row.symbol}`}
+                            title={isLocked ? "Locked by admin" : `Remove ${row.symbol}`}
                           >
                             <Trash2 className="h-4 w-4" />
                           </button>
@@ -5104,6 +5130,7 @@ function WatchlistPageContent() {
                 const pulse = cardPulseMap[row.symbol];
                 const highPulse = highPulseMap[row.symbol];
                 const lowPulse = lowPulseMap[row.symbol];
+                const isLocked = Boolean(row.isLocked);
                 const isUp =
                   typeof row.changePercent === "number"
                     ? row.changePercent >= 0
@@ -5441,7 +5468,10 @@ function WatchlistPageContent() {
                           event.stopPropagation();
                           void handleRemoveSymbol(row.symbol);
                         }}
-                        disabled={removeMutation.isPending && removingSymbol === row.symbol}
+                        disabled={
+                          (removeMutation.isPending && removingSymbol === row.symbol) || isLocked
+                        }
+                        title={isLocked ? "Locked by admin" : "Remove"}
                       >
                         <Trash2 className="h-4 w-4" />
                         Remove
@@ -5496,6 +5526,7 @@ function WatchlistPageContent() {
                       : typeof row.points === "number"
                         ? row.points >= 0
                         : false;
+                  const isLocked = Boolean(row.isLocked);
                   const accentClass = isUp ? "before:bg-emerald-500" : "before:bg-rose-500";
                   const priceClass =
                     pulse === "up"
@@ -5580,7 +5611,10 @@ function WatchlistPageContent() {
                         }}
                         className="absolute bottom-1 right-1 hidden h-6 w-6 items-center justify-center rounded-md border border-rose-300/80 bg-rose-500/10 text-rose-600 transition hover:border-rose-400/45 hover:bg-rose-500/[0.12] hover:text-rose-700 dark:border-rose-500/50 dark:bg-rose-500/15 dark:text-rose-300 dark:hover:border-rose-400/50 dark:hover:bg-rose-500/[0.18] dark:hover:text-rose-200 md:inline-flex"
                         aria-label={`Remove ${row.symbol}`}
-                        disabled={removeMutation.isPending && removingSymbol === row.symbol}
+                        disabled={
+                          (removeMutation.isPending && removingSymbol === row.symbol) || isLocked
+                        }
+                        title={isLocked ? "Locked by admin" : `Remove ${row.symbol}`}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
@@ -5594,7 +5628,10 @@ function WatchlistPageContent() {
                           }}
                           className="absolute bottom-1 right-1 inline-flex h-6 w-6 items-center justify-center rounded-md border border-rose-300/80 bg-rose-500/10 text-rose-600 transition hover:border-rose-400/45 hover:bg-rose-500/[0.12] hover:text-rose-700 dark:border-rose-500/50 dark:bg-rose-500/15 dark:text-rose-300 dark:hover:border-rose-400/50 dark:hover:bg-rose-500/[0.18] dark:hover:text-rose-200 md:hidden"
                           aria-label={`Remove ${row.symbol}`}
-                          disabled={removeMutation.isPending && removingSymbol === row.symbol}
+                          disabled={
+                            (removeMutation.isPending && removingSymbol === row.symbol) || isLocked
+                          }
+                          title={isLocked ? "Locked by admin" : `Remove ${row.symbol}`}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>
@@ -6317,7 +6354,11 @@ function WatchlistPageContent() {
                       await handleRemoveSymbol(selectedRow.symbol);
                       setSelectedSymbol(null);
                     }}
-                    disabled={removeMutation.isPending && removingSymbol === selectedRow.symbol}
+                    disabled={
+                      (removeMutation.isPending && removingSymbol === selectedRow.symbol) ||
+                      Boolean(selectedRow.isLocked)
+                    }
+                    title={selectedRow.isLocked ? "Locked by admin" : "Remove symbol"}
                   >
                     <Trash2 className="h-4 w-4" />
                     Remove Symbol
