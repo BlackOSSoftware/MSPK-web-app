@@ -1,29 +1,27 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import type { EconomicCalendarItem } from "@/services/economic-calendar/economic-calendar.types";
-import { useEconomicCalendarQuery } from "@/services/economic-calendar/economic-calendar.hooks";
+import { useInfiniteEconomicCalendarQuery } from "@/services/economic-calendar/economic-calendar.hooks";
 import {
   CalendarClock,
   CalendarDays,
-  ChevronLeft,
-  ChevronRight,
   Filter,
   Gauge,
   Globe2,
+  LoaderCircle,
   Rows3,
   RotateCcw,
   Sparkles,
   X,
 } from "lucide-react";
 
-const LIMIT_OPTIONS = [10, 20] as const;
-type LimitOption = (typeof LIMIT_OPTIONS)[number];
 type ImpactOption = "all" | "important" | "high" | "medium" | "low";
 type RangePreset = "today" | "thisWeek" | "next7Days" | "thisMonth" | "custom";
+const PAGE_SIZE = 20;
 
 const formatDateInput = (value: Date) => {
   const year = value.getFullYear();
@@ -369,9 +367,8 @@ export default function EconomicCalendarPage() {
   const [appliedFilters, setAppliedFilters] = useState(INITIAL_FILTERS);
   const [appliedImpact, setAppliedImpact] = useState<ImpactOption>("all");
   const [selectedPreset, setSelectedPreset] = useState<RangePreset>(DEFAULT_RANGE_PRESET);
-  const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState<LimitOption>(20);
   const [selectedEvent, setSelectedEvent] = useState<EconomicCalendarItem | null>(null);
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
   const dateRangeInvalid = useMemo(() => {
     if (!draftFrom || !draftTo) return false;
@@ -380,42 +377,48 @@ export default function EconomicCalendarPage() {
 
   const queryParams = useMemo(
     () => ({
-      page,
-      limit,
+      limit: PAGE_SIZE,
       ...(appliedFilters.from ? { from: appliedFilters.from } : {}),
       ...(appliedFilters.to ? { to: appliedFilters.to } : {}),
       ...(appliedImpact !== "all" ? { impact: appliedImpact } : {}),
     }),
-    [page, limit, appliedFilters.from, appliedFilters.to, appliedImpact],
+    [appliedFilters.from, appliedFilters.to, appliedImpact],
   );
 
-  const { data, isLoading, isFetching, error } = useEconomicCalendarQuery(queryParams);
+  const {
+    data,
+    isLoading,
+    isFetching,
+    error,
+    hasNextPage,
+    fetchNextPage,
+    isFetchingNextPage,
+  } = useInfiniteEconomicCalendarQuery(queryParams);
 
-  const events = data?.results ?? [];
-  const pagination = data?.pagination;
-  const currentPage = pagination?.page ?? page;
-  const totalPages = Math.max(1, pagination?.totalPages ?? 1);
+  const pages = data?.pages ?? [];
+  const events = pages.flatMap((page) => page?.results ?? []);
+  const pagination = pages[0]?.pagination;
   const totalResults = pagination?.totalResults ?? events.length;
-  const hasPrevPage = pagination?.hasPrevPage ?? currentPage > 1;
-  const hasNextPage = pagination?.hasNextPage ?? currentPage < totalPages;
-  const pageStart = totalResults === 0 ? 0 : (currentPage - 1) * limit + 1;
-  const pageEnd = Math.min(currentPage * limit, totalResults);
+  const pageStart = totalResults === 0 ? 0 : 1;
+  const pageEnd = events.length;
 
-  const paginationItems = useMemo(() => {
-    const points = new Set<number>([1, totalPages, currentPage - 1, currentPage, currentPage + 1]);
-    const sorted = Array.from(points).filter((item) => item >= 1 && item <= totalPages).sort((a, b) => a - b);
-    const items: Array<number | "gap"> = [];
+  useEffect(() => {
+    const target = loadMoreRef.current;
+    if (!target || !hasNextPage) return undefined;
 
-    sorted.forEach((value, index) => {
-      const prev = sorted[index - 1];
-      if (index > 0 && prev && value - prev > 1) {
-        items.push("gap");
-      }
-      items.push(value);
-    });
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries;
+        if (entry?.isIntersecting && hasNextPage && !isFetchingNextPage) {
+          fetchNextPage();
+        }
+      },
+      { rootMargin: "240px 0px" },
+    );
 
-    return items;
-  }, [currentPage, totalPages]);
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [fetchNextPage, hasNextPage, isFetchingNextPage, events.length]);
 
   const appliedRangeLabel = useMemo(() => {
     if (!appliedFilters.from && !appliedFilters.to) return "Flexible Range";
@@ -429,7 +432,6 @@ export default function EconomicCalendarPage() {
     setDraftFrom(nextRange.from);
     setDraftTo(nextRange.to);
     setAppliedFilters(nextRange);
-    setPage(1);
   };
 
   const applyFilters = () => {
@@ -437,7 +439,6 @@ export default function EconomicCalendarPage() {
     setAppliedFilters({ from: draftFrom, to: draftTo });
     setAppliedImpact(draftImpact);
     setSelectedPreset("custom");
-    setPage(1);
   };
 
   const resetFilters = () => {
@@ -448,13 +449,6 @@ export default function EconomicCalendarPage() {
     setAppliedFilters(resetRange);
     setAppliedImpact("all");
     setSelectedPreset(DEFAULT_RANGE_PRESET);
-    setPage(1);
-  };
-
-  const changeLimit = (value: string) => {
-    const nextLimit: LimitOption = value === "20" ? 20 : 10;
-    setLimit(nextLimit);
-    setPage(1);
   };
 
   return (
@@ -509,7 +503,7 @@ export default function EconomicCalendarPage() {
             ))}
           </div>
 
-          <div className="grid gap-3 md:grid-cols-[1fr_1fr_170px_170px_auto_auto]">
+          <div className="grid gap-3 md:grid-cols-[1fr_1fr_170px_auto_auto]">
             <input
               type="date"
               value={draftFrom}
@@ -528,17 +522,6 @@ export default function EconomicCalendarPage() {
               }}
               className="h-11 rounded-xl border border-slate-300/70 dark:border-slate-700 bg-background/75 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/25"
             />
-            <select
-              value={String(limit)}
-              onChange={(event) => changeLimit(event.target.value)}
-              className="h-11 rounded-xl border border-slate-300/70 dark:border-slate-700 bg-background/75 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/25"
-            >
-              {LIMIT_OPTIONS.map((option) => (
-                <option key={option} value={option}>
-                  {option} / page
-                </option>
-              ))}
-            </select>
             <select
               value={draftImpact}
               onChange={(event) => setDraftImpact(event.target.value as ImpactOption)}
@@ -574,10 +557,7 @@ export default function EconomicCalendarPage() {
             <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-300/70 dark:border-slate-700 px-2.5 py-1">
               Impact: {appliedImpact.charAt(0).toUpperCase() + appliedImpact.slice(1)}
             </span>
-            <span>
-              Showing {pageStart.toLocaleString("en-IN")} - {pageEnd.toLocaleString("en-IN")} | Page {currentPage} of{" "}
-              {totalPages}
-            </span>
+            <span>Showing {pageStart.toLocaleString("en-IN")} - {pageEnd.toLocaleString("en-IN")}</span>
           </div>
         </CardContent>
       </Card>
@@ -590,7 +570,7 @@ export default function EconomicCalendarPage() {
           </div>
           <div className="inline-flex items-center gap-2 rounded-full border border-slate-300/80 dark:border-slate-600/70 bg-white/80 dark:bg-slate-900/70 px-3 py-1 text-[10px] uppercase tracking-[0.16em] text-slate-700 dark:text-slate-200">
             <Globe2 className="h-3.5 w-3.5" />
-            {limit} Rows / Page
+            20 Rows / Batch
           </div>
         </div>
 
@@ -630,7 +610,7 @@ export default function EconomicCalendarPage() {
                 </tr>
               ) : (
                 events.map((event, index) => {
-                  const position = (currentPage - 1) * limit + index + 1;
+                  const position = index + 1;
                   const impact = impactMeta(event.impact);
                   const { dateLabel, timeLabel } = formatDateParts(event.date);
 
@@ -702,52 +682,21 @@ export default function EconomicCalendarPage() {
           </table>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-300/65 dark:border-primary/20 px-4 py-3 sm:px-5">
-          <Button
-            type="button"
-            variant="outline"
-            className="rounded-xl gap-2"
-            onClick={() => setPage((prev) => Math.max(1, prev - 1))}
-            disabled={!hasPrevPage || isFetching}
-          >
-            <ChevronLeft className="h-4 w-4" />
-            Previous
-          </Button>
-
-          <div className="flex items-center gap-2">
-            {paginationItems.map((item, index) =>
-              item === "gap" ? (
-                <span key={`gap-${index}`} className="px-2 text-xs text-muted-foreground">
-                  ...
-                </span>
-              ) : (
-                <button
-                  key={item}
-                  type="button"
-                  onClick={() => setPage(item)}
-                  disabled={isFetching}
-                  className={`h-9 min-w-9 rounded-lg border px-3 text-xs font-semibold transition ${
-                    item === currentPage
-                      ? "border-primary bg-primary text-primary-foreground"
-                      : "border-slate-300/70 dark:border-slate-700 bg-background/80 text-foreground hover:border-primary/40"
-                  }`}
-                >
-                  {item}
-                </button>
-              ),
+        <div className="flex items-center justify-center border-t border-slate-300/65 dark:border-primary/20 px-4 py-4 sm:px-5">
+          <div ref={loadMoreRef} className="flex min-h-10 items-center justify-center text-xs text-slate-600 dark:text-slate-400">
+            {isFetchingNextPage ? (
+              <span className="inline-flex items-center gap-2">
+                <LoaderCircle className="h-4 w-4 animate-spin" />
+                Loading next 20 events...
+              </span>
+            ) : hasNextPage ? (
+              "Scroll down to load 20 more events"
+            ) : totalResults > 0 ? (
+              "All events loaded"
+            ) : (
+              ""
             )}
           </div>
-
-          <Button
-            type="button"
-            variant="outline"
-            className="rounded-xl gap-2"
-            onClick={() => setPage((prev) => prev + 1)}
-            disabled={!hasNextPage || isFetching}
-          >
-            Next
-            <ChevronRight className="h-4 w-4" />
-          </Button>
         </div>
       </section>
       <EconomicEventDetailsModal event={selectedEvent} onClose={() => setSelectedEvent(null)} />
