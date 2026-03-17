@@ -3351,7 +3351,11 @@ function WatchlistPageContent() {
   ]);
 
   const effectiveSignalTargets = useMemo(() => {
-    return derivedRangeTargets?.slice(0, 3) ?? currentSignalTargets;
+    if (currentSignalTargets.length > 0) {
+      return currentSignalTargets;
+    }
+
+    return derivedRangeTargets?.slice(0, 3) ?? [];
   }, [currentSignalTargets, derivedRangeTargets]);
 
   useEffect(() => {
