@@ -1011,6 +1011,7 @@ function calculateStructurePivots(candles: HistoryCandle[], period = 5): Structu
 
 function applySupertrendToCandles(
   candles: HistoryCandle[],
+  supertrendSourceCandles: HistoryCandle[] = candles,
   period = SUPER_TREND_PERIOD,
   multiplier = SUPER_TREND_MULTIPLIER
 ): {
@@ -1026,7 +1027,7 @@ function applySupertrendToCandles(
   const fallbackColor = (candle: HistoryCandle) =>
     candle.close >= candle.open ? SUPER_TREND_UP_COLOR : SUPER_TREND_DOWN_COLOR;
 
-  if (candles.length < period + 1) {
+  if (candles.length < period + 1 || supertrendSourceCandles.length < period + 1) {
     const colored = candles.map((candle) => {
       const color = fallbackColor(candle);
       return { ...candle, color, borderColor: color, wickColor: color };
@@ -1034,15 +1035,18 @@ function applySupertrendToCandles(
     return { candles: colored, line: [], latest: null, markers: [] };
   }
 
-  const tr: number[] = new Array(candles.length).fill(0);
-  for (let i = 0; i < candles.length; i += 1) {
+  const sourceCandles =
+    supertrendSourceCandles.length === candles.length ? supertrendSourceCandles : candles;
+
+  const tr: number[] = new Array(sourceCandles.length).fill(0);
+  for (let i = 0; i < sourceCandles.length; i += 1) {
     if (i === 0) {
-      tr[i] = candles[i].high - candles[i].low;
+      tr[i] = sourceCandles[i].high - sourceCandles[i].low;
       continue;
     }
-    const high = candles[i].high;
-    const low = candles[i].low;
-    const prevClose = candles[i - 1].close;
+    const high = sourceCandles[i].high;
+    const low = sourceCandles[i].low;
+    const prevClose = sourceCandles[i - 1].close;
     tr[i] = Math.max(
       high - low,
       Math.abs(high - prevClose),
@@ -1050,31 +1054,31 @@ function applySupertrendToCandles(
     );
   }
 
-  const atr: Array<number | undefined> = new Array(candles.length).fill(undefined);
+  const atr: Array<number | undefined> = new Array(sourceCandles.length).fill(undefined);
   let sumTR = 0;
   for (let i = 0; i < period; i += 1) {
     sumTR += tr[i] ?? 0;
   }
   atr[period - 1] = sumTR / period;
-  for (let i = period; i < candles.length; i += 1) {
+  for (let i = period; i < sourceCandles.length; i += 1) {
     const prevAtr = atr[i - 1] ?? atr[i - 2] ?? 0;
     atr[i] = (prevAtr * (period - 1) + tr[i]) / period;
   }
 
-  const up: Array<number | undefined> = new Array(candles.length).fill(undefined);
-  const dn: Array<number | undefined> = new Array(candles.length).fill(undefined);
-  const trend: number[] = new Array(candles.length).fill(0);
+  const up: Array<number | undefined> = new Array(sourceCandles.length).fill(undefined);
+  const dn: Array<number | undefined> = new Array(sourceCandles.length).fill(undefined);
+  const trend: number[] = new Array(sourceCandles.length).fill(0);
 
-  for (let i = period; i < candles.length; i += 1) {
+  for (let i = period; i < sourceCandles.length; i += 1) {
     const currentAtr = atr[i];
     if (typeof currentAtr !== "number" || !Number.isFinite(currentAtr)) continue;
-    const src = (candles[i].high + candles[i].low) / 2;
+    const src = (sourceCandles[i].high + sourceCandles[i].low) / 2;
     let currentUp = src - multiplier * currentAtr;
     let currentDn = src + multiplier * currentAtr;
 
     const prevUp = up[i - 1] ?? currentUp;
     const prevDn = dn[i - 1] ?? currentDn;
-    const prevClose = candles[i - 1].close;
+    const prevClose = sourceCandles[i - 1].close;
 
     if (prevClose > prevUp) {
       currentUp = Math.max(currentUp, prevUp);
@@ -1087,7 +1091,7 @@ function applySupertrendToCandles(
     dn[i] = currentDn;
 
     let currentTrend = trend[i - 1] || 1;
-    const close = candles[i].close;
+    const close = sourceCandles[i].close;
     if (currentTrend === -1 && close > prevDn) {
       currentTrend = 1;
     } else if (currentTrend === 1 && close < prevUp) {
@@ -3615,6 +3619,7 @@ function WatchlistPageContent() {
       return;
     }
     const displayCandles = chartType === "heikin" ? calculateHeikinAshi(seedCandles) : seedCandles;
+    const supertrendCandles = chartType === "heikin" ? displayCandles : calculateHeikinAshi(seedCandles);
     const allowSupertrend = isSupertrendAllowed(chartInterval);
     if (!allowSupertrend) {
       candleSeriesRef.current.setData(displayCandles);
@@ -3624,7 +3629,10 @@ function WatchlistPageContent() {
       chartCandlesRef.current = [...displayCandles];
       setCurrentSupertrendSafe(null);
     } else {
-      const { candles: coloredCandles, line, latest, markers } = applySupertrendToCandles(displayCandles);
+      const { candles: coloredCandles, line, latest, markers } = applySupertrendToCandles(
+        displayCandles,
+        supertrendCandles
+      );
       candleSeriesRef.current.setData(coloredCandles);
       candleSeriesRef.current.setMarkers(markers);
       supertrendSeriesRef.current?.setData([]);
@@ -3648,6 +3656,7 @@ function WatchlistPageContent() {
     const rawCandles = chartRawCandlesRef.current;
     if (rawCandles.length === 0) return;
     const displayCandles = chartType === "heikin" ? calculateHeikinAshi(rawCandles) : rawCandles;
+    const supertrendCandles = chartType === "heikin" ? displayCandles : calculateHeikinAshi(rawCandles);
     const allowSupertrend = isSupertrendAllowed(chartInterval);
     if (!allowSupertrend) {
       candleSeriesRef.current.setData(displayCandles);
@@ -3656,7 +3665,10 @@ function WatchlistPageContent() {
       chartCandlesRef.current = [...displayCandles];
       setCurrentSupertrendSafe(null);
     } else {
-      const { candles: coloredCandles, line, latest, markers } = applySupertrendToCandles(displayCandles);
+      const { candles: coloredCandles, line, latest, markers } = applySupertrendToCandles(
+        displayCandles,
+        supertrendCandles
+      );
       candleSeriesRef.current.setData(coloredCandles);
       candleSeriesRef.current.setMarkers(markers);
       supertrendSeriesRef.current?.setData([]);
@@ -3870,6 +3882,7 @@ function WatchlistPageContent() {
 
     chartRawCandlesRef.current = rawCandles;
     const displayCandles = chartType === "heikin" ? calculateHeikinAshi(rawCandles) : rawCandles;
+    const supertrendCandles = chartType === "heikin" ? displayCandles : calculateHeikinAshi(rawCandles);
     const allowSupertrend = isSupertrendAllowed(chartInterval);
     if (!allowSupertrend) {
       candleSeriesRef.current.setData(displayCandles);
@@ -3878,7 +3891,10 @@ function WatchlistPageContent() {
       chartCandlesRef.current = [...displayCandles];
       setCurrentSupertrendSafe(null);
     } else {
-      const { candles: coloredCandles, line, latest, markers } = applySupertrendToCandles(displayCandles);
+      const { candles: coloredCandles, line, latest, markers } = applySupertrendToCandles(
+        displayCandles,
+        supertrendCandles
+      );
       candleSeriesRef.current.setData(coloredCandles);
       candleSeriesRef.current.setMarkers(markers);
       supertrendSeriesRef.current?.setData([]);
