@@ -134,11 +134,12 @@ function roundSignalValue(value: number) {
   return Math.round(value * 100) / 100;
 }
 
-function getResolvedPoints(signal: SignalItem) {
+function getResolvedPoints(signal: SignalItem, livePrice?: number) {
   const runtimeSignal = signal as SignalRuntimeShape;
   const storedPoints = toFiniteNumber(signal.totalPoints ?? runtimeSignal.total_points);
   const entry = getEntry(signal);
   const exit = getExit(signal);
+  const currentLivePrice = typeof livePrice === "number" && Number.isFinite(livePrice) ? livePrice : undefined;
 
   if (
     typeof storedPoints === "number" &&
@@ -149,6 +150,11 @@ function getResolvedPoints(signal: SignalItem) {
 
   if (typeof entry === "number" && typeof exit === "number") {
     const points = isBuySignal(signal) ? exit - entry : entry - exit;
+    return roundSignalValue(points);
+  }
+
+  if (typeof entry === "number" && typeof currentLivePrice === "number") {
+    const points = isBuySignal(signal) ? currentLivePrice - entry : entry - currentLivePrice;
     return roundSignalValue(points);
   }
 
@@ -1411,8 +1417,8 @@ function SignalsPageContent() {
                           <Sparkles className="h-3.5 w-3.5 text-amber-700 dark:text-amber-100" />
                           Points
                         </div>
-                        <div className={`mt-1.5 text-sm font-semibold leading-tight ${getPointsTone(getResolvedPoints(detailSignal))} sm:mt-2 sm:text-lg`}>
-                          {formatPoints(getResolvedPoints(detailSignal))}
+                        <div className={`mt-1.5 text-sm font-semibold leading-tight ${getPointsTone(getResolvedPoints(detailSignal, detailLivePrice))} sm:mt-2 sm:text-lg`}>
+                          {formatPoints(getResolvedPoints(detailSignal, detailLivePrice))}
                         </div>
                       </div>
                     </div>
