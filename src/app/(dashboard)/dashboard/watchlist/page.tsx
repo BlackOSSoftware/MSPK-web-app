@@ -4870,7 +4870,7 @@ function WatchlistPageContent() {
               </div>
 
               <p className="mt-2 hidden text-[11px] text-slate-600 dark:text-slate-300 sm:block">
-                Create named watchlists and switch instantly. Signals and dashboard view follow the selected active watchlist.
+                Create named watchlists and switch instantly. Signal delivery is managed separately from the Manage Scripts tab.
               </p>
             </div>
 

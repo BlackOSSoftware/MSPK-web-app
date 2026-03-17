@@ -36,6 +36,20 @@ export type SignalItem = {
   notes?: string;
 };
 
+export type SignalSelectedScript = {
+  symbol: string;
+  name?: string;
+  segment?: string;
+  segmentGroup?: string;
+  exchange?: string;
+  provider?: string | null;
+};
+
+export type SignalSelectedScriptsResponse = {
+  symbols?: string[];
+  scripts?: SignalSelectedScript[];
+};
+
 export type SignalListResponse = {
   access?: {
     mode?: string;

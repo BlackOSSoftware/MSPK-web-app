@@ -16,16 +16,18 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import {
-  MARKET_QUERY_KEY,
   useMarketSegmentsQuery,
   useMarketSearchQuery,
   useMarketSymbolsQuery,
-  useMarketUserWatchlistsQuery,
-  useMarketUserWatchlistAddMutation,
-  useMarketUserWatchlistQuery,
-  useMarketUserWatchlistRemoveMutation,
 } from "@/services/market/market.hooks";
 import type { MarketSearchItem, MarketSymbol } from "@/services/market/market.types";
+import {
+  SIGNAL_SELECTED_SCRIPTS_QUERY_KEY,
+  SIGNALS_QUERY_KEY,
+  useSignalSelectedScriptAddMutation,
+  useSignalSelectedScriptRemoveMutation,
+  useSignalSelectedScriptsQuery,
+} from "@/services/signals/signal.hooks";
 import { Check, Eye, Filter, Plus, RefreshCw, ScanSearch, Search, Trash2 } from "lucide-react";
 
 function normalizeSymbol(symbol: string) {
@@ -151,14 +153,10 @@ export function ManageScriptsPanel({ className }: ManageScriptsPanelProps) {
   const [removingSymbol, setRemovingSymbol] = useState<string | null>(null);
   const [isAddSymbolDialogOpen, setIsAddSymbolDialogOpen] = useState(false);
 
-  const watchlistsQuery = useMarketUserWatchlistsQuery(true);
-  const watchlistQuery = useMarketUserWatchlistQuery(true, {
-    staleTime: 15_000,
-    refetchInterval: 25_000,
-  });
+  const selectedScriptsQuery = useSignalSelectedScriptsQuery(true);
   const marketSegmentsQuery = useMarketSegmentsQuery(true);
-  const addMutation = useMarketUserWatchlistAddMutation();
-  const removeMutation = useMarketUserWatchlistRemoveMutation();
+  const addMutation = useSignalSelectedScriptAddMutation();
+  const removeMutation = useSignalSelectedScriptRemoveMutation();
   const deferredSearchQuery = useDeferredValue(searchQuery.trim());
   const searchMarketQuery = useMarketSearchQuery(
     { q: deferredSearchQuery, limit: 10 },
@@ -190,7 +188,7 @@ export function ManageScriptsPanel({ className }: ManageScriptsPanelProps) {
 
   const selectedScripts = useMemo(
     () =>
-      (watchlistQuery.data ?? [])
+      (selectedScriptsQuery.data ?? [])
         .map((item) => ({
           symbol: String(item.symbol || "").trim().toUpperCase(),
           segment: String(item.segment || "").trim().toUpperCase(),
@@ -201,7 +199,7 @@ export function ManageScriptsPanel({ className }: ManageScriptsPanelProps) {
         .sort((left, right) =>
           `${left.segment}|${left.symbol}`.localeCompare(`${right.segment}|${right.symbol}`)
         ),
-    [watchlistQuery.data]
+    [selectedScriptsQuery.data]
   );
 
   const selectedSymbols = useMemo(() => selectedScripts.map((item) => item.symbol), [selectedScripts]);
@@ -209,16 +207,6 @@ export function ManageScriptsPanel({ className }: ManageScriptsPanelProps) {
     () => new Set(selectedSymbols.map((symbol) => getSymbolAliasBase(symbol)).filter(Boolean)),
     [selectedSymbols]
   );
-  const activeWatchlistName = useMemo(() => {
-    const activeId = String(watchlistsQuery.data?.activeWatchlistId || "").trim();
-    const lists = watchlistsQuery.data?.watchlists ?? [];
-    if (activeId) {
-      const found = lists.find((item) => item.id === activeId);
-      if (found?.name) return found.name;
-    }
-    const flagged = lists.find((item) => item.isActive);
-    return flagged?.name || lists[0]?.name || "Default Watchlist";
-  }, [watchlistsQuery.data]);
   const segmentUsageMap = useMemo(() => {
     const groups = new Map<string, number>();
     selectedScripts.forEach((item) => {
@@ -349,7 +337,10 @@ export function ManageScriptsPanel({ className }: ManageScriptsPanelProps) {
     try {
       await addMutation.mutateAsync(target);
       await queryClient.invalidateQueries({
-        queryKey: [...MARKET_QUERY_KEY, "user-watchlist"],
+        queryKey: SIGNAL_SELECTED_SCRIPTS_QUERY_KEY,
+      });
+      await queryClient.invalidateQueries({
+        queryKey: SIGNALS_QUERY_KEY,
       });
       setSymbolInput("");
       setSearchQuery("");
@@ -366,7 +357,10 @@ export function ManageScriptsPanel({ className }: ManageScriptsPanelProps) {
     try {
       await removeMutation.mutateAsync(symbol);
       await queryClient.invalidateQueries({
-        queryKey: [...MARKET_QUERY_KEY, "user-watchlist"],
+        queryKey: SIGNAL_SELECTED_SCRIPTS_QUERY_KEY,
+      });
+      await queryClient.invalidateQueries({
+        queryKey: SIGNALS_QUERY_KEY,
       });
       toast.success(`${symbol} removed`);
     } catch (error: unknown) {
@@ -397,7 +391,7 @@ export function ManageScriptsPanel({ className }: ManageScriptsPanelProps) {
               Signals are unlimited for selected scripts. The only limit is 10 scripts per segment.
             </p>
             <p className="text-[11px] font-medium text-slate-600 dark:text-slate-300">
-              Active watchlist: <span className="font-semibold text-slate-800 dark:text-slate-100">{activeWatchlistName}</span>
+              Signal scripts stay separate from your watchlists, so premium folders and watchlist changes won't override them.
             </p>
           </div>
           <div className="inline-flex items-center gap-2 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-3 py-1 text-[11px] font-semibold text-emerald-700 transition-all duration-300 hover:-translate-y-0.5 hover:border-emerald-500/40 hover:shadow-[0_12px_24px_-18px_rgba(16,185,129,0.9)] dark:border-emerald-400/25 dark:bg-emerald-400/12 dark:text-emerald-200 dark:hover:border-emerald-300/45 dark:hover:shadow-[0_14px_24px_-16px_rgba(52,211,153,0.55)]">
@@ -693,7 +687,7 @@ export function ManageScriptsPanel({ className }: ManageScriptsPanelProps) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {watchlistQuery.isLoading ? (
+              {selectedScriptsQuery.isLoading ? (
                 <TableRow>
                   <TableCell colSpan={7} className="h-24 text-center text-sm text-slate-500 dark:text-slate-400">
                     Loading selected scripts...
@@ -773,7 +767,7 @@ export function ManageScriptsPanel({ className }: ManageScriptsPanelProps) {
           </div>
         </div>
 
-        {segmentUsageRows.length === 0 && !watchlistQuery.isLoading ? (
+        {segmentUsageRows.length === 0 && !selectedScriptsQuery.isLoading ? (
           <div className="rounded-2xl border border-dashed border-amber-500/35 bg-amber-500/10 p-4 text-xs text-amber-800 dark:border-amber-300/25 dark:bg-amber-300/10 dark:text-amber-100">
             Segment usage summary will appear after adding your first script.
           </div>
