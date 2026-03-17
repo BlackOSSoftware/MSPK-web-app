@@ -536,7 +536,34 @@ function normalizeSignalTimeframe(value: unknown): SignalTimeframeKey | null {
 
 function getSignalTimestamp(signal: SignalItem | null): string | undefined {
   if (!signal) return undefined;
-  return signal.signalTime || signal.timestamp || signal.createdAt;
+  return signal.exitTime || signal.signalTime || signal.timestamp || signal.createdAt;
+}
+
+function getSignalPointsValue(signal: SignalItem | null, livePrice?: number | null): number | undefined {
+  if (!signal) return undefined;
+
+  const storedPoints = toNumber(signal.totalPoints);
+  const entry = getCurrentSignalEntry(signal);
+  const exitPrice = toNumber(signal.exitPrice);
+  const direction = getSignalDirection(signal);
+  const resolvedLivePrice =
+    typeof livePrice === "number" && Number.isFinite(livePrice) ? livePrice : undefined;
+  const resolvedPrice = typeof exitPrice === "number" ? exitPrice : resolvedLivePrice;
+
+  if (
+    typeof storedPoints === "number" &&
+    (typeof entry !== "number" || typeof resolvedPrice !== "number" || typeof exitPrice === "number")
+  ) {
+    return storedPoints;
+  }
+
+  if (typeof entry === "number" && typeof resolvedPrice === "number") {
+    if (direction === "SELL") return entry - resolvedPrice;
+    if (direction === "BUY") return resolvedPrice - entry;
+  }
+
+  if (typeof storedPoints === "number") return storedPoints;
+  return undefined;
 }
 
 function getSignalTimestampValue(signal: SignalItem | null): number {
@@ -545,6 +572,31 @@ function getSignalTimestampValue(signal: SignalItem | null): number {
 
   const parsedTimestamp = new Date(rawTimestamp).getTime();
   return Number.isFinite(parsedTimestamp) ? parsedTimestamp : 0;
+}
+
+function isSignalClosed(signal: SignalItem | null): boolean {
+  if (!signal) return false;
+  const normalizedStatus = String(signal.status || "").trim().toLowerCase();
+  if (signal.exitTime) return true;
+  return (
+    normalizedStatus.includes("target") ||
+    normalizedStatus.includes("partial") ||
+    normalizedStatus.includes("stop") ||
+    normalizedStatus.includes("close")
+  );
+}
+
+function shouldReplaceTimeframeSignal(nextSignal: SignalItem, existingSignal: SignalItem | null): boolean {
+  if (!existingSignal) return true;
+
+  const nextIsActive = !isSignalClosed(nextSignal);
+  const existingIsActive = !isSignalClosed(existingSignal);
+
+  if (nextIsActive !== existingIsActive) {
+    return nextIsActive;
+  }
+
+  return getSignalTimestampValue(nextSignal) >= getSignalTimestampValue(existingSignal);
 }
 
 function buildLatestSignalsByTimeframe(
@@ -559,7 +611,7 @@ function buildLatestSignalsByTimeframe(
     if (!timeframeKey) continue;
 
     const existingSignal = nextSignals[timeframeKey];
-    if (!existingSignal || getSignalTimestampValue(signal) >= getSignalTimestampValue(existingSignal)) {
+    if (shouldReplaceTimeframeSignal(signal, existingSignal)) {
       nextSignals[timeframeKey] = signal;
     }
   }
@@ -1467,6 +1519,7 @@ type TimeframeSignalPanelProps = {
   isLoading: boolean;
   liveTrailingStop: number | null;
   liveTrailingStopTrend: SupertrendTrend | null;
+  livePrice?: number | null;
   onSelectInterval: (interval: ChartInterval) => void;
   signalsByTimeframe: Record<SignalTimeframeKey, SignalItem | null>;
   symbol?: string | null;
@@ -1479,6 +1532,7 @@ function TimeframeSignalPanel({
   isLoading,
   liveTrailingStop,
   liveTrailingStopTrend,
+  livePrice,
   onSelectInterval,
   signalsByTimeframe,
   symbol,
@@ -1524,6 +1578,15 @@ function TimeframeSignalPanel({
           const isStopLossHit = signalLabel === "STOPLOSS";
           const signalTone = getSignalToneClasses(signalLabel);
           const signalTime = formatSignalTimestamp(getSignalTimestamp(signal));
+          const signalPoints = getSignalPointsValue(signal, livePrice);
+          const signalPointsClass =
+            typeof signalPoints === "number"
+              ? signalPoints > 0
+                ? "text-emerald-700 dark:text-emerald-300"
+                : signalPoints < 0
+                  ? "text-rose-700 dark:text-rose-300"
+                  : "text-slate-700 dark:text-slate-300"
+              : "text-slate-500 dark:text-slate-400";
           const isSelected = activeInterval === timeframeWindow.chartInterval;
           const signalPanelTone = signalLabel ? signalTone.panel : "";
           const signalPanelHover = signalLabel ? signalTone.hover : "";
@@ -1634,10 +1697,13 @@ function TimeframeSignalPanel({
                     </div>
                   </div>
 
-                  <div className="mt-auto border-t border-slate-200/75 pt-1.5 text-[7px] text-slate-500 dark:border-slate-700/70 dark:text-slate-400 sm:text-[8px]">
-                    <p className="truncate font-semibold text-slate-600 dark:text-slate-300">
+                  <div className="mt-auto flex items-center justify-between gap-2 border-t border-slate-200/75 pt-1.5 text-[7px] text-slate-500 dark:border-slate-700/70 dark:text-slate-400 sm:text-[8px]">
+                    <p className="min-w-0 truncate font-semibold text-slate-600 dark:text-slate-300">
                       {signalTime}
                     </p>
+                    <span className={cn("shrink-0 font-semibold uppercase tracking-[0.08em]", signalPointsClass)}>
+                      Pts {formatPoints(signalPoints, digits)}
+                    </span>
                   </div>
                 </>
               ) : (
@@ -3001,21 +3067,21 @@ function WatchlistPageContent() {
   );
   const activeChartSymbol = chartMode ? selectedSymbol || urlSymbol : null;
   const signalPanelSymbol = chartMode ? activeChartSymbol : selectedSymbol;
-  const activeSignalsQuery = useSignalsQuery(
+  const latestSignalsQuery = useSignalsQuery(
     signalPanelSymbol
       ? {
           symbol: signalPanelSymbol,
-          status: "Active",
+          sortBy: "latest-event",
           page: 1,
-          limit: 30,
+          limit: 120,
         }
       : undefined,
     Boolean(signalPanelSymbol)
   );
-  const activeSignals = useMemo(() => activeSignalsQuery.data?.results ?? [], [activeSignalsQuery.data?.results]);
-  const activeSignalsByTimeframe = useMemo(
-    () => buildLatestSignalsByTimeframe(activeSignals),
-    [activeSignals]
+  const latestSignals = useMemo(() => latestSignalsQuery.data?.results ?? [], [latestSignalsQuery.data?.results]);
+  const latestSignalsByTimeframe = useMemo(
+    () => buildLatestSignalsByTimeframe(latestSignals),
+    [latestSignals]
   );
   const activeChartTimeframe = useMemo(() => normalizeSignalTimeframe(chartInterval), [chartInterval]);
   const shouldFetchCurrentSignal =
@@ -3029,10 +3095,10 @@ function WatchlistPageContent() {
     () =>
       shouldFetchCurrentSignal
         ? activeChartTimeframe
-          ? activeSignalsByTimeframe[activeChartTimeframe]
-          : activeSignals[0] ?? null
+          ? latestSignalsByTimeframe[activeChartTimeframe]
+          : latestSignals[0] ?? null
         : null,
-    [activeChartTimeframe, activeSignals, activeSignalsByTimeframe, shouldFetchCurrentSignal]
+    [activeChartTimeframe, latestSignals, latestSignalsByTimeframe, shouldFetchCurrentSignal]
   );
   const currentSignalDirection = useMemo(() => getSignalDirection(currentSignal), [currentSignal]);
   const currentSignalLabel = useMemo(() => getCurrentSignalLabel(currentSignal), [currentSignal]);
@@ -4080,7 +4146,7 @@ function WatchlistPageContent() {
     }
     const [historyResult, signalResult] = await Promise.all([
       historyQuery.refetch(),
-      signalPanelSymbol ? activeSignalsQuery.refetch() : Promise.resolve(null),
+      signalPanelSymbol ? latestSignalsQuery.refetch() : Promise.resolve(null),
     ]);
     if (historyResult.error) {
       toast.error("Failed to refresh chart data");
@@ -4088,7 +4154,7 @@ function WatchlistPageContent() {
     if (signalResult && "error" in signalResult && signalResult.error) {
       toast.error("Failed to refresh signal data");
     }
-  }, [activeSignalsQuery, chartParams, historyKey, historyQuery, signalPanelSymbol]);
+  }, [chartParams, historyKey, historyQuery, latestSignalsQuery, signalPanelSymbol]);
   const handleRotateView = useCallback(async () => {
     if (typeof window === "undefined") return;
 
@@ -4618,11 +4684,12 @@ function WatchlistPageContent() {
               activeInterval={chartInterval}
               className="w-full"
               digits={chartLegendDigits}
-              isLoading={activeSignalsQuery.isFetching}
+              isLoading={latestSignalsQuery.isFetching}
+              livePrice={latestChartPrice}
               liveTrailingStop={currentTrailingStop}
               liveTrailingStopTrend={currentTrailingStopTrend}
               onSelectInterval={setChartInterval}
-              signalsByTimeframe={activeSignalsByTimeframe}
+              signalsByTimeframe={latestSignalsByTimeframe}
               symbol={signalPanelSymbol}
             />
           </div>
@@ -6326,11 +6393,12 @@ function WatchlistPageContent() {
                     activeInterval={chartInterval}
                     className="w-full"
                     digits={detailDigits}
-                    isLoading={activeSignalsQuery.isFetching}
+                    isLoading={latestSignalsQuery.isFetching}
+                    livePrice={latestChartPrice}
                     liveTrailingStop={currentTrailingStop}
                     liveTrailingStopTrend={currentTrailingStopTrend}
                     onSelectInterval={setChartInterval}
-                    signalsByTimeframe={activeSignalsByTimeframe}
+                    signalsByTimeframe={latestSignalsByTimeframe}
                     symbol={selectedRow.symbol}
                   />
                 </div>

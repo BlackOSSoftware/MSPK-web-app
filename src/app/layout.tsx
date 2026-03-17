@@ -14,9 +14,6 @@ const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
 });
-
-import { Toaster } from 'sonner';
-
 export const metadata: Metadata = {
   metadataBase: siteUrl,
   title: {
@@ -45,14 +42,8 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
-import { ThemeProvider } from "@/components/theme-provider";
-import { ThemeSync } from "@/components/theme-sync";
-import { QueryProvider } from "@/components/providers/query-provider";
-import { ClickSoundProvider } from "@/components/click-sound-provider";
-import { FcmListener } from "@/components/fcm-listener";
-import { CapacitorPushInit } from "@/components/capacitor-push-init";
-import { NotificationsWatcher } from "@/components/notifications-watcher";
-import { WebPushInit } from "@/components/web-push-init";
+import { AppProviders } from "@/components/app-providers";
+import { ThemeFontScript } from "@/components/theme-font-script";
 
 export default function RootLayout({
   children,
@@ -69,24 +60,8 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <ThemeSync />
-        <QueryProvider>
-          <ThemeProvider
-            attribute="class"
-            defaultTheme="light"
-            enableSystem={false}
-            disableTransitionOnChange
-          >
-            <ClickSoundProvider>
-              {children}
-              <FcmListener />
-              <CapacitorPushInit />
-              <WebPushInit />
-              <NotificationsWatcher />
-              <Toaster position="top-center" richColors />
-            </ClickSoundProvider>
-          </ThemeProvider>
-        </QueryProvider>
+        <ThemeFontScript />
+        <AppProviders>{children}</AppProviders>
       </body>
     </html>
   );
