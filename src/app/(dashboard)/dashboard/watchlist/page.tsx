@@ -63,7 +63,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { AUTH_TOKEN_COOKIE, getCookie } from "@/lib/auth/session";
+import { AUTH_TOKEN_COOKIE, clearAuthSession, getCookie } from "@/lib/auth/session";
 import { cn } from "@/lib/utils";
 import {
   MARKET_QUERY_KEY,
@@ -400,6 +400,11 @@ const INDIA_TIME_ZONE_OFFSET_SEC = 5.5 * 60 * 60;
 const INDIA_MARKET_OPEN_LOCAL_SEC = 9 * 60 * 60 + 15 * 60;
 const INDIA_MARKET_OPEN_UTC_SEC = INDIA_MARKET_OPEN_LOCAL_SEC - INDIA_TIME_ZONE_OFFSET_SEC;
 const INDIA_EXCHANGES = new Set(["NSE", "BSE", "NFO", "MCX", "CDS", "BCD"]);
+
+function isAuthSocketClose(code?: number, reason?: string): boolean {
+  const normalizedReason = String(reason || "").trim().toLowerCase();
+  return code === 1008 || code === 4001 || /session expired|authentication failed|invalid connection url|user not found/.test(normalizedReason);
+}
 
 type TableColumnId = (typeof DEFAULT_TABLE_COLUMNS)[number];
 type SignalTimeframeKey = (typeof SIGNAL_TIMEFRAME_WINDOWS)[number]["key"];
@@ -2273,6 +2278,12 @@ function WatchlistPageContent() {
     }
 
     let closedByEffect = false;
+    const handleAuthSocketFailure = () => {
+      clearAuthSession();
+      if (typeof window !== "undefined" && window.location.pathname !== "/login") {
+        window.location.href = "/login";
+      }
+    };
     const flushPendingTicks = () => {
       const pendingEntries = Object.entries(pendingTicksRef.current);
       if (pendingEntries.length === 0) return;
@@ -2382,6 +2393,11 @@ function WatchlistPageContent() {
             type?: string;
             payload?: unknown;
           };
+          if (message.type === "error" && /session expired|authentication failed/i.test(String(message.payload || ""))) {
+            handleAuthSocketFailure();
+            socket.close(4001, "Session expired");
+            return;
+          }
           if (message.type !== "tick") return;
           if (!message.payload || typeof message.payload !== "object") return;
 
@@ -2401,11 +2417,15 @@ function WatchlistPageContent() {
         setConnectionState("error");
       };
 
-      socket.onclose = () => {
+      socket.onclose = (event) => {
         if (wsRef.current !== socket) return;
         if (closedByEffect || !mountedRef.current) return;
         setConnectionState("disconnected");
         subscribedSymbolsRef.current.clear();
+        if (isAuthSocketClose(event.code, event.reason)) {
+          handleAuthSocketFailure();
+          return;
+        }
         scheduleReconnect();
       };
     };
