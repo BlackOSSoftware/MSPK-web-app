@@ -90,6 +90,54 @@ const SEGMENT_LABELS: Record<string, string> = {
   CRYPTO: "Crypto",
 };
 
+type SignalActivityState = "ongoing" | "inactive" | "none";
+
+function getAddedStateMeta(isAdded: boolean) {
+  return isAdded
+    ? {
+        label: "Added",
+        className:
+          "rounded-full border border-emerald-400/50 bg-emerald-500/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-emerald-700 dark:border-emerald-400/35 dark:bg-emerald-500/10 dark:text-emerald-300",
+      }
+    : {
+        label: "Not added",
+        className:
+          "rounded-full border border-slate-300/80 bg-slate-100/80 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-600 dark:border-slate-700/80 dark:bg-slate-900/70 dark:text-slate-300",
+      };
+}
+
+function getSignalActivityMeta(
+  state?: SignalActivityState,
+  ongoingSignalCount?: number,
+  latestSignalStatus?: string | null
+) {
+  if (state === "ongoing") {
+    const count = Number.isFinite(ongoingSignalCount) ? Math.max(0, Number(ongoingSignalCount)) : 0;
+    return {
+      label: "Signals ongoing",
+      helper: count > 1 ? `${count} active signals` : "Live signal available",
+      className:
+        "rounded-full border border-emerald-500/35 bg-emerald-500/12 px-2.5 py-1 text-[10px] font-semibold text-emerald-700 dark:border-emerald-400/35 dark:bg-emerald-400/12 dark:text-emerald-200",
+    };
+  }
+
+  if (state === "inactive") {
+    return {
+      label: "No active signal",
+      helper: latestSignalStatus ? `Last status: ${latestSignalStatus}` : "Signal not running right now",
+      className:
+        "rounded-full border border-amber-500/35 bg-amber-500/12 px-2.5 py-1 text-[10px] font-semibold text-amber-700 dark:border-amber-400/35 dark:bg-amber-400/12 dark:text-amber-100",
+    };
+  }
+
+  return {
+    label: "No signals yet",
+    helper: "No signal history found",
+    className:
+      "rounded-full border border-slate-300/80 bg-slate-100/80 px-2.5 py-1 text-[10px] font-semibold text-slate-600 dark:border-slate-700/80 dark:bg-slate-900/70 dark:text-slate-300",
+  };
+}
+
 function getMarketItemName(item: Pick<MarketSearchItem, "name"> | Pick<MarketSymbol, "name">): string {
   return (item.name ?? "").trim();
 }
@@ -143,6 +191,18 @@ type ManageScriptsPanelProps = {
   className?: string;
 };
 
+type SelectedScriptItem = {
+  symbol: string;
+  segment: string;
+  exchange: string;
+  name: string;
+  isAdded: boolean;
+  signalActivityState: SignalActivityState;
+  ongoingSignalCount: number;
+  latestSignalStatus: string | null;
+  latestSignalAt: string | null;
+};
+
 export function ManageScriptsPanel({ className }: ManageScriptsPanelProps) {
   const queryClient = useQueryClient();
   const [symbolInput, setSymbolInput] = useState("");
@@ -186,15 +246,36 @@ export function ManageScriptsPanel({ className }: ManageScriptsPanelProps) {
     setAddSymbolSegment("ALL");
   }, [isAddSymbolDialogOpen]);
 
-  const selectedScripts = useMemo(
+  const selectedScripts = useMemo<SelectedScriptItem[]>(
     () =>
       (selectedScriptsQuery.data ?? [])
-        .map((item) => ({
-          symbol: String(item.symbol || "").trim().toUpperCase(),
-          segment: String(item.segment || "").trim().toUpperCase(),
-          exchange: String(item.exchange || "").trim().toUpperCase(),
-          name: String(item.name || "").trim(),
-        }))
+        .map((item) => {
+          const signalActivityState: SignalActivityState =
+            item.signalActivityState === "ongoing" || item.signalActivityState === "inactive"
+              ? item.signalActivityState
+              : "none";
+
+          return {
+            symbol: String(item.symbol || "").trim().toUpperCase(),
+            segment: String(item.segment || "").trim().toUpperCase(),
+            exchange: String(item.exchange || "").trim().toUpperCase(),
+            name: String(item.name || "").trim(),
+            isAdded: item.isAdded !== false,
+            signalActivityState,
+            ongoingSignalCount:
+              typeof item.ongoingSignalCount === "number" && Number.isFinite(item.ongoingSignalCount)
+                ? item.ongoingSignalCount
+                : 0,
+            latestSignalStatus:
+              typeof item.latestSignalStatus === "string" && item.latestSignalStatus.trim().length > 0
+                ? item.latestSignalStatus.trim()
+                : null,
+            latestSignalAt:
+              typeof item.latestSignalAt === "string" && item.latestSignalAt.trim().length > 0
+                ? item.latestSignalAt
+                : null,
+          };
+        })
         .filter((item) => item.symbol.length > 0)
         .sort((left, right) =>
           `${left.segment}|${left.symbol}`.localeCompare(`${right.segment}|${right.symbol}`)
@@ -207,6 +288,15 @@ export function ManageScriptsPanel({ className }: ManageScriptsPanelProps) {
     () => new Set(selectedSymbols.map((symbol) => getSymbolAliasBase(symbol)).filter(Boolean)),
     [selectedSymbols]
   );
+  const selectedScriptByAlias = useMemo(() => {
+    const entries = new Map<string, SelectedScriptItem>();
+    selectedScripts.forEach((item) => {
+      const aliasBase = getSymbolAliasBase(item.symbol);
+      if (!aliasBase || entries.has(aliasBase)) return;
+      entries.set(aliasBase, item);
+    });
+    return entries;
+  }, [selectedScripts]);
   const segmentUsageMap = useMemo(() => {
     const groups = new Map<string, number>();
     selectedScripts.forEach((item) => {
@@ -321,14 +411,19 @@ export function ManageScriptsPanel({ className }: ManageScriptsPanelProps) {
   const addSymbolLoading =
     marketSymbolsQuery.isFetching ||
     (deferredSearchQuery.length >= 2 && searchMarketQuery.isFetching);
+  const ongoingScriptCount = useMemo(
+    () => selectedScripts.filter((item) => item.signalActivityState === "ongoing").length,
+    [selectedScripts]
+  );
 
   const handleAddSymbol = async (candidate?: string) => {
     const target = normalizeSymbol(candidate ?? symbolInput);
+    const targetAlias = getSymbolAliasBase(target);
     if (!target) {
       toast.error("Script required");
       return;
     }
-    if (selectedSymbols.includes(target)) {
+    if (selectedSymbols.includes(target) || Boolean(targetAlias && selectedScriptByAlias.has(targetAlias))) {
       toast.info(`${target} already selected`);
       return;
     }
@@ -396,6 +491,9 @@ export function ManageScriptsPanel({ className }: ManageScriptsPanelProps) {
           </div>
           <div className="inline-flex items-center gap-2 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-3 py-1 text-[11px] font-semibold text-emerald-700 transition-all duration-300 hover:-translate-y-0.5 hover:border-emerald-500/40 hover:shadow-[0_12px_24px_-18px_rgba(16,185,129,0.9)] dark:border-emerald-400/25 dark:bg-emerald-400/12 dark:text-emerald-200 dark:hover:border-emerald-300/45 dark:hover:shadow-[0_14px_24px_-16px_rgba(52,211,153,0.55)]">
             {selectedScripts.length} script{selectedScripts.length === 1 ? "" : "s"} selected
+          </div>
+          <div className="inline-flex items-center gap-2 rounded-full border border-sky-500/25 bg-sky-500/10 px-3 py-1 text-[11px] font-semibold text-sky-700 transition-all duration-300 hover:-translate-y-0.5 hover:border-sky-500/40 hover:shadow-[0_12px_24px_-18px_rgba(14,165,233,0.9)] dark:border-sky-400/25 dark:bg-sky-400/12 dark:text-sky-200 dark:hover:border-sky-300/45 dark:hover:shadow-[0_14px_24px_-16px_rgba(56,189,248,0.55)]">
+            {ongoingScriptCount} ongoing
           </div>
         </div>
 
@@ -526,7 +624,16 @@ export function ManageScriptsPanel({ className }: ManageScriptsPanelProps) {
                         const exchange = getMarketItemExchange(item) || "EXCHANGE";
                         const name = getMarketItemName(item) || symbol;
                         const isAdding = addMutation.isPending && symbol === addingSymbol;
+                        const matchedSelectedScript = aliasBase ? selectedScriptByAlias.get(aliasBase) : undefined;
                         const isAlreadyAdded = Boolean(aliasBase && selectedAliases.has(aliasBase));
+                        const addedStateMeta = getAddedStateMeta(isAlreadyAdded);
+                        const signalActivityMeta = matchedSelectedScript
+                          ? getSignalActivityMeta(
+                              matchedSelectedScript.signalActivityState,
+                              matchedSelectedScript.ongoingSignalCount,
+                              matchedSelectedScript.latestSignalStatus
+                            )
+                          : null;
                         return (
                           <div
                             key={`${symbol}-${segment}-${exchange}`}
@@ -547,21 +654,24 @@ export function ManageScriptsPanel({ className }: ManageScriptsPanelProps) {
                                   {symbol}
                                 </p>
                                 <p className="truncate text-[11px] text-slate-500 dark:text-slate-400 sm:text-xs">{name}</p>
-                                <div className="mt-1 flex items-center gap-2 text-[10px] text-slate-500 dark:text-slate-400 sm:hidden">
+                                <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] text-slate-500 dark:text-slate-400 sm:hidden">
                                   <span className="font-semibold uppercase text-slate-700 dark:text-slate-200">{exchange}</span>
                                   <span className="truncate">{segment}</span>
+                                  <span className={addedStateMeta.className}>{addedStateMeta.label}</span>
+                                  {signalActivityMeta ? (
+                                    <span className={signalActivityMeta.className}>{signalActivityMeta.label}</span>
+                                  ) : null}
                                 </div>
                               </div>
                             </button>
-                            <div className="hidden min-w-0 items-center gap-2 text-xs text-slate-500 dark:text-slate-400 sm:flex">
+                            <div className="hidden min-w-0 flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400 sm:flex">
                               <span className="truncate lowercase">{segment.toLowerCase()}</span>
                               <span className="truncate font-semibold uppercase text-slate-700 dark:text-slate-200">
                                 {exchange}
                               </span>
-                              {isAlreadyAdded ? (
-                                <span className="rounded-full border border-emerald-400/50 bg-emerald-500/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-emerald-700 dark:border-emerald-400/35 dark:bg-emerald-500/10 dark:text-emerald-300">
-                                  Added
-                                </span>
+                              <span className={addedStateMeta.className}>{addedStateMeta.label}</span>
+                              {signalActivityMeta ? (
+                                <span className={signalActivityMeta.className}>{signalActivityMeta.label}</span>
                               ) : null}
                             </div>
                             <div className="flex items-center justify-end">
@@ -570,22 +680,25 @@ export function ManageScriptsPanel({ className }: ManageScriptsPanelProps) {
                                 variant="outline"
                                 onClick={() => void handleAddSymbol(String(item.symbol ?? symbol))}
                                 disabled={addMutation.isPending || isAlreadyAdded}
-                                className="h-9 min-w-[72px] rounded-xl border-slate-200/85 bg-white px-3 text-[11px] font-semibold text-slate-700 hover:bg-slate-100 active:scale-[0.98] dark:border-slate-700/80 dark:bg-slate-900/80 dark:text-slate-100 dark:hover:bg-slate-800 sm:h-9 sm:min-w-0 sm:rounded-full sm:px-0 sm:w-9"
+                                className="h-9 min-w-[112px] rounded-xl border-slate-200/85 bg-white px-3 text-[11px] font-semibold text-slate-700 hover:bg-slate-100 active:scale-[0.98] dark:border-slate-700/80 dark:bg-slate-900/80 dark:text-slate-100 dark:hover:bg-slate-800 sm:h-9 sm:min-w-[120px] sm:rounded-xl sm:px-3"
                                 aria-label={isAlreadyAdded ? `${symbol} already added` : `Add ${symbol}`}
                               >
                                 {addMutation.isPending && isAdding ? (
-                                  <RefreshCw className="h-4 w-4 animate-spin" />
+                                  <>
+                                    <RefreshCw className="h-4 w-4 animate-spin" />
+                                    <span className="ml-1">Adding...</span>
+                                  </>
                                 ) : isAlreadyAdded ? (
                                   <>
                                     <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-300" />
-                                    <span className="ml-1 text-emerald-700 dark:text-emerald-300 sm:hidden">
+                                    <span className="ml-1 text-emerald-700 dark:text-emerald-300">
                                       Added
                                     </span>
                                   </>
                                 ) : (
                                   <>
                                     <Plus className="h-4 w-4" />
-                                    <span className="ml-1 sm:hidden">Add</span>
+                                    <span className="ml-1">Add Script</span>
                                   </>
                                 )}
                               </Button>
@@ -642,7 +755,7 @@ export function ManageScriptsPanel({ className }: ManageScriptsPanelProps) {
             <div>
               <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Selected Scripts Table</h3>
               <p className="text-xs text-slate-600 dark:text-slate-300">
-                Clear view of symbol, segment, exchange, and per-segment usage.
+                Clear view of symbol, exchange, signal activity, and per-segment usage.
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -674,7 +787,7 @@ export function ManageScriptsPanel({ className }: ManageScriptsPanelProps) {
           </div>
 
           <div className="overflow-x-auto">
-          <Table className="min-w-[840px]">
+          <Table className="min-w-[980px]">
             <TableHeader>
               <TableRow className="bg-slate-100/70 dark:bg-slate-900/70">
                 <TableHead className="w-12">#</TableHead>
@@ -682,6 +795,7 @@ export function ManageScriptsPanel({ className }: ManageScriptsPanelProps) {
                 <TableHead>Name</TableHead>
                 <TableHead>Segment</TableHead>
                 <TableHead>Exchange</TableHead>
+                <TableHead>Signal Status</TableHead>
                 <TableHead>Segment Usage</TableHead>
                 <TableHead className="text-right">Action</TableHead>
               </TableRow>
@@ -689,19 +803,19 @@ export function ManageScriptsPanel({ className }: ManageScriptsPanelProps) {
             <TableBody>
               {selectedScriptsQuery.isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="h-24 text-center text-sm text-slate-500 dark:text-slate-400">
+                  <TableCell colSpan={8} className="h-24 text-center text-sm text-slate-500 dark:text-slate-400">
                     Loading selected scripts...
                   </TableCell>
                 </TableRow>
               ) : selectedScripts.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="h-24 text-center text-sm text-slate-500 dark:text-slate-400">
+                  <TableCell colSpan={8} className="h-24 text-center text-sm text-slate-500 dark:text-slate-400">
                     No scripts selected. Add scripts from the search above.
                   </TableCell>
                 </TableRow>
               ) : filteredSelectedScripts.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="h-24 text-center text-sm text-slate-500 dark:text-slate-400">
+                  <TableCell colSpan={8} className="h-24 text-center text-sm text-slate-500 dark:text-slate-400">
                     No scripts found in selected segment.
                   </TableCell>
                 </TableRow>
@@ -715,6 +829,11 @@ export function ManageScriptsPanel({ className }: ManageScriptsPanelProps) {
                   );
                   const segmentCount = segmentUsageMap.get(segmentLabel) ?? 0;
                   const segmentSlot = segmentSlotMap.get(`${segmentLabel}|${item.symbol}`) ?? segmentCount;
+                  const signalActivityMeta = getSignalActivityMeta(
+                    item.signalActivityState,
+                    item.ongoingSignalCount,
+                    item.latestSignalStatus
+                  );
                   return (
                     <TableRow
                       key={`${item.symbol}-${segmentLabel}`}
@@ -732,6 +851,14 @@ export function ManageScriptsPanel({ className }: ManageScriptsPanelProps) {
                       </TableCell>
                       <TableCell className="font-medium text-slate-700 dark:text-slate-300">
                         {item.exchange || "-"}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex min-w-[170px] flex-col items-start gap-1.5">
+                          <span className={signalActivityMeta.className}>{signalActivityMeta.label}</span>
+                          <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                            {signalActivityMeta.helper}
+                          </span>
+                        </div>
                       </TableCell>
                       <TableCell>
                         <span

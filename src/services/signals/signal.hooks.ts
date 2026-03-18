@@ -41,6 +41,7 @@ export function useSignalSelectedScriptsQuery(enabled = true) {
     queryFn: getSignalSelectedScripts,
     enabled,
     staleTime: 15_000,
+    refetchInterval: enabled ? 30_000 : false,
   });
 }
 

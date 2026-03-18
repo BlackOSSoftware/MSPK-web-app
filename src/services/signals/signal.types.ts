@@ -43,6 +43,11 @@ export type SignalSelectedScript = {
   segmentGroup?: string;
   exchange?: string;
   provider?: string | null;
+  isAdded?: boolean;
+  signalActivityState?: "ongoing" | "inactive" | "none";
+  ongoingSignalCount?: number;
+  latestSignalStatus?: string | null;
+  latestSignalAt?: string | null;
 };
 
 export type SignalSelectedScriptsResponse = {
