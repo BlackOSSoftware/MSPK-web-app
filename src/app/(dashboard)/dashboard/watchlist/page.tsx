@@ -542,7 +542,14 @@ function normalizeSignalTimeframe(value: unknown): SignalTimeframeKey | null {
 
 function getSignalTimestamp(signal: SignalItem | null): string | undefined {
   if (!signal) return undefined;
-  return signal.exitTime || signal.signalTime || signal.timestamp || signal.createdAt;
+  return (
+    signal.displayExitTime ||
+    signal.exitTime ||
+    signal.displaySignalTime ||
+    signal.signalTime ||
+    signal.timestamp ||
+    signal.createdAt
+  );
 }
 
 function getSignalPointsValue(signal: SignalItem | null, livePrice?: number | null): number | undefined {

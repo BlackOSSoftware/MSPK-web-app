@@ -73,10 +73,18 @@ function getSignalId(signal: SignalItem) {
 function getSignalKey(signal: SignalItem) {
   return (
     getSignalId(signal) ||
-    [signal.symbol, signal.type, signal.signalTime || signal.timestamp || signal.createdAt]
+    [signal.symbol, signal.type, getDisplaySignalTime(signal)]
       .filter(Boolean)
       .join("|")
   );
+}
+
+function getDisplaySignalTime(signal: SignalItem) {
+  return signal.displaySignalTime || signal.signalTime || signal.timestamp || signal.createdAt;
+}
+
+function getDisplayExitTime(signal: SignalItem) {
+  return signal.displayExitTime || signal.exitTime || signal.updatedAt || signal.createdAt;
 }
 
 function getEntry(signal: SignalItem) {
@@ -778,7 +786,7 @@ function SignalsPageContent() {
             <div className="mt-2 text-[11px] text-slate-700 dark:text-slate-300 inline-flex items-center gap-1.5">
               <Clock3 className="h-3.5 w-3.5 text-amber-700/80 dark:text-amber-100/70" />
               {focusSignal
-                ? formatDate(focusSignal.signalTime || focusSignal.timestamp || focusSignal.createdAt)
+                ? formatDate(getDisplaySignalTime(focusSignal))
                 : "Waiting for feed"}
             </div>
           </div>
@@ -1058,7 +1066,7 @@ function SignalsPageContent() {
                     <div className="inline-flex items-start gap-1.5 text-[10px] text-slate-700 dark:text-slate-300">
                       <Clock3 className="h-3.5 w-3.5 mt-[1px] text-amber-700 dark:text-amber-100" />
                       <span>
-                        {formatDate(signal.signalTime || signal.timestamp || signal.createdAt)}
+                        {formatDate(getDisplaySignalTime(signal))}
                       </span>
                     </div>
 
@@ -1196,7 +1204,7 @@ function SignalsPageContent() {
 
                         <div className="mt-2 inline-flex items-center gap-1.5 text-[10px] leading-4 text-slate-700 dark:text-slate-300">
                           <Clock3 className="h-3.5 w-3.5 text-amber-700 dark:text-amber-100" />
-                          {formatDate(signal.signalTime || signal.timestamp || signal.createdAt)}
+                          {formatDate(getDisplaySignalTime(signal))}
                         </div>
 
                         <div className="mt-3 flex gap-2">
@@ -1262,7 +1270,7 @@ function SignalsPageContent() {
                           </div>
 
                           <div className="flex items-center justify-between text-[10px] text-slate-800/65">
-                            <span className="truncate pr-2">{formatDate(signal.signalTime || signal.timestamp || signal.createdAt)}</span>
+                            <span className="truncate pr-2">{formatDate(getDisplaySignalTime(signal))}</span>
                             <span className="inline-flex shrink-0 items-center gap-1">
                               {isBuy ? <ArrowUpRight className="h-3.5 w-3.5" /> : <ArrowDownRight className="h-3.5 w-3.5" />}
                               Open
@@ -1458,9 +1466,7 @@ function SignalsPageContent() {
                           Signal Time
                         </div>
                         <div className="mt-1.5 text-[11px] font-semibold leading-4 text-slate-900 dark:text-slate-100 sm:mt-2 sm:text-sm sm:leading-5">
-                          {formatDate(
-                            detailSignal.signalTime || detailSignal.timestamp || detailSignal.createdAt,
-                          )}
+                          {formatDate(getDisplaySignalTime(detailSignal))}
                         </div>
                       </div>
 
@@ -1470,7 +1476,7 @@ function SignalsPageContent() {
                           Exit Time
                         </div>
                         <div className="mt-1.5 text-[11px] font-semibold leading-4 text-slate-900 dark:text-slate-100 sm:mt-2 sm:text-sm sm:leading-5">
-                          {formatDate(detailSignal.exitTime)}
+                          {formatDate(getDisplayExitTime(detailSignal))}
                         </div>
                       </div>
 

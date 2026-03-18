@@ -25,12 +25,15 @@ export type SignalItem = {
   stopLoss?: number;
   targets?: SignalTargets;
   createdAt?: string;
+  updatedAt?: string;
   timestamp?: string;
   signalTime?: string;
+  displaySignalTime?: string;
   exitPrice?: number;
   totalPoints?: number;
   exitReason?: string;
   exitTime?: string;
+  displayExitTime?: string;
   category?: string;
   isFree?: boolean;
   notes?: string;

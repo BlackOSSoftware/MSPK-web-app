@@ -71,10 +71,13 @@ function getDateMs(value?: string | null) {
   return Number.isNaN(parsed) ? null : parsed;
 }
 
+function getDisplaySignalTime(signal: SignalItem) {
+  return signal.displaySignalTime || signal.signalTime || signal.timestamp || signal.createdAt;
+}
+
 function getSignalTimestampMs(signal: SignalItem) {
   return (
-    getDateMs(signal.signalTime) ??
-    getDateMs(signal.timestamp) ??
+    getDateMs(getDisplaySignalTime(signal)) ??
     getDateMs(signal.createdAt)
   );
 }
@@ -592,7 +595,7 @@ export default function DashboardPage() {
                     {targets.length ? targets.map((t) => formatPrice(t)).join(" / ") : "-"}
                   </div>
                   <div className="text-[11px] text-muted-foreground">
-                    {formatDate(signal.signalTime || signal.timestamp || signal.createdAt)}
+                    {formatDate(getDisplaySignalTime(signal))}
                   </div>
 
                   <div className="md:hidden col-span-2 text-[11px] text-muted-foreground">
