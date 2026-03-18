@@ -82,6 +82,10 @@ import {
   useMarketUserWatchlistRemoveMutation,
   useMarketUserWatchlistUpdateMutation,
 } from "@/services/market/market.hooks";
+import {
+  getMarketSearchDedupeKey,
+  getMarketSymbolAliasBase,
+} from "@/services/market/market-symbol-utils";
 import type { MarketSearchItem, MarketSymbol, MarketTicker } from "@/services/market/market.types";
 import { useSignalsQuery } from "@/services/signals/signal.hooks";
 import type { SignalItem } from "@/services/signals/signal.types";
@@ -1368,20 +1372,14 @@ function getMarketItemExchange(
   return (item.exchange ?? "").trim().toUpperCase();
 }
 
-const DEDUPE_SUFFIX_PATTERN = /(\.PR|\.X)$/i;
-
 function getSymbolAliasBase(symbol: string): string {
-  const normalized = normalizeSymbol(symbol).split(":").pop() ?? "";
-  if (!normalized) return "";
-  return normalized.replace(DEDUPE_SUFFIX_PATTERN, "");
+  return getMarketSymbolAliasBase(symbol);
 }
 
 function getSearchDedupeKey(
   item: Pick<MarketSearchItem, "symbol" | "name" | "segment" | "segmentGroup" | "exchange"> | Pick<MarketSymbol, "symbol" | "name" | "segment" | "segmentGroup" | "exchange">
 ): string {
-  const symbol = getSymbolAliasBase(String(item.symbol ?? ""));
-  if (!symbol) return "";
-  return symbol;
+  return getMarketSearchDedupeKey(item);
 }
 
 function isBseMarketItem(
@@ -1862,16 +1860,16 @@ function WatchlistPageContent() {
   const deleteWatchlistMutation = useMarketUserWatchlistDeleteMutation();
 
   const searchMarketQuery = useMarketSearchQuery(
-    { q: deferredSearchQuery, limit: 10 },
+    { q: deferredSearchQuery, limit: 28 },
     isAddSymbolDialogOpen && deferredSearchQuery.length >= 2
   );
   const marketSymbolsQuery = useMarketSymbolsQuery(
     {
-      limit: deferredSearchQuery.length >= 2 ? 72 : 32,
-      ...(deferredSearchQuery.length >= 2 ? { search: deferredSearchQuery } : {}),
+      limit: 32,
+      isActive: true,
       ...(addSymbolSegment !== "ALL" ? { segment: addSymbolSegment } : {}),
     },
-    isAddSymbolDialogOpen && !chartMode
+    isAddSymbolDialogOpen && !chartMode && deferredSearchQuery.length < 2
   );
 
   const watchlistSymbols = useMemo(() => {
@@ -2182,8 +2180,7 @@ function WatchlistPageContent() {
   const addSymbolResults = useMemo(() => {
     const usedKeys = new Set<string>();
     const merged: Array<MarketSearchItem | MarketSymbol> = [
-      ...(deferredSearchQuery.length >= 2 ? searchMarketQuery.data ?? [] : []),
-      ...(marketSymbolsQuery.data ?? []),
+      ...(deferredSearchQuery.length >= 2 ? searchMarketQuery.data ?? [] : marketSymbolsQuery.data ?? []),
     ].sort((left, right) => {
       const leftIsBse = isBseMarketItem(left);
       const rightIsBse = isBseMarketItem(right);
@@ -2232,7 +2229,7 @@ function WatchlistPageContent() {
   }, [addSymbolResults]);
 
   const addSymbolLoading =
-    marketSymbolsQuery.isFetching || (deferredSearchQuery.length >= 2 && searchMarketQuery.isFetching);
+    deferredSearchQuery.length >= 2 ? searchMarketQuery.isFetching : marketSymbolsQuery.isFetching;
 
   useEffect(() => {
     const activeSymbols = new Set(watchlistSymbols.map((sym) => sym.toUpperCase()));

@@ -20,6 +20,10 @@ import {
   useMarketSearchQuery,
   useMarketSymbolsQuery,
 } from "@/services/market/market.hooks";
+import {
+  getMarketSearchDedupeKey,
+  getMarketSymbolAliasBase,
+} from "@/services/market/market-symbol-utils";
 import type { MarketSearchItem, MarketSymbol } from "@/services/market/market.types";
 import {
   SIGNAL_SELECTED_SCRIPTS_QUERY_KEY,
@@ -154,21 +158,15 @@ function getMarketItemExchange(
   return (item.exchange ?? "").trim().toUpperCase();
 }
 
-const DEDUPE_SUFFIX_PATTERN = /(\.PR|\.X)$/i;
-
 function getSymbolAliasBase(symbol: string): string {
-  const normalized = normalizeSymbol(symbol).split(":").pop() ?? "";
-  if (!normalized) return "";
-  return normalized.replace(DEDUPE_SUFFIX_PATTERN, "");
+  return getMarketSymbolAliasBase(symbol);
 }
 
 function getSearchDedupeKey(
   item: Pick<MarketSearchItem, "symbol" | "name" | "segment" | "segmentGroup" | "exchange"> |
     Pick<MarketSymbol, "symbol" | "name" | "segment" | "segmentGroup" | "exchange">
 ): string {
-  const symbol = getSymbolAliasBase(String(item.symbol ?? ""));
-  if (!symbol) return "";
-  return symbol;
+  return getMarketSearchDedupeKey(item);
 }
 
 function isBseMarketItem(
@@ -219,16 +217,16 @@ export function ManageScriptsPanel({ className }: ManageScriptsPanelProps) {
   const removeMutation = useSignalSelectedScriptRemoveMutation();
   const deferredSearchQuery = useDeferredValue(searchQuery.trim());
   const searchMarketQuery = useMarketSearchQuery(
-    { q: deferredSearchQuery, limit: 10 },
+    { q: deferredSearchQuery, limit: 28 },
     deferredSearchQuery.length >= 2
   );
   const marketSymbolsQuery = useMarketSymbolsQuery(
     {
-      limit: deferredSearchQuery.length >= 2 ? 72 : 32,
-      ...(deferredSearchQuery.length >= 2 ? { search: deferredSearchQuery } : {}),
+      limit: 32,
+      isActive: true,
       ...(addSymbolSegment !== "ALL" ? { segment: addSymbolSegment } : {}),
     },
-    true
+    deferredSearchQuery.length < 2
   );
 
   useEffect(() => {
@@ -372,8 +370,7 @@ export function ManageScriptsPanel({ className }: ManageScriptsPanelProps) {
   const addSymbolResults = useMemo(() => {
     const usedKeys = new Set<string>();
     const merged: Array<MarketSearchItem | MarketSymbol> = [
-      ...(deferredSearchQuery.length >= 2 ? searchMarketQuery.data ?? [] : []),
-      ...(marketSymbolsQuery.data ?? []),
+      ...(deferredSearchQuery.length >= 2 ? searchMarketQuery.data ?? [] : marketSymbolsQuery.data ?? []),
     ].sort((left, right) => {
       const leftIsBse = isBseMarketItem(left);
       const rightIsBse = isBseMarketItem(right);
@@ -409,8 +406,7 @@ export function ManageScriptsPanel({ className }: ManageScriptsPanelProps) {
   }, [addSymbolSegment, deferredSearchQuery, marketSymbolsQuery.data, searchMarketQuery.data]);
 
   const addSymbolLoading =
-    marketSymbolsQuery.isFetching ||
-    (deferredSearchQuery.length >= 2 && searchMarketQuery.isFetching);
+    deferredSearchQuery.length >= 2 ? searchMarketQuery.isFetching : marketSymbolsQuery.isFetching;
   const ongoingScriptCount = useMemo(
     () => selectedScripts.filter((item) => item.signalActivityState === "ongoing").length,
     [selectedScripts]
