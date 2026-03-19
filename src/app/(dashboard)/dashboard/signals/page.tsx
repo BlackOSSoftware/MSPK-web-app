@@ -83,7 +83,18 @@ function getDisplaySignalTime(signal: SignalItem) {
   return signal.displaySignalTime || signal.signalTime || signal.timestamp || signal.createdAt;
 }
 
+function isSignalClosed(signal: SignalItem) {
+  const normalizedStatus = String(signal.status || "").trim().toLowerCase();
+  return (
+    normalizedStatus.includes("target") ||
+    normalizedStatus.includes("partial") ||
+    normalizedStatus.includes("stop") ||
+    normalizedStatus.includes("close")
+  );
+}
+
 function getDisplayExitTime(signal: SignalItem) {
+  if (!isSignalClosed(signal)) return undefined;
   return signal.displayExitTime || signal.exitTime || signal.updatedAt || signal.createdAt;
 }
 

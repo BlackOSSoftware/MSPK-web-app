@@ -542,14 +542,14 @@ function normalizeSignalTimeframe(value: unknown): SignalTimeframeKey | null {
 
 function getSignalTimestamp(signal: SignalItem | null): string | undefined {
   if (!signal) return undefined;
-  return (
-    signal.displayExitTime ||
-    signal.exitTime ||
-    signal.displaySignalTime ||
-    signal.signalTime ||
-    signal.timestamp ||
-    signal.createdAt
-  );
+  const exitTimestamp = getSignalExitTimestamp(signal);
+  if (exitTimestamp) return exitTimestamp;
+  return signal.displaySignalTime || signal.signalTime || signal.timestamp || signal.createdAt;
+}
+
+function getSignalExitTimestamp(signal: SignalItem | null): string | undefined {
+  if (!signal || !isSignalClosed(signal)) return undefined;
+  return signal.displayExitTime || signal.exitTime || signal.updatedAt || signal.createdAt;
 }
 
 function getSignalPointsValue(signal: SignalItem | null, livePrice?: number | null): number | undefined {
@@ -590,6 +590,9 @@ function getSignalTimestampValue(signal: SignalItem | null): number {
 function isSignalClosed(signal: SignalItem | null): boolean {
   if (!signal) return false;
   const normalizedStatus = String(signal.status || "").trim().toLowerCase();
+  if (normalizedStatus.includes("active") || normalizedStatus.includes("open") || normalizedStatus.includes("paused")) {
+    return false;
+  }
   if (signal.exitTime) return true;
   return (
     normalizedStatus.includes("target") ||
