@@ -6,8 +6,8 @@
   :root {
     --font-heading: 'Outfit', sans-serif;
     --font-primary: 'Outfit', sans-serif;
-    --safe-top: env(safe-area-inset-top);
-    --safe-bottom: env(safe-area-inset-bottom);
+    --safe-top: 0px;
+    --safe-bottom: 0px;
     --native-safe-top: 0px;
     --native-safe-bottom: 0px;
 
@@ -44,8 +44,8 @@
   }
 
   .native-platform {
-    --safe-top: max(env(safe-area-inset-top), var(--native-safe-top));
-    --safe-bottom: max(env(safe-area-inset-bottom), var(--native-safe-bottom));
+    --safe-top: max(env(safe-area-inset-top, 0px), var(--native-safe-top));
+    --safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--native-safe-bottom));
   }
 
   .dark {
@@ -104,8 +104,6 @@
     font-family: var(--font-primary), sans-serif;
     min-height: 100vh;
     position: relative;
-    padding-top: var(--safe-top);
-    padding-bottom: var(--safe-bottom);
     background-image:
       radial-gradient(circle at 12% 12%, hsl(var(--primary) / 0.22), transparent 38%),
       radial-gradient(circle at 82% 14%, hsl(var(--accent) / 0.16), transparent 34%),
