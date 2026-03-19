@@ -26,6 +26,18 @@ export type NotificationListResponse = {
   unreadCount?: number;
 };
 
+export type FcmTokenRecord = {
+  token: string;
+  platform: "web" | "android" | "ios";
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type FcmTokenListResponse = {
+  count: number;
+  tokens: FcmTokenRecord[];
+};
+
 export type TelegramConnectionStatus = {
   connected?: boolean;
   chatId?: string | null;

@@ -44,8 +44,8 @@
   }
 
   .native-platform {
-    --safe-top: max(env(safe-area-inset-top), var(--native-safe-top), 24px);
-    --safe-bottom: max(env(safe-area-inset-bottom), var(--native-safe-bottom), 24px);
+    --safe-top: max(env(safe-area-inset-top), var(--native-safe-top));
+    --safe-bottom: max(env(safe-area-inset-bottom), var(--native-safe-bottom));
   }
 
   .dark {
@@ -113,6 +113,10 @@
       radial-gradient(circle at 90% 78%, hsl(139 70% 45% / 0.12), transparent 34%),
       linear-gradient(140deg, hsl(var(--background)), hsl(var(--background) / 0.96));
     background-attachment: fixed;
+  }
+
+  body.native-platform {
+    padding-top: 0;
   }
 
   body::before {

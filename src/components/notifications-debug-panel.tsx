@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { Button } from "@/components/ui/button";
 import { getFcmToken } from "@/lib/fcm";
-import { registerFcmToken } from "@/services/notifications/notification.service";
+import { getMyFcmTokens, registerFcmToken } from "@/services/notifications/notification.service";
+import type { FcmTokenRecord } from "@/services/notifications/notification.types";
 
 type DebugState = {
   isNative: boolean;
@@ -26,7 +27,12 @@ export function NotificationsDebugPanel() {
     permission: "unsupported",
     swStatus: "unknown",
   });
+  const [dbTokens, setDbTokens] = useState<FcmTokenRecord[]>([]);
+  const [dbError, setDbError] = useState<string | null>(null);
+  const [isDbRefreshing, setIsDbRefreshing] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const isTokenInDb =
+    Boolean(state.token) && dbTokens.some((record) => record.token === state.token);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -53,6 +59,23 @@ export function NotificationsDebugPanel() {
     readState();
     const id = window.setInterval(readState, 3000);
     return () => window.clearInterval(id);
+  }, []);
+
+  const refreshDbTokens = async () => {
+    setIsDbRefreshing(true);
+    setDbError(null);
+    try {
+      const data = await getMyFcmTokens();
+      setDbTokens(Array.isArray(data.tokens) ? data.tokens : []);
+    } catch (err) {
+      setDbError(String(err ?? "db_fetch_failed"));
+    } finally {
+      setIsDbRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    refreshDbTokens();
   }, []);
 
   const refreshWebToken = async () => {
@@ -122,6 +145,15 @@ export function NotificationsDebugPanel() {
             type="button"
             variant="outline"
             className="h-7 px-2 text-[10px]"
+            onClick={refreshDbTokens}
+            disabled={isDbRefreshing}
+          >
+            {isDbRefreshing ? "Checking..." : "Check DB"}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="h-7 px-2 text-[10px]"
             onClick={() => {
               if (typeof Notification === "undefined") return;
               Notification.requestPermission();
@@ -140,6 +172,9 @@ export function NotificationsDebugPanel() {
         <p>Last Notification: {state.lastNotification ? "captured" : "none"}</p>
         <p>Permission: {state.permission}</p>
         <p>Service Worker: {state.swStatus}</p>
+        <p>DB Tokens: {dbTokens.length ? dbTokens.length : "none"}</p>
+        <p>Token Saved In DB: {state.token ? (isTokenInDb ? "yes" : "no") : "n/a"}</p>
+        <p>DB Status: {dbError ? "error" : "ok"}</p>
       </div>
     </div>
   );

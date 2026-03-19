@@ -42,12 +42,11 @@ export function CapacitorPushInit() {
     const LAST_NOTIFICATION_KEY = "native_last_notification";
     const LAST_ERROR_KEY = "native_push_error";
     const LAST_PERMISSION_KEY = "native_push_permission";
+    const LAST_REGISTER_AT_KEY = "native_push_registered_at";
+    const platform = Capacitor.getPlatform();
+    const isAndroid = platform === "android";
 
-    const resolvePlatform = () => {
-      const platform = Capacitor.getPlatform();
-      if (platform === "ios") return "ios";
-      return "android";
-    };
+    const resolvePlatform = () => (platform === "ios" ? "ios" : "android");
 
     const tryRegisterToken = async () => {
       const token = window.localStorage.getItem(TOKEN_KEY);
@@ -59,8 +58,13 @@ export function CapacitorPushInit() {
       try {
         await registerTokenMutation.mutateAsync({ token, platform: resolvePlatform() });
         window.localStorage.setItem(REGISTERED_KEY, token);
+        window.localStorage.setItem(LAST_REGISTER_AT_KEY, String(Date.now()));
       } catch {
-        // ignore registration errors
+        try {
+          window.localStorage.setItem(LAST_ERROR_KEY, "register_failed");
+        } catch {
+          // ignore storage errors
+        }
       }
     };
 
@@ -76,7 +80,7 @@ export function CapacitorPushInit() {
         // ignore storage errors
       }
 
-      if (permission.receive !== "granted") {
+      if (permission.receive !== "granted" && !isAndroid) {
         try {
           window.localStorage.setItem(LAST_ERROR_KEY, "permission_denied");
         } catch {
@@ -85,20 +89,9 @@ export function CapacitorPushInit() {
         console.warn("[native-push] Permission denied:", permission.receive);
         return;
       }
-
-      await LocalNotifications.requestPermissions();
-
-      await LocalNotifications.createChannel({
-        id: "mspk-alerts",
-        name: "MSPK Alerts",
-        description: "Trading alerts and system notifications",
-        importance: 5,
-        visibility: 1,
-        sound: "default",
-      });
-
-      await PushNotifications.register();
-      console.log("[native-push] Registering for push notifications");
+      if (permission.receive !== "granted" && isAndroid) {
+        console.warn("[native-push] Android permission not granted yet:", permission.receive);
+      }
 
       const registrationListener = await PushNotifications.addListener(
         "registration",
@@ -154,6 +147,20 @@ export function CapacitorPushInit() {
       const actionListener = await PushNotifications.addListener("pushNotificationActionPerformed", () => {
         window.location.href = "/dashboard/notifications";
       });
+
+      await LocalNotifications.requestPermissions();
+
+      await LocalNotifications.createChannel({
+        id: "mspk-alerts",
+        name: "MSPK Alerts",
+        description: "Trading alerts and system notifications",
+        importance: 5,
+        visibility: 1,
+        sound: "default",
+      });
+
+      await PushNotifications.register();
+      console.log("[native-push] Registering for push notifications");
 
       await tryRegisterToken();
 
