@@ -184,7 +184,7 @@ export default function DashboardLayout({
     }
 
     return (
-        <div className="flex h-[calc(100dvh-var(--safe-top)-var(--safe-bottom)+12px)] -mt-[calc(var(--safe-top)-12px)] bg-white dark:bg-background overflow-hidden font-sans">
+        <div className="flex h-[calc(100dvh-var(--safe-top)-var(--safe-bottom))] bg-white dark:bg-background overflow-hidden font-sans">
             <AuthSessionGuard />
             {/* Desktop Sidebar - Fixed/Collapsible */}
             <div className="hidden md:block h-full z-40 transition-all duration-300">

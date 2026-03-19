@@ -144,6 +144,73 @@ function getTargets(signal: SignalItem) {
     .filter((value): value is number => typeof value === "number");
 }
 
+function hasFavorableResolvedExit(signal: SignalItem) {
+  const entry = getEntry(signal);
+  const exit = getExit(signal);
+  if (typeof entry !== "number" || typeof exit !== "number") return false;
+  return isBuySignal(signal) ? exit > entry : exit < entry;
+}
+
+function getAchievedTargetLevels(signal: SignalItem) {
+  const normalizedStatus = String(signal.status || "").trim().toLowerCase();
+  if (normalizedStatus.includes("active") || normalizedStatus.includes("open")) return [];
+
+  const achievedLevels = new Set<number>();
+  const markAchievedThrough = (level: number) => {
+    for (let index = 1; index <= level; index += 1) {
+      achievedLevels.add(index);
+    }
+  };
+
+  const normalizedNotes = String(signal.notes || "").trim().toUpperCase();
+  if (normalizedNotes.includes("TP3") || normalizedNotes.includes("T3")) {
+    markAchievedThrough(3);
+  } else if (normalizedNotes.includes("TP2") || normalizedNotes.includes("T2")) {
+    markAchievedThrough(2);
+  } else if (normalizedNotes.includes("TP1") || normalizedNotes.includes("T1")) {
+    markAchievedThrough(1);
+  }
+
+  const targets = getTargets(signal);
+  const exit = getExit(signal);
+  if (targets.length && typeof exit === "number") {
+    let highestAchievedLevel = 0;
+
+    targets.forEach((target, index) => {
+      const crossedTarget = isBuySignal(signal) ? exit >= target - 0.01 : exit <= target + 0.01;
+      if (crossedTarget) {
+        highestAchievedLevel = index + 1;
+      }
+    });
+
+    if (highestAchievedLevel > 0) {
+      markAchievedThrough(highestAchievedLevel);
+    }
+  }
+
+  if (
+    achievedLevels.size === 0 &&
+    (normalizedStatus.includes("target") ||
+      normalizedStatus.includes("partial") ||
+      (normalizedStatus.includes("stop") && hasFavorableResolvedExit(signal)))
+  ) {
+    markAchievedThrough(1);
+  }
+
+  return Array.from(achievedLevels).sort((left, right) => left - right);
+}
+
+function getHighestAchievedTargetLevel(signal: SignalItem) {
+  const achievedLevels = getAchievedTargetLevels(signal);
+  return achievedLevels.length ? achievedLevels[achievedLevels.length - 1] : undefined;
+}
+
+function isStoplossHit(signal: SignalItem) {
+  const normalizedStatus = String(signal.status || "").trim().toLowerCase();
+  if (!normalizedStatus.includes("stop") && !normalizedStatus.includes("sl")) return false;
+  return !hasFavorableResolvedExit(signal);
+}
+
 function isBuySignal(signal: SignalItem) {
   const runtimeSignal = signal as SignalRuntimeShape;
   return (signal.type || runtimeSignal.trade_type || "BUY").toUpperCase() !== "SELL";
@@ -184,20 +251,21 @@ function getResolvedPoints(signal: SignalItem, livePrice?: number) {
 function getDisplayStatus(signal: SignalItem) {
   const rawStatus = String(signal.status || "").trim();
   const normalized = rawStatus.toLowerCase();
-  const points = getResolvedPoints(signal);
-  const entry = getEntry(signal);
-  const exit = getExit(signal);
-  const favorableExit =
-    typeof entry === "number" &&
-    typeof exit === "number" &&
-    (isBuySignal(signal) ? exit > entry : exit < entry);
+  const favorableExit = hasFavorableResolvedExit(signal);
+  const highestAchievedTarget = getHighestAchievedTargetLevel(signal);
 
-  if (normalized.includes("partial")) return "Partial Profit Book";
-  if (
-    normalized.includes("stop") &&
-    ((typeof points === "number" && points > 0) || favorableExit)
-  ) {
-    return "Partial Profit Book";
+  if (normalized.includes("partial")) {
+    return highestAchievedTarget ? `TP${highestAchievedTarget} Hit` : "Partial Profit Book";
+  }
+  if (normalized.includes("target")) {
+    return highestAchievedTarget ? `TP${highestAchievedTarget} Hit` : "Target Hit";
+  }
+  if (normalized.includes("stop") || normalized.includes("sl")) {
+    if (isStoplossHit(signal)) return "SL Hit";
+    return highestAchievedTarget ? `TP${highestAchievedTarget} Hit` : "Partial Profit Book";
+  }
+  if (favorableExit && highestAchievedTarget) {
+    return `TP${highestAchievedTarget} Hit`;
   }
 
   return rawStatus || "-";
@@ -420,16 +488,28 @@ function getStatusTone(status?: string) {
   if (normalized.includes("active") || normalized.includes("open")) {
     return "border border-emerald-600/25 bg-emerald-600/10 text-emerald-700 dark:border-emerald-400/25 dark:bg-emerald-400/12 dark:text-emerald-300";
   }
-  if (normalized.includes("partial") || normalized.includes("profit") || normalized.includes("target")) {
+  if (
+    normalized.startsWith("tp") ||
+    normalized.includes("partial") ||
+    normalized.includes("profit") ||
+    normalized.includes("target")
+  ) {
     return "border border-amber-600/25 bg-amber-500/12 text-amber-700 dark:border-amber-300/25 dark:bg-amber-300/12 dark:text-amber-100";
   }
   if (normalized.includes("close") || normalized.includes("history")) {
     return "border border-slate-500/25 bg-slate-500/10 text-slate-700 dark:border-slate-300/20 dark:bg-slate-300/10 dark:text-slate-300";
   }
-  if (normalized.includes("stop")) {
+  if (normalized.includes("stop") || normalized.includes("sl")) {
     return "border border-rose-600/25 bg-rose-600/10 text-rose-700 dark:border-rose-400/25 dark:bg-rose-400/12 dark:text-rose-300";
   }
   return "border border-primary/30 bg-primary/10 text-primary dark:border-primary/25 dark:bg-primary/12 dark:text-primary";
+}
+
+function getTargetTone(isAchieved: boolean) {
+  if (isAchieved) {
+    return "border border-amber-500/35 bg-amber-500/15 text-amber-800 shadow-[0_8px_24px_-18px_rgba(245,158,11,0.85)] dark:border-amber-300/35 dark:bg-amber-300/14 dark:text-amber-100";
+  }
+  return "border border-emerald-600/20 bg-emerald-500/10 text-emerald-700 dark:border-emerald-300/25 dark:bg-emerald-300/10 dark:text-emerald-100";
 }
 
 function getSegmentTone(segment?: string) {
@@ -576,6 +656,7 @@ function SignalsPageContent() {
   const detailLivePrice = getBestLiveSignalPrice(liveTick) ?? detailExitPrice;
   const detailBid = typeof liveTick?.bid === "number" ? liveTick.bid : undefined;
   const detailAsk = typeof liveTick?.ask === "number" ? liveTick.ask : undefined;
+  const detailAchievedTargetLevels = detailSignal ? getAchievedTargetLevels(detailSignal) : [];
 
   useEffect(() => {
     const symbol = normalizeSignalSymbol(detailSignal?.symbol);
@@ -992,6 +1073,7 @@ function SignalsPageContent() {
                 const rowKey = getSignalKey(signal);
                 const isBuy = isBuySignal(signal);
                 const targets = getTargets(signal);
+                const achievedTargetLevels = getAchievedTargetLevels(signal);
                 const points = getResolvedPoints(signal);
                 const status = getDisplayStatus(signal);
                 const isSelected = activeSignalKey === rowKey;
@@ -1060,14 +1142,17 @@ function SignalsPageContent() {
                       <BadgeCheck className="h-3.5 w-3.5 mt-[1px] text-emerald-700 dark:text-emerald-200" />
                       {targets.length ? (
                         <div className="flex flex-wrap gap-1">
-                          {targets.map((item, index) => (
-                            <span
-                              key={`${rowKey}-target-${index + 1}`}
-                              className="rounded-full border border-emerald-600/20 bg-emerald-500/10 px-2 py-0.5 text-[9px] font-semibold text-emerald-700 dark:border-emerald-300/25 dark:bg-emerald-300/10 dark:text-emerald-100"
-                            >
-                              T{index + 1}: {formatPrice(item)}
-                            </span>
-                          ))}
+                          {targets.map((item, index) => {
+                            const isAchieved = achievedTargetLevels.includes(index + 1);
+                            return (
+                              <span
+                                key={`${rowKey}-target-${index + 1}`}
+                                className={`rounded-full px-2 py-0.5 text-[9px] font-semibold ${getTargetTone(isAchieved)}`}
+                              >
+                                TP{index + 1}{isAchieved ? " Hit" : ""}: {formatPrice(item)}
+                              </span>
+                            );
+                          })}
                         </div>
                       ) : (
                         <span>-</span>
@@ -1104,6 +1189,7 @@ function SignalsPageContent() {
                 const cardKey = getSignalKey(signal);
                 const isBuy = isBuySignal(signal);
                 const targets = getTargets(signal);
+                const achievedTargetLevels = getAchievedTargetLevels(signal);
                 const points = getResolvedPoints(signal);
                 const status = getDisplayStatus(signal);
                 const isSelected = activeSignalKey === cardKey;
@@ -1184,14 +1270,17 @@ function SignalsPageContent() {
                           </div>
                           {targets.length ? (
                             <div className="mt-1 grid grid-cols-3 gap-1.5">
-                              {targets.map((item, index) => (
-                                <span
-                                  key={`${cardKey}-target-${index + 1}`}
-                                  className="rounded-full border border-emerald-600/20 bg-emerald-500/10 px-2 py-1 text-center text-[9px] font-semibold text-emerald-700 dark:border-emerald-300/25 dark:bg-emerald-300/10 dark:text-emerald-100"
-                                >
-                                  TP{index + 1}: {formatPrice(item)}
-                                </span>
-                              ))}
+                              {targets.map((item, index) => {
+                                const isAchieved = achievedTargetLevels.includes(index + 1);
+                                return (
+                                  <span
+                                    key={`${cardKey}-target-${index + 1}`}
+                                    className={`rounded-full px-2 py-1 text-center text-[9px] font-semibold ${getTargetTone(isAchieved)}`}
+                                  >
+                                    TP{index + 1}{isAchieved ? " Hit" : ""}: {formatPrice(item)}
+                                  </span>
+                                );
+                              })}
                             </div>
                           ) : (
                             <div className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">-</div>
@@ -1449,19 +1538,22 @@ function SignalsPageContent() {
                       </div>
                       {getTargets(detailSignal).length ? (
                         <div className="mt-2 grid grid-cols-3 gap-2 sm:mt-3 sm:gap-3">
-                          {getTargets(detailSignal).map((target, index) => (
-                            <div
-                              key={`${getSignalKey(detailSignal)}-detail-target-${index + 1}`}
-                              className="rounded-xl border border-emerald-600/20 bg-emerald-500/10 px-3 py-2.5 dark:border-emerald-300/25 dark:bg-emerald-300/10 sm:rounded-2xl sm:px-4 sm:py-3"
-                            >
-                              <div className="text-center text-[8px] uppercase tracking-[0.08em] text-emerald-700 dark:text-emerald-100 sm:text-[10px] sm:tracking-[0.18em]">
-                                TP {index + 1}
+                          {getTargets(detailSignal).map((target, index) => {
+                            const isAchieved = detailAchievedTargetLevels.includes(index + 1);
+                            return (
+                              <div
+                                key={`${getSignalKey(detailSignal)}-detail-target-${index + 1}`}
+                                className={`rounded-xl px-3 py-2.5 sm:rounded-2xl sm:px-4 sm:py-3 ${getTargetTone(isAchieved)}`}
+                              >
+                                <div className="text-center text-[8px] uppercase tracking-[0.08em] sm:text-[10px] sm:tracking-[0.18em]">
+                                  TP {index + 1}{isAchieved ? " Hit" : ""}
+                                </div>
+                                <div className="mt-1 text-center text-[11px] font-semibold leading-tight sm:text-base">
+                                  {formatPrice(target)}
+                                </div>
                               </div>
-                              <div className="mt-1 text-center text-[11px] font-semibold leading-tight text-emerald-800 dark:text-emerald-100 sm:text-base">
-                                {formatPrice(target)}
-                              </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       ) : (
                         <div className="mt-2 text-sm text-slate-600 dark:text-slate-300 sm:mt-3">
