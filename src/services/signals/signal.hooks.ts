@@ -16,6 +16,11 @@ export function useSignalsQuery(params?: Record<string, string | number | boolea
     queryKey: [...SIGNALS_QUERY_KEY, params ?? {}],
     queryFn: () => getSignals(params),
     enabled,
+    staleTime: 5_000,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+    refetchInterval: enabled ? 15_000 : false,
+    refetchIntervalInBackground: true,
   });
 }
 
