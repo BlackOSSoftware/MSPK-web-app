@@ -476,7 +476,50 @@ function getCurrentSignalTargets(signal: SignalItem | null): number[] {
     .filter((value): value is number => typeof value === "number");
 }
 
-function getCurrentSignalAchievedTargetLevels(signal: SignalItem | null): number[] {
+function roundToDecimals(value: number, decimals: number): number {
+  if (!Number.isFinite(value)) return value;
+  const safeDecimals = Math.min(Math.max(decimals, 0), 8);
+  const factor = 10 ** safeDecimals;
+  return Math.round(value * factor) / factor;
+}
+
+function getTargetLevelsReachedByPrice(
+  signal: SignalItem | null,
+  price: number | undefined,
+  decimals = 4
+): number[] {
+  if (!signal || typeof price !== "number" || !Number.isFinite(price)) return [];
+
+  const direction = getSignalDirection(signal);
+  if (!direction) return [];
+
+  const roundedPrice = roundToDecimals(price, decimals);
+
+  return getCurrentSignalTargets(signal)
+    .map((target, index) => {
+      const roundedTarget = roundToDecimals(target, decimals);
+      const isHit =
+        direction === "BUY" ? roundedPrice >= roundedTarget : roundedPrice <= roundedTarget;
+      return isHit ? index + 1 : null;
+    })
+    .filter((value): value is number => typeof value === "number");
+}
+
+function extractSignalNotePrice(signal: SignalItem | null): { value: number; decimals: number } | null {
+  const note = String(signal?.notes || "").trim();
+  if (!note) return null;
+
+  const match = note.match(/\bat\s+(-?\d+(?:\.\d+)?)/i);
+  if (!match) return null;
+
+  const value = toNumber(match[1]);
+  if (typeof value !== "number") return null;
+
+  const decimalPart = match[1].split(".")[1] || "";
+  return { value, decimals: decimalPart.length };
+}
+
+function getStoredAchievedTargetLevels(signal: SignalItem | null): number[] {
   if (!signal) return [];
 
   const achievedLevels = new Set<number>();
@@ -486,28 +529,37 @@ function getCurrentSignalAchievedTargetLevels(signal: SignalItem | null): number
     }
   };
 
+  const signalTargets = getCurrentSignalTargets(signal);
   const normalizedNotes = String(signal.notes || "").trim().toUpperCase();
   if (normalizedNotes) {
-    if (normalizedNotes.includes("TP3") || normalizedNotes.includes("T3")) {
-      markAchievedThrough(3);
-    } else if (normalizedNotes.includes("TP2") || normalizedNotes.includes("T2")) {
-      markAchievedThrough(2);
-    } else if (normalizedNotes.includes("TP1") || normalizedNotes.includes("T1")) {
-      markAchievedThrough(1);
+    const noteTargetLevel = normalizedNotes.includes("TP3") || normalizedNotes.includes("T3")
+      ? 3
+      : normalizedNotes.includes("TP2") || normalizedNotes.includes("T2")
+        ? 2
+        : normalizedNotes.includes("TP1") || normalizedNotes.includes("T1")
+          ? 1
+          : 0;
+    const notePrice = extractSignalNotePrice(signal);
+
+    if (noteTargetLevel > 0) {
+      const isValidClaim =
+        !notePrice ||
+        signalTargets[noteTargetLevel - 1] === undefined ||
+        getTargetLevelsReachedByPrice(signal, notePrice.value, notePrice.decimals).includes(noteTargetLevel);
+
+      if (isValidClaim) {
+        markAchievedThrough(noteTargetLevel);
+      }
     }
   }
 
   const normalizedStatus = String(signal.status || "").trim().toUpperCase();
-  const signalTargets = getCurrentSignalTargets(signal);
   const exitPrice = toNumber(signal.exitPrice);
-  const matchedTargetLevel =
-    typeof exitPrice === "number"
-      ? signalTargets.findIndex((target) => Math.abs(target - exitPrice) < 0.01) + 1
-      : 0;
+  const matchedTargetLevel = getTargetLevelsReachedByPrice(signal, exitPrice).at(-1) ?? 0;
 
   if (matchedTargetLevel > 0) {
     markAchievedThrough(matchedTargetLevel);
-  } else if (normalizedStatus.includes("TARGET")) {
+  } else if (normalizedStatus.includes("TARGET") && typeof exitPrice !== "number") {
     markAchievedThrough(1);
   } else if (normalizedStatus.includes("PARTIAL")) {
     markAchievedThrough(1);
@@ -516,14 +568,32 @@ function getCurrentSignalAchievedTargetLevels(signal: SignalItem | null): number
   return Array.from(achievedLevels).sort((a, b) => a - b);
 }
 
+function getCurrentSignalAchievedTargetLevels(
+  signal: SignalItem | null,
+  latestPrice?: number | null
+): number[] {
+  const livePrice =
+    typeof latestPrice === "number" && Number.isFinite(latestPrice) ? latestPrice : undefined;
+
+  return Array.from(
+    new Set([
+      ...getStoredAchievedTargetLevels(signal),
+      ...getTargetLevelsReachedByPrice(signal, livePrice),
+    ])
+  ).sort((a, b) => a - b);
+}
+
 function getCurrentSignalAchievedSummary(signal: SignalItem | null): string | null {
   if (!signal) return null;
-  const achievedLevels = getCurrentSignalAchievedTargetLevels(signal);
+  const achievedLevels = getStoredAchievedTargetLevels(signal);
   if (achievedLevels.length > 0) {
     return `${achievedLevels.map((level) => `TP${level}`).join(" • ")} Achieved`;
   }
 
   const notes = String(signal.notes || "").trim();
+  if (/\bTP[123]\b|\bT[123]\b/i.test(notes)) {
+    return null;
+  }
   return /achieved/i.test(notes) ? notes : null;
 }
 
@@ -689,18 +759,7 @@ function getSignalToneClasses(signalLabel: string | null) {
 }
 
 function getLiveAchievedTargetLevels(signal: SignalItem | null, latestPrice: number | undefined): number[] {
-  if (!signal || typeof latestPrice !== "number" || !Number.isFinite(latestPrice)) return [];
-
-  const direction = getSignalDirection(signal);
-  if (!direction) return [];
-
-  return getCurrentSignalTargets(signal)
-    .map((target, index) => {
-      const isHit =
-        direction === "BUY" ? latestPrice >= target : latestPrice <= target;
-      return isHit ? index + 1 : null;
-    })
-    .filter((value): value is number => typeof value === "number");
+  return getTargetLevelsReachedByPrice(signal, latestPrice);
 }
 
 function isTouchInteractionDevice(): boolean {
@@ -1579,7 +1638,7 @@ function TimeframeSignalPanel({
           const signalEntry = getCurrentSignalEntry(signal);
           const signalStopLoss = getCurrentSignalStopLoss(signal);
           const signalTargets = getCurrentSignalTargets(signal).slice(0, 3);
-          const achievedLevels = getCurrentSignalAchievedTargetLevels(signal);
+          const achievedLevels = getCurrentSignalAchievedTargetLevels(signal, livePrice);
           const isStopLossHit = signalLabel === "STOPLOSS";
           const signalTone = getSignalToneClasses(signalLabel);
           const signalTime = formatSignalTimestamp(getSignalTimestamp(signal));
