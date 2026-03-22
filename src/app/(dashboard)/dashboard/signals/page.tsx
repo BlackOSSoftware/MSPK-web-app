@@ -85,7 +85,21 @@ function getDisplaySignalTime(signal: SignalItem) {
 
 function isSignalClosed(signal: SignalItem) {
   const normalizedStatus = String(signal.status || "").trim().toLowerCase();
+  if (signal.exitTime) return true;
+
+  const targets = getTargets(signal);
+  const highestAchievedTarget = getHighestAchievedTargetLevel(signal);
+  const finalTargetReached =
+    targets.length > 0 &&
+    typeof highestAchievedTarget === "number" &&
+    highestAchievedTarget >= targets.length;
+
+  if (normalizedStatus.includes("active") || normalizedStatus.includes("open") || normalizedStatus.includes("paused")) {
+    return finalTargetReached;
+  }
+
   return (
+    finalTargetReached ||
     normalizedStatus.includes("target") ||
     normalizedStatus.includes("partial") ||
     normalizedStatus.includes("stop") ||
@@ -153,8 +167,6 @@ function hasFavorableResolvedExit(signal: SignalItem) {
 
 function getAchievedTargetLevels(signal: SignalItem) {
   const normalizedStatus = String(signal.status || "").trim().toLowerCase();
-  if (normalizedStatus.includes("active") || normalizedStatus.includes("open")) return [];
-
   const achievedLevels = new Set<number>();
   const markAchievedThrough = (level: number) => {
     for (let index = 1; index <= level; index += 1) {
@@ -253,6 +265,7 @@ function getDisplayStatus(signal: SignalItem) {
   const normalized = rawStatus.toLowerCase();
   const favorableExit = hasFavorableResolvedExit(signal);
   const highestAchievedTarget = getHighestAchievedTargetLevel(signal);
+  const targets = getTargets(signal);
 
   if (normalized.includes("partial")) {
     return highestAchievedTarget ? `TP${highestAchievedTarget} Hit` : "Partial Profit Book";
@@ -265,6 +278,14 @@ function getDisplayStatus(signal: SignalItem) {
     return highestAchievedTarget ? `TP${highestAchievedTarget} Hit` : "Partial Profit Book";
   }
   if (favorableExit && highestAchievedTarget) {
+    return `TP${highestAchievedTarget} Hit`;
+  }
+  if (
+    (normalized.includes("active") || normalized.includes("open") || normalized.includes("paused")) &&
+    targets.length > 0 &&
+    typeof highestAchievedTarget === "number" &&
+    highestAchievedTarget >= targets.length
+  ) {
     return `TP${highestAchievedTarget} Hit`;
   }
 

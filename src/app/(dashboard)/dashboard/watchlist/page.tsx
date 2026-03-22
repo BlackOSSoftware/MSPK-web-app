@@ -568,16 +568,35 @@ function getStoredAchievedTargetLevels(signal: SignalItem | null): number[] {
   return Array.from(achievedLevels).sort((a, b) => a - b);
 }
 
+function isSettledSignal(signal: SignalItem | null): boolean {
+  if (!signal) return false;
+
+  const normalizedStatus = String(signal.status || "").trim().toUpperCase();
+  return (
+    Boolean(signal.exitTime) ||
+    typeof toNumber(signal.exitPrice) === "number" ||
+    normalizedStatus.includes("TARGET") ||
+    normalizedStatus.includes("PARTIAL") ||
+    normalizedStatus.includes("STOP") ||
+    normalizedStatus.includes("CLOSED")
+  );
+}
+
 function getCurrentSignalAchievedTargetLevels(
   signal: SignalItem | null,
   latestPrice?: number | null
 ): number[] {
   const livePrice =
     typeof latestPrice === "number" && Number.isFinite(latestPrice) ? latestPrice : undefined;
+  const storedLevels = getStoredAchievedTargetLevels(signal);
+
+  if (isSettledSignal(signal)) {
+    return storedLevels;
+  }
 
   return Array.from(
     new Set([
-      ...getStoredAchievedTargetLevels(signal),
+      ...storedLevels,
       ...getTargetLevelsReachedByPrice(signal, livePrice),
     ])
   ).sort((a, b) => a - b);
@@ -756,10 +775,6 @@ function getSignalToneClasses(signalLabel: string | null) {
     panel: "border-amber-400/35 bg-amber-500/8 dark:border-amber-400/25 dark:bg-amber-500/10",
     hover: "hover:bg-amber-500/12 dark:hover:bg-amber-500/14",
   };
-}
-
-function getLiveAchievedTargetLevels(signal: SignalItem | null, latestPrice: number | undefined): number[] {
-  return getTargetLevelsReachedByPrice(signal, latestPrice);
 }
 
 function isTouchInteractionDevice(): boolean {
@@ -3191,13 +3206,7 @@ function WatchlistPageContent() {
     return selectedRow?.currentPrice ?? selectedRow?.close;
   }, [selectedRow?.close, selectedRow?.currentPrice, selectedTick]);
   const currentSignalAchievedTargetLevels = useMemo(
-    () =>
-      Array.from(
-        new Set([
-          ...getCurrentSignalAchievedTargetLevels(currentSignal),
-          ...getLiveAchievedTargetLevels(currentSignal, latestChartPrice),
-        ])
-      ).sort((a, b) => a - b),
+    () => getCurrentSignalAchievedTargetLevels(currentSignal, latestChartPrice),
     [currentSignal, latestChartPrice]
   );
   const currentSignalAchievedSummary = useMemo(
