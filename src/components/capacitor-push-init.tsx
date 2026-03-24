@@ -21,11 +21,16 @@ export function CapacitorPushInit() {
     root.classList.add("native-platform");
     document.body?.classList.add("native-platform");
 
+    const SAFE_TOP_TRIM_PX = 8;
+    const SAFE_BOTTOM_TRIM_PX = 12;
+
     const updateNativeSafeArea = () => {
       const viewport = window.visualViewport;
       if (!viewport) return;
-      const safeTop = Math.max(0, viewport.offsetTop);
-      const safeBottom = Math.max(0, window.innerHeight - (viewport.height + viewport.offsetTop));
+      const rawSafeTop = Math.max(0, viewport.offsetTop);
+      const rawSafeBottom = Math.max(0, window.innerHeight - (viewport.height + viewport.offsetTop));
+      const safeTop = Math.max(0, rawSafeTop - SAFE_TOP_TRIM_PX);
+      const safeBottom = Math.max(0, rawSafeBottom - SAFE_BOTTOM_TRIM_PX);
       root.style.setProperty("--native-safe-top", `${safeTop}px`);
       root.style.setProperty("--native-safe-bottom", `${safeBottom}px`);
       document.body?.style.setProperty("--native-safe-top", `${safeTop}px`);
