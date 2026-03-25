@@ -8,6 +8,7 @@ import type {
   RegisterApiResponse,
   RegisterPayload,
   SendOtpPayload,
+  SendOtpResponse,
   UpdateMePayload,
   VerifyOtpPayload,
   VerifyOtpResponse,
@@ -73,8 +74,9 @@ export async function register(payload: RegisterPayload): Promise<RegisterApiRes
   return response.data;
 }
 
-export async function sendOtp(payload: SendOtpPayload): Promise<void> {
-  await apiClient.post("/auth/send-otp", payload);
+export async function sendOtp(payload: SendOtpPayload): Promise<SendOtpResponse> {
+  const response = await apiClient.post<SendOtpResponse>("/auth/send-otp", payload);
+  return response.data;
 }
 
 export async function verifyOtp(payload: VerifyOtpPayload): Promise<VerifyOtpResponse> {

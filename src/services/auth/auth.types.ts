@@ -20,7 +20,15 @@ export type RegisterPayload = {
 
 export type RegisterApiResponse = Record<string, unknown>;
 
-export type OtpChannel = "email";
+export type OtpChannel = "email" | "phone" | "whatsapp";
+
+export type SendOtpResponse = {
+  message?: string;
+  target?: string;
+  channel?: OtpChannel;
+  dailyRemaining?: number;
+  dailyLimit?: boolean;
+};
 
 export type SendOtpPayload = {
   type: OtpChannel;
@@ -79,6 +87,7 @@ export type MeResponse = {
   tokenVersion?: number;
   lastLoginIp?: string;
   clientId?: string;
+  signalEmailAlertsAvailable?: boolean;
   createdAt?: string;
   updatedAt?: string;
   planId?: string | null;

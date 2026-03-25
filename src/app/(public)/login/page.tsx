@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
-import { Eye, EyeOff, Loader2, Lock, Mail, LayoutDashboard } from 'lucide-react';
+import { Eye, EyeOff, Loader2, Lock, Mail, LayoutDashboard, Smartphone } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
@@ -28,9 +28,46 @@ export default function LoginPage() {
     const [loginError, setLoginError] = useState('');
     const [otpError, setOtpError] = useState('');
     const [otpNotice, setOtpNotice] = useState('');
+    const [otpTarget, setOtpTarget] = useState('');
     const [showVerify, setShowVerify] = useState(false);
     const [isPolicyOpen, setIsPolicyOpen] = useState(false);
     const loading = loginMutation.isPending;
+    const isBusy = loading || sendOtpMutation.isPending || verifyOtpMutation.isPending;
+
+    const getErrorMessage = (error: unknown, fallback: string) =>
+        typeof (error as { response?: { data?: { message?: string } } })?.response?.data?.message === 'string'
+            ? String((error as { response?: { data?: { message?: string } } })?.response?.data?.message)
+            : error instanceof Error
+                ? error.message
+                : fallback;
+
+    async function finalizeLogin(loginResponse: Record<string, unknown>) {
+        if (typeof window !== 'undefined') {
+            void (async () => {
+                try {
+                    let authToken: string | null = null;
+                    try {
+                        authToken = resolveTokenAndExpiry(loginResponse).token;
+                    } catch {
+                        authToken = getAuthToken();
+                    }
+                    const storedToken =
+                        window.localStorage.getItem('fcm_token') || window.localStorage.getItem('fcmToken');
+                    const token = await getFcmToken();
+                    if (token && token !== storedToken) {
+                        window.localStorage.setItem('fcm_token', token);
+                    }
+                    if (token && authToken) {
+                        await registerFcmTokenMutation.mutateAsync({ token, platform: 'web', authToken });
+                    }
+                } catch {
+                    // ignore FCM registration issues during login
+                }
+            })();
+        }
+        toast.success('Login successful');
+        router.replace('/dashboard');
+    }
 
     async function resolveClientIp() {
         try {
@@ -49,47 +86,20 @@ export default function LoginPage() {
         setLoginError('');
         setOtpError('');
         setOtpNotice('');
+        setOtpTarget('');
         setShowVerify(false);
 
         try {
             const clientIp = await resolveClientIp();
             const loginResponse = await loginMutation.mutateAsync({ email, password, ...(clientIp ? { ip: clientIp } : {}) });
-            if (typeof window !== 'undefined') {
-                void (async () => {
-                    try {
-                        let authToken: string | null = null;
-                        try {
-                            authToken = resolveTokenAndExpiry(loginResponse).token;
-                        } catch {
-                            authToken = getAuthToken();
-                        }
-                        const storedToken =
-                            window.localStorage.getItem('fcm_token') || window.localStorage.getItem('fcmToken');
-                        const token = await getFcmToken();
-                        if (token && token !== storedToken) {
-                            window.localStorage.setItem('fcm_token', token);
-                        }
-                        if (token && authToken) {
-                            await registerFcmTokenMutation.mutateAsync({ token, platform: 'web', authToken });
-                        }
-                    } catch {
-                        // ignore FCM registration issues during login
-                    }
-                })();
-            }
-            toast.success('Login successful');
-            router.replace('/dashboard');
+            await finalizeLogin(loginResponse);
         } catch (error: unknown) {
-            const message =
-                typeof (error as { response?: { data?: { message?: string } } })?.response?.data?.message === 'string'
-                    ? String((error as { response?: { data?: { message?: string } } })?.response?.data?.message)
-                    : error instanceof Error
-                        ? error.message
-                        : 'Login failed';
+            const message = getErrorMessage(error, 'Login failed');
             setLoginError(message);
             toast.error(message);
             if (message.toLowerCase().includes('verify') || message.toLowerCase().includes('otp')) {
                 setShowVerify(true);
+                setOtpNotice('Verify your account using the OTP sent on your registered WhatsApp number.');
             }
         }
     }
@@ -98,21 +108,18 @@ export default function LoginPage() {
         setOtpError('');
         setOtpNotice('');
         if (!email.trim()) {
-            setLoginError('Enter your email to resend OTP.');
+            setLoginError('Enter your email to send WhatsApp OTP.');
             setShowVerify(true);
             return;
         }
         try {
-            await sendOtpMutation.mutateAsync({ type: 'email', identifier: email.trim() });
+            const response = await sendOtpMutation.mutateAsync({ type: 'whatsapp', identifier: email.trim() });
             setShowVerify(true);
-            setOtpNotice(`OTP sent on your email: ${email.trim()}.`);
+            const target = response?.target || 'your registered WhatsApp number';
+            setOtpTarget(target);
+            setOtpNotice(`OTP sent on WhatsApp: ${target}.`);
         } catch (error: unknown) {
-            const message =
-                typeof (error as { response?: { data?: { message?: string } } })?.response?.data?.message === 'string'
-                    ? String((error as { response?: { data?: { message?: string } } })?.response?.data?.message)
-                    : error instanceof Error
-                        ? error.message
-                        : 'Unable to send OTP.';
+            const message = getErrorMessage(error, 'Unable to send OTP.');
             setOtpError(message);
             setShowVerify(true);
         }
@@ -121,39 +128,12 @@ export default function LoginPage() {
     async function onVerifyOtp() {
         setOtpError('');
         try {
-            const verifyResponse = await verifyOtpMutation.mutateAsync({ type: 'email', identifier: email.trim(), otp: otp.trim() });
-            if (typeof window !== 'undefined') {
-                void (async () => {
-                    try {
-                        let authToken: string | null = null;
-                        try {
-                            authToken = resolveTokenAndExpiry(verifyResponse).token;
-                        } catch {
-                            authToken = getAuthToken();
-                        }
-                        const storedToken =
-                            window.localStorage.getItem('fcm_token') || window.localStorage.getItem('fcmToken');
-                        const token = await getFcmToken();
-                        if (token && token !== storedToken) {
-                            window.localStorage.setItem('fcm_token', token);
-                        }
-                        if (token && authToken) {
-                            await registerFcmTokenMutation.mutateAsync({ token, platform: 'web', authToken });
-                        }
-                    } catch {
-                        // ignore FCM registration issues during OTP verification
-                    }
-                })();
-            }
-            toast.success('Email verified');
-            router.replace('/dashboard');
+            await verifyOtpMutation.mutateAsync({ type: 'whatsapp', identifier: email.trim(), otp: otp.trim() });
+            const clientIp = await resolveClientIp();
+            const loginResponse = await loginMutation.mutateAsync({ email, password, ...(clientIp ? { ip: clientIp } : {}) });
+            await finalizeLogin(loginResponse);
         } catch (error: unknown) {
-            const message =
-                typeof (error as { response?: { data?: { message?: string } } })?.response?.data?.message === 'string'
-                    ? String((error as { response?: { data?: { message?: string } } })?.response?.data?.message)
-                    : error instanceof Error
-                        ? error.message
-                        : 'OTP verification failed.';
+            const message = getErrorMessage(error, 'OTP verification failed.');
             setOtpError(message);
         }
     }
@@ -260,13 +240,13 @@ export default function LoginPage() {
                                         ) : null}
 
                                         <div className="flex items-center justify-between text-xs text-muted-foreground">
-                                            <span>Email not verified?</span>
+                                            <span>Account not verified?</span>
                                             <button
                                                 type="button"
                                                 onClick={onSendOtp}
                                                 className="text-primary hover:text-primary/80 transition-colors"
                                             >
-                                                Verify Email
+                                                Verify on WhatsApp
                                             </button>
                                         </div>
 
@@ -293,8 +273,9 @@ export default function LoginPage() {
                                 ) : (
                                     <div className="space-y-3 sm:space-y-4">
                                         <div className="rounded-2xl border border-slate-200/70 dark:border-white/10 bg-slate-50/70 dark:bg-white/5 p-4 space-y-3">
-                                            <div className="text-xs text-muted-foreground">
-                                                {otpNotice || `Enter OTP sent to ${email || 'your email'}.`}
+                                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                                <Smartphone className="h-4 w-4" />
+                                                <span>{otpNotice || `Enter the OTP sent on WhatsApp${otpTarget ? ` (${otpTarget})` : ''}.`}</span>
                                             </div>
                                             <div className="space-y-3">
                                                 <Input
@@ -303,7 +284,7 @@ export default function LoginPage() {
                                                     value={otp}
                                                     onChange={(e) => setOtp(e.target.value)}
                                                     required
-                                                    placeholder="Enter OTP"
+                                                    placeholder="Enter WhatsApp OTP"
                                                     className="h-10 sm:h-11 rounded-xl bg-white/80 dark:bg-black/40 border-slate-200 dark:border-white/10 focus:ring-primary/20 focus:border-primary px-4"
                                                 />
                                                 {otpError ? (
@@ -312,10 +293,10 @@ export default function LoginPage() {
                                                     </div>
                                                 ) : null}
                                                 <div className="flex gap-2">
-                                                    <Button type="button" onClick={onVerifyOtp} className="h-10 sm:h-11 rounded-xl flex-1" disabled={loading}>
+                                                    <Button type="button" onClick={onVerifyOtp} className="h-10 sm:h-11 rounded-xl flex-1" disabled={isBusy}>
                                                         Verify OTP
                                                     </Button>
-                                                    <Button type="button" variant="outline" className="h-10 sm:h-11 rounded-xl" onClick={onSendOtp} disabled={loading}>
+                                                    <Button type="button" variant="outline" className="h-10 sm:h-11 rounded-xl" onClick={onSendOtp} disabled={isBusy}>
                                                         Resend
                                                     </Button>
                                                 </div>

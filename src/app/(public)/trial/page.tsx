@@ -8,12 +8,11 @@ import { Label } from '@/components/ui/label';
 import { Check, Loader2, Sparkles, Zap, Shield, ArrowRight, BadgeCheck, BarChart3 } from 'lucide-react';
 import { useRegisterMutation, useSendOtpMutation, useVerifyOtpMutation } from '@/hooks/use-auth';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import { PrivacyPolicyModal } from '@/components/legal/privacy-policy-modal';
 
 function TrialPageContent() {
-    const router = useRouter();
     const searchParams = useSearchParams();
     const selectedPlanId = searchParams.get('planId');
     const referralFromQuery = searchParams.get('ref') ?? '';
@@ -23,7 +22,8 @@ function TrialPageContent() {
     const [success, setSuccess] = useState(false);
     const [step, setStep] = useState<'form' | 'otp' | 'success'>('form');
     const [otp, setOtp] = useState('');
-    const [registeredEmail, setRegisteredEmail] = useState('');
+    const [registeredPhone, setRegisteredPhone] = useState('');
+    const [otpTarget, setOtpTarget] = useState('');
     const [formError, setFormError] = useState('');
     const [otpError, setOtpError] = useState('');
     const [acceptedPolicy, setAcceptedPolicy] = useState(false);
@@ -51,9 +51,9 @@ function TrialPageContent() {
         return apiMessage || (error instanceof Error ? error.message : fallback);
     };
 
-    const persistOtpState = (email: string) => {
+    const persistOtpState = (phone: string, targetLabel: string) => {
         if (typeof window === 'undefined') return;
-        const payload = JSON.stringify({ email, createdAt: Date.now() });
+        const payload = JSON.stringify({ phone, targetLabel, createdAt: Date.now() });
         localStorage.setItem(otpStorageKey, payload);
     };
 
@@ -67,8 +67,8 @@ function TrialPageContent() {
         const raw = localStorage.getItem(otpStorageKey);
         if (!raw) return;
         try {
-            const parsed = JSON.parse(raw) as { email?: string; createdAt?: number };
-            if (!parsed?.email || !parsed?.createdAt) {
+            const parsed = JSON.parse(raw) as { phone?: string; targetLabel?: string; createdAt?: number };
+            if (!parsed?.phone || !parsed?.createdAt) {
                 localStorage.removeItem(otpStorageKey);
                 return;
             }
@@ -77,7 +77,8 @@ function TrialPageContent() {
                 localStorage.removeItem(otpStorageKey);
                 return;
             }
-            setRegisteredEmail(parsed.email);
+            setRegisteredPhone(parsed.phone);
+            setOtpTarget(parsed.targetLabel || parsed.phone);
             setStep('otp');
         } catch {
             localStorage.removeItem(otpStorageKey);
@@ -110,6 +111,7 @@ function TrialPageContent() {
                 setLoading(false);
                 return;
             }
+
             await registerMutation.mutateAsync({
                 name,
                 email,
@@ -121,11 +123,13 @@ function TrialPageContent() {
                 segments,
                 selectedPlanId,
             });
-            await sendOtpMutation.mutateAsync({ type: 'email', identifier: email });
-            setRegisteredEmail(email);
+
+            const otpResponse = await sendOtpMutation.mutateAsync({ type: 'whatsapp', identifier: phone });
+            setRegisteredPhone(phone);
+            setOtpTarget(otpResponse?.target || phone);
             setStep('otp');
             setOtp('');
-            persistOtpState(email);
+            persistOtpState(phone, otpResponse?.target || phone);
             setFormValues({
                 name: '',
                 email: '',
@@ -148,7 +152,7 @@ function TrialPageContent() {
         setOtpError('');
 
         try {
-            await verifyOtpMutation.mutateAsync({ type: 'email', identifier: registeredEmail, otp: otp.trim() });
+            await verifyOtpMutation.mutateAsync({ type: 'whatsapp', identifier: registeredPhone, otp: otp.trim() });
             setSuccess(true);
             setStep('success');
             clearOtpState();
@@ -160,12 +164,13 @@ function TrialPageContent() {
     }
 
     async function onResendOtp() {
-        if (!registeredEmail) return;
+        if (!registeredPhone) return;
         setLoading(true);
         setOtpError('');
         try {
-            await sendOtpMutation.mutateAsync({ type: 'email', identifier: registeredEmail });
-            persistOtpState(registeredEmail);
+            const otpResponse = await sendOtpMutation.mutateAsync({ type: 'whatsapp', identifier: registeredPhone });
+            setOtpTarget(otpResponse?.target || registeredPhone);
+            persistOtpState(registeredPhone, otpResponse?.target || registeredPhone);
         } catch (error: unknown) {
             setOtpError(getErrorMessage(error, 'Unable to resend OTP.'));
         } finally {
@@ -201,7 +206,7 @@ function TrialPageContent() {
                         </h1>
                         <p className="text-base xl:text-lg text-slate-600 dark:text-slate-400 leading-relaxed">
                             Experience institutional-grade signal intelligence with guided onboarding.
-                            <span className="block mt-2 font-medium text-slate-900 dark:text-white">Verify your email to activate instantly.</span>
+                            <span className="block mt-2 font-medium text-slate-900 dark:text-white">Verify on WhatsApp to activate instantly.</span>
                         </p>
 
                         <div className="grid gap-4 pt-2">
@@ -282,9 +287,9 @@ function TrialPageContent() {
                             ) : step === 'otp' ? (
                                 <CardContent className="p-4 sm:p-8">
                                     <div className="mb-4 sm:mb-8">
-                                        <h2 className="text-xl sm:text-2xl font-bold mb-1 sm:mb-2">Verify Your Email</h2>
+                                        <h2 className="text-xl sm:text-2xl font-bold mb-1 sm:mb-2">Verify Your WhatsApp OTP</h2>
                                         <p className="text-xs sm:text-sm text-muted-foreground">
-                                            OTP sent on your email: {registeredEmail}.
+                                            OTP sent on WhatsApp: {otpTarget || registeredPhone}.
                                         </p>
                                     </div>
 
@@ -337,7 +342,8 @@ function TrialPageContent() {
                                                 clearOtpState();
                                                 setOtp('');
                                                 setOtpError('');
-                                                setRegisteredEmail('');
+                                                setRegisteredPhone('');
+                                                setOtpTarget('');
                                                 setStep('form');
                                             }}
                                             disabled={loading}
@@ -356,7 +362,7 @@ function TrialPageContent() {
                                 <CardContent className="p-4 sm:p-6">
                                     <div className="mb-3 sm:mb-5">
                                         <h2 className="text-lg sm:text-2xl font-bold mb-1">Create Your Account</h2>
-                                        <p className="text-xs sm:text-sm text-muted-foreground">Share your details to register and verify your email.</p>
+                                        <p className="text-xs sm:text-sm text-muted-foreground">Share your details to register and verify on WhatsApp.</p>
                                     </div>
                                     {/* <div className="mb-4 rounded-2xl border border-slate-200/70 dark:border-white/10 bg-slate-50/80 dark:bg-white/5 px-4 py-3">
                                         <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">

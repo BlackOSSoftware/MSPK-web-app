@@ -195,6 +195,7 @@ export default function AlertsPage() {
   const isConnected = Boolean(telegram?.connected);
   const isWhatsAppEnabled = meQuery.data?.isWhatsAppEnabled !== false;
   const isEmailEnabled = meQuery.data?.isEmailAlertEnabled !== false;
+  const signalEmailAlertsAvailable = meQuery.data?.signalEmailAlertsAvailable === true;
   const whatsappPhone = meQuery.data?.phone?.trim() || "";
   const emailAddress = meQuery.data?.email?.trim() || "";
   const botUsername = telegram?.botUsername || "Mspk_alert_bot";
@@ -215,7 +216,9 @@ export default function AlertsPage() {
     : isWhatsAppEnabled
       ? "success"
       : "neutral";
-  const emailTone: StatusTone = !emailAddress
+  const emailTone: StatusTone = !signalEmailAlertsAvailable
+    ? "warning"
+    : !emailAddress
     ? "warning"
     : isEmailEnabled
       ? "success"
@@ -231,7 +234,9 @@ export default function AlertsPage() {
     : isWhatsAppEnabled
       ? "Enabled"
       : "Disabled";
-  const emailSummary = !emailAddress
+  const emailSummary = !signalEmailAlertsAvailable
+    ? "Paused"
+    : !emailAddress
     ? "Email Required"
     : isEmailEnabled
       ? "Enabled"
@@ -283,6 +288,11 @@ export default function AlertsPage() {
   };
 
   const handleEmailToggle = async () => {
+    if (!signalEmailAlertsAvailable) {
+      toast.info("Signal email alerts are currently paused. WhatsApp and Telegram remain active.");
+      return;
+    }
+
     try {
       await updateMeMutation.mutateAsync({
         isEmailAlertEnabled: !isEmailEnabled,
@@ -463,7 +473,7 @@ export default function AlertsPage() {
             <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
               Email
             </div>
-            <StatusBadge tone={emailTone} icon={isEmailEnabled && emailAddress ? CheckCircle2 : AlertCircle}>
+            <StatusBadge tone={emailTone} icon={signalEmailAlertsAvailable && isEmailEnabled && emailAddress ? CheckCircle2 : AlertCircle}>
               {emailSummary}
             </StatusBadge>
           </div>
@@ -621,20 +631,23 @@ export default function AlertsPage() {
               <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Address</div>
               <div className="mt-1 truncate text-sm font-semibold text-foreground">{emailAddress || "Not set"}</div>
             </div>
-            <StatusBadge tone={emailTone} icon={isEmailEnabled && emailAddress ? CheckCircle2 : AlertCircle}>
+            <StatusBadge tone={emailTone} icon={signalEmailAlertsAvailable && isEmailEnabled && emailAddress ? CheckCircle2 : AlertCircle}>
               {emailSummary}
             </StatusBadge>
           </div>
+          <p className="mt-3 text-xs text-muted-foreground">
+            Signal emails are currently paused platform-wide. OTP, billing, and important service emails continue as usual.
+          </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <Button
               type="button"
               variant={isEmailEnabled ? "outline" : "default"}
               onClick={handleEmailToggle}
-              disabled={updateMeMutation.isPending || !emailAddress}
+              disabled={updateMeMutation.isPending || !emailAddress || !signalEmailAlertsAvailable}
               className="h-9 rounded-lg px-3 text-xs"
             >
               {updateMeMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
-              {isEmailEnabled ? "Turn Off" : "Turn On"}
+              {signalEmailAlertsAvailable ? (isEmailEnabled ? "Turn Off" : "Turn On") : "Paused"}
             </Button>
           </div>
         </article>
