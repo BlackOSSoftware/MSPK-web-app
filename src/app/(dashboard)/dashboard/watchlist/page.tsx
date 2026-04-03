@@ -3476,13 +3476,11 @@ function WatchlistPageContent() {
         textColor: isDark ? "#e2e8f0" : "#0f172a",
         fontSize: initialFontSize,
       },
-      localization: chartTimeZone
-        ? {
-            locale: "en-IN",
-            timeFormatter: (time: unknown) =>
-              formatChartTimeLabel(time, chartInterval, chartTimeZone, true),
-          }
-        : undefined,
+      localization: {
+        locale: "en-IN",
+        timeFormatter: (time: unknown) =>
+          formatChartTimeLabel(time, chartInterval, chartTimeZone, true),
+      },
       handleScroll: {
         pressedMouseMove: true,
         horzTouchDrag: !touchCrosshairMode,
@@ -3519,9 +3517,8 @@ function WatchlistPageContent() {
         borderVisible: false,
         timeVisible: chartInterval !== "D" && chartInterval !== "W",
         barSpacing: chartBarSpacingRef.current,
-        tickMarkFormatter: chartTimeZone
-          ? (time: unknown) => formatChartTimeLabel(time, chartInterval, chartTimeZone, false)
-          : undefined,
+        tickMarkFormatter: (time: unknown) =>
+          formatChartTimeLabel(time, chartInterval, chartTimeZone, false),
       },
     });
     const series = chart.addCandlestickSeries({
