@@ -1421,7 +1421,8 @@ function getMarketSocketUrl(token: string): string {
 
   const url = new URL(apiBase);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  url.pathname = "/";
+  const normalizedPath = url.pathname.replace(/\/+$/, "");
+  url.pathname = normalizedPath || "/";
   url.search = "";
   url.hash = "";
   url.searchParams.set("token", token);
