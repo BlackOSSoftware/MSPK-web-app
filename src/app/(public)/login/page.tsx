@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
-import { Eye, EyeOff, Loader2, Lock, Mail, LayoutDashboard, Smartphone } from 'lucide-react';
+import { Eye, EyeOff, Loader2, Lock, Mail, Smartphone } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
@@ -250,25 +250,6 @@ export default function LoginPage() {
                                             </button>
                                         </div>
 
-                                        <div className="relative my-4">
-                                            <div className="absolute inset-0 flex items-center">
-                                                <span className="w-full border-t border-slate-200 dark:border-white/10" />
-                                            </div>
-                                            <div className="relative flex justify-center text-xs uppercase">
-                                                <span className="bg-white dark:bg-black px-2 text-muted-foreground">
-                                                    Or continue using demo
-                                                </span>
-                                            </div>
-                                        </div>
-
-                                        <Button
-                                            type="button"
-                                            variant="outline"
-                                            className="w-full h-10 sm:h-12 rounded-xl text-sm sm:text-base font-bold border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-white/5 transition-all duration-200"
-                                            onClick={() => router.push('/dashboard')}
-                                        >
-                                            <LayoutDashboard className="w-4 h-4 mr-2" /> Demo Login
-                                        </Button>
                                     </form>
                                 ) : (
                                     <div className="space-y-3 sm:space-y-4">
