@@ -87,7 +87,6 @@ function getDisplaySignalTime(signal: SignalItem) {
 
 function isSignalClosed(signal: SignalItem) {
   const normalizedStatus = String(signal.status || "").trim().toLowerCase();
-  if (signal.exitTime) return true;
 
   const targets = getTargets(signal);
   const highestAchievedTarget = getHighestAchievedTargetLevel(signal);

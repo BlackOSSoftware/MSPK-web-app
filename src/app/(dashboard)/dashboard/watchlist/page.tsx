@@ -682,7 +682,6 @@ function isSignalClosed(signal: SignalItem | null): boolean {
   if (normalizedStatus.includes("active") || normalizedStatus.includes("open") || normalizedStatus.includes("paused")) {
     return false;
   }
-  if (signal.exitTime) return true;
   return (
     normalizedStatus.includes("target") ||
     normalizedStatus.includes("partial") ||
