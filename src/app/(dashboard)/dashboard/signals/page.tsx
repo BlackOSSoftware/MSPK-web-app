@@ -40,6 +40,8 @@ type SignalRuntimeShape = SignalItem & {
   exit_price?: unknown;
   total_points?: unknown;
   trade_type?: string;
+  originalSymbol?: string;
+  sourceSymbol?: string;
 };
 
 type LiveSignalTick = {
@@ -373,6 +375,118 @@ function normalizeSignalSymbol(symbol?: string | null) {
   return String(symbol || "").trim().toUpperCase();
 }
 
+const SIGNAL_ALIAS_MAP: Record<string, string[]> = {
+  GCI: ["GC1!"],
+  "GC1!": ["GCI"],
+  BRENTUSD: ["UKOILROLL"],
+  UKOILROLL: ["BRENTUSD"],
+  NATGASUSD: ["NG1!"],
+  "NG1!": ["NATGASUSD"],
+  COPPERUSD: ["HG1!"],
+  "HG1!": ["COPPERUSD"],
+  XPTUSD: ["XPTUSD.PR", "XPTUSD.X"],
+  "XPTUSD.PR": ["XPTUSD", "XPTUSD.X"],
+  "XPTUSD.X": ["XPTUSD", "XPTUSD.PR"],
+  NAS100: ["UT100ROLL"],
+  UT100ROLL: ["NAS100"],
+  US30: ["US30ROLL"],
+  US30ROLL: ["US30"],
+  SPX500: ["US500ROLL"],
+  US500ROLL: ["SPX500"],
+};
+
+function getSignalSymbolAliasBase(symbol?: string | null) {
+  const normalized = normalizeSignalSymbol(symbol);
+  if (!normalized) return "";
+  const withoutExchangePrefix = normalized.split(":").pop() ?? normalized;
+  return withoutExchangePrefix.replace(/(?:\.PR|\.P|\.X|\.LV|\.PERP|PERP)$/i, "");
+}
+
+function getSignalSymbolCandidates(symbol?: string | null) {
+  const normalized = normalizeSignalSymbol(symbol);
+  if (!normalized) return new Set<string>();
+
+  const candidates = new Set<string>([normalized]);
+  const aliasBase = getSignalSymbolAliasBase(normalized);
+  if (aliasBase) {
+    candidates.add(aliasBase);
+  }
+
+  const usdUsdtFromSymbol = getUsdUsdtAlias(normalized);
+  if (usdUsdtFromSymbol) candidates.add(usdUsdtFromSymbol);
+
+  const usdUsdtFromBase = getUsdUsdtAlias(aliasBase);
+  if (usdUsdtFromBase) candidates.add(usdUsdtFromBase);
+
+  const mapped = SIGNAL_ALIAS_MAP[normalized] || SIGNAL_ALIAS_MAP[aliasBase] || [];
+  mapped.forEach((item) => {
+    const normalizedAlias = normalizeSignalSymbol(item);
+    if (!normalizedAlias) return;
+    candidates.add(normalizedAlias);
+    const mappedAliasBase = getSignalSymbolAliasBase(normalizedAlias);
+    if (mappedAliasBase) candidates.add(mappedAliasBase);
+  });
+
+  return candidates;
+}
+
+function getSignalWireSymbol(signal?: SignalItem | null) {
+  const runtimeSignal = signal as SignalRuntimeShape | null | undefined;
+  const preferred =
+    runtimeSignal?.sourceSymbol ||
+    runtimeSignal?.originalSymbol ||
+    runtimeSignal?.symbol ||
+    signal?.sourceSymbol ||
+    signal?.originalSymbol ||
+    signal?.symbol;
+  return normalizeSignalSymbol(preferred);
+}
+
+function getCommodityContinuousCandidates(symbol?: string | null) {
+  const normalized = normalizeSignalSymbol(symbol);
+  if (!normalized) return [];
+
+  const candidates = new Set<string>();
+  const normalizedNoPrefix = normalized.split(":").pop() ?? normalized;
+
+  const continuousMatch = normalizedNoPrefix.match(/^([A-Z]+)1!$/);
+  if (!continuousMatch) return [];
+
+  const [, root] = continuousMatch;
+  if (!root) return [];
+
+  candidates.add(`${root}1!`);
+  candidates.add(`MCX:${root}`);
+  candidates.add(`MCX:${root}1!`);
+  candidates.add(`COMEX:${root}1!`);
+  candidates.add(`NYMEX:${root}1!`);
+  candidates.add(root);
+  return Array.from(candidates);
+}
+
+function getSignalSubscriptionSymbols(signal?: SignalItem | null) {
+  if (!signal) return [];
+
+  const runtimeSignal = signal as SignalRuntimeShape;
+  const seeds = [
+    getSignalWireSymbol(signal),
+    normalizeSignalSymbol(signal.symbol),
+    normalizeSignalSymbol(signal.sourceSymbol),
+    normalizeSignalSymbol(signal.originalSymbol),
+    normalizeSignalSymbol(runtimeSignal.symbol),
+    normalizeSignalSymbol(runtimeSignal.sourceSymbol),
+    normalizeSignalSymbol(runtimeSignal.originalSymbol),
+  ].filter(Boolean);
+
+  const candidates = new Set<string>();
+  seeds.forEach((seed) => {
+    getSignalSymbolCandidates(seed).forEach((item) => candidates.add(item));
+    getCommodityContinuousCandidates(seed).forEach((item) => candidates.add(item));
+  });
+
+  return Array.from(candidates);
+}
+
 function getUsdUsdtAlias(symbol?: string | null) {
   const normalized = normalizeSignalSymbol(symbol);
   if (!normalized) return "";
@@ -395,11 +509,14 @@ function getUsdUsdtAlias(symbol?: string | null) {
 }
 
 function areEquivalentSignalSymbols(left?: string | null, right?: string | null) {
-  const normalizedLeft = normalizeSignalSymbol(left);
-  const normalizedRight = normalizeSignalSymbol(right);
-  if (!normalizedLeft || !normalizedRight) return false;
-  if (normalizedLeft === normalizedRight) return true;
-  return getUsdUsdtAlias(normalizedLeft) === normalizedRight || getUsdUsdtAlias(normalizedRight) === normalizedLeft;
+  const leftCandidates = getSignalSymbolCandidates(left);
+  const rightCandidates = getSignalSymbolCandidates(right);
+  if (leftCandidates.size === 0 || rightCandidates.size === 0) return false;
+
+  for (const candidate of leftCandidates) {
+    if (rightCandidates.has(candidate)) return true;
+  }
+  return false;
 }
 
 function getBestLiveSignalPrice(tick?: LiveSignalTick | null) {
@@ -673,6 +790,7 @@ function SignalsPageContent() {
     if (!selectedKey) return null;
     return filteredSignals.find((item) => getSignalKey(item) === selectedKey) ?? null;
   }, [filteredSignals, selectedKey]);
+  const detailSubscribeSymbols = useMemo(() => getSignalSubscriptionSymbols(detailSignal), [detailSignal]);
   const isDetailVisible = isDetailOpen && Boolean(detailSignal);
   const detailExitPrice = detailSignal ? getExit(detailSignal) : undefined;
   const detailLivePrice = getBestLiveSignalPrice(liveTick) ?? detailExitPrice;
@@ -681,16 +799,18 @@ function SignalsPageContent() {
   const detailAchievedTargetLevels = detailSignal ? getAchievedTargetLevels(detailSignal) : [];
 
   useEffect(() => {
-    const symbol = normalizeSignalSymbol(detailSignal?.symbol);
+    const subscribeSymbols = detailSubscribeSymbols;
     const token = getAuthToken();
 
-    if (!isDetailVisible || !symbol || !token) {
+    if (!isDetailVisible || subscribeSymbols.length === 0 || !token) {
       const existing = liveSocketRef.current;
       liveSocketRef.current = null;
       if (existing) {
         try {
           if (existing.readyState === WebSocket.OPEN) {
-            existing.send(JSON.stringify({ type: "unsubscribe", payload: symbol }));
+            subscribeSymbols.forEach((item) => {
+              existing.send(JSON.stringify({ type: "unsubscribe", payload: item }));
+            });
           }
         } catch {}
         existing.close();
@@ -712,7 +832,9 @@ function SignalsPageContent() {
 
     socket.onopen = () => {
       if (closedByEffect || liveSocketRef.current !== socket) return;
-      socket.send(JSON.stringify({ type: "subscribe", payload: symbol }));
+      subscribeSymbols.forEach((item) => {
+        socket.send(JSON.stringify({ type: "subscribe", payload: item }));
+      });
     };
 
     socket.onmessage = (event: MessageEvent<string>) => {
@@ -721,7 +843,11 @@ function SignalsPageContent() {
         const message = JSON.parse(event.data) as { type?: string; payload?: unknown };
         if (message.type !== "tick" || !message.payload || typeof message.payload !== "object") return;
         const tick = mapSignalSocketTick(message.payload as Record<string, unknown>);
-        if (!tick || !areEquivalentSignalSymbols(tick.symbol, symbol)) return;
+        if (!tick) return;
+        const matchesAnySubscribedSymbol = subscribeSymbols.some((item) =>
+          areEquivalentSignalSymbols(tick.symbol, item)
+        );
+        if (!matchesAnySubscribedSymbol) return;
         setLiveTick(tick);
       } catch {}
     };
@@ -733,12 +859,27 @@ function SignalsPageContent() {
       }
       try {
         if (socket.readyState === WebSocket.OPEN) {
-          socket.send(JSON.stringify({ type: "unsubscribe", payload: symbol }));
+          subscribeSymbols.forEach((item) => {
+            socket.send(JSON.stringify({ type: "unsubscribe", payload: item }));
+          });
         }
       } catch {}
       socket.close();
     };
-  }, [detailSignal?.symbol, isDetailVisible]);
+  }, [detailSubscribeSymbols, isDetailVisible]);
+
+  const livePriceForSignal = (signal: SignalItem) => {
+    if (!liveTick) return undefined;
+    const signalWire = getSignalWireSymbol(signal);
+    const signalDisplay = normalizeSignalSymbol(signal.symbol);
+    if (
+      !areEquivalentSignalSymbols(liveTick.symbol, signalWire) &&
+      !areEquivalentSignalSymbols(liveTick.symbol, signalDisplay)
+    ) {
+      return undefined;
+    }
+    return getBestLiveSignalPrice(liveTick);
+  };
 
   const stats = useMemo(() => {
     const total = pagination?.totalResults ?? signals.length;
@@ -1096,7 +1237,7 @@ function SignalsPageContent() {
                 const isBuy = isBuySignal(signal);
                 const targets = getTargets(signal);
                 const achievedTargetLevels = getAchievedTargetLevels(signal);
-                const points = getResolvedPoints(signal);
+                const points = getResolvedPoints(signal, livePriceForSignal(signal));
                 const status = getDisplayStatus(signal);
                 const isSelected = activeSignalKey === rowKey;
                 const rowSlideLabel = isBuy ? "BUY" : "SELL";
@@ -1212,7 +1353,7 @@ function SignalsPageContent() {
                 const isBuy = isBuySignal(signal);
                 const targets = getTargets(signal);
                 const achievedTargetLevels = getAchievedTargetLevels(signal);
-                const points = getResolvedPoints(signal);
+                const points = getResolvedPoints(signal, livePriceForSignal(signal));
                 const status = getDisplayStatus(signal);
                 const isSelected = activeSignalKey === cardKey;
                 const isBookOpen = openedMobileBookKey === cardKey;

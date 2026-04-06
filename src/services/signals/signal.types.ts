@@ -15,6 +15,9 @@ export type SignalItem = {
   uniqueId?: string;
   webhookId?: string;
   symbol?: string;
+  originalSymbol?: string;
+  sourceSymbol?: string;
+  symbolName?: string;
   segment?: string;
   status?: string;
   type?: string;
