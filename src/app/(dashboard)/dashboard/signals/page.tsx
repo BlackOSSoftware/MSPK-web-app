@@ -767,6 +767,7 @@ function SignalsPageContent() {
     page,
     limit: 12,
     status: backendStatusFilter,
+    sortBy: "latest-event",
   });
 
   const signals = useMemo(() => data?.results ?? [], [data?.results]);
@@ -796,6 +797,10 @@ function SignalsPageContent() {
   const detailBid = typeof liveTick?.bid === "number" ? liveTick.bid : undefined;
   const detailAsk = typeof liveTick?.ask === "number" ? liveTick.ask : undefined;
   const detailAchievedTargetLevels = detailSignal ? getAchievedTargetLevels(detailSignal) : [];
+  const detailPoints = detailSignal
+    ? getResolvedPoints(detailSignal, detailLivePrice) ??
+      (isSignalClosed(detailSignal) ? undefined : 0)
+    : undefined;
 
   useEffect(() => {
     const subscribeSymbols = detailSubscribeSymbols;
@@ -1352,7 +1357,9 @@ function SignalsPageContent() {
                 const isBuy = isBuySignal(signal);
                 const targets = getTargets(signal);
                 const achievedTargetLevels = getAchievedTargetLevels(signal);
-                const points = getResolvedPoints(signal, livePriceForSignal(signal));
+                const mobilePoints =
+                  getResolvedPoints(signal, livePriceForSignal(signal)) ??
+                  (isSignalClosed(signal) ? undefined : 0);
                 const status = getDisplayStatus(signal);
                 const isSelected = activeSignalKey === cardKey;
                 const isBookOpen = openedMobileBookKey === cardKey;
@@ -1457,10 +1464,10 @@ function SignalsPageContent() {
                             {status}
                           </div>
                           <div
-                            className={`inline-flex items-center gap-1 font-semibold ${getPointsTone(points)}`}
+                            className={`inline-flex items-center gap-1 font-semibold ${getPointsTone(mobilePoints)}`}
                           >
                             <Sparkles className="h-3.5 w-3.5 text-amber-700 dark:text-amber-100" />
-                            {formatPoints(points)}
+                            {formatPoints(mobilePoints)}
                           </div>
                         </div>
 
@@ -1687,8 +1694,8 @@ function SignalsPageContent() {
                           <Sparkles className="h-3.5 w-3.5 text-amber-700 dark:text-amber-100" />
                           Points
                         </div>
-                        <div className={`mt-1.5 text-sm font-semibold leading-tight ${getPointsTone(getResolvedPoints(detailSignal, detailLivePrice))} sm:mt-2 sm:text-lg`}>
-                          {formatPoints(getResolvedPoints(detailSignal, detailLivePrice))}
+                        <div className={`mt-1.5 text-sm font-semibold leading-tight ${getPointsTone(detailPoints)} sm:mt-2 sm:text-lg`}>
+                          {formatPoints(detailPoints)}
                         </div>
                       </div>
                     </div>
