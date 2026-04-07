@@ -542,6 +542,21 @@ function getBestLiveSignalPrice(tick?: LiveSignalTick | null) {
   return undefined;
 }
 
+function isReasonableLivePriceForSignal(signal: SignalItem, livePrice?: number) {
+  if (typeof livePrice !== "number" || !Number.isFinite(livePrice) || livePrice <= 0) return false;
+  const entry = getEntry(signal);
+  const stop = getStopLoss(signal);
+  const targets = getTargets(signal);
+  const anchors = [entry, stop, ...targets].filter(
+    (value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0
+  );
+  if (anchors.length === 0) return true;
+  const nearestAnchor = Math.min(...anchors.map((anchor) => Math.abs(livePrice - anchor)));
+  const anchorBase = Math.max(Math.min(...anchors), 1);
+  const distanceRatio = nearestAnchor / anchorBase;
+  return distanceRatio <= 0.35;
+}
+
 function mapSignalSocketTick(payload: Record<string, unknown>): LiveSignalTick | null {
   const symbolRaw = payload.symbol;
   if (typeof symbolRaw !== "string" || !symbolRaw.trim()) return null;
@@ -753,6 +768,7 @@ function SignalsPageContent() {
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [openedMobileBookKey, setOpenedMobileBookKey] = useState("");
   const [liveTick, setLiveTick] = useState<LiveSignalTick | null>(null);
+  const [listLiveTickMap, setListLiveTickMap] = useState<Record<string, LiveSignalTick>>({});
   const [statHoverPulse, setStatHoverPulse] = useState<Record<StatHoverKey, number>>({
     total: 0,
     today: 0,
@@ -760,6 +776,7 @@ function SignalsPageContent() {
     plan: 0,
   });
   const liveSocketRef = useRef<WebSocket | null>(null);
+  const listLiveSocketRef = useRef<WebSocket | null>(null);
   const activeTab = searchParams.get("tab") === "scripts" ? "scripts" : "feed";
   const backendStatusFilter = SIGNAL_STATUS_QUERY_MAP[statusFilter];
 
@@ -791,6 +808,13 @@ function SignalsPageContent() {
     return filteredSignals.find((item) => getSignalKey(item) === selectedKey) ?? null;
   }, [filteredSignals, selectedKey]);
   const detailSubscribeSymbols = useMemo(() => getSignalSubscriptionSymbols(detailSignal), [detailSignal]);
+  const listSubscribeSymbols = useMemo(() => {
+    const symbols = new Set<string>();
+    filteredSignals.forEach((signal) => {
+      getSignalSubscriptionSymbols(signal).forEach((item) => symbols.add(item));
+    });
+    return Array.from(symbols);
+  }, [filteredSignals]);
   const isDetailVisible = isDetailOpen && Boolean(detailSignal);
   const detailExitPrice = detailSignal ? getExit(detailSignal) : undefined;
   const detailLivePrice = getBestLiveSignalPrice(liveTick) ?? detailExitPrice;
@@ -852,6 +876,8 @@ function SignalsPageContent() {
           areEquivalentSignalSymbols(tick.symbol, item)
         );
         if (!matchesAnySubscribedSymbol) return;
+        const price = getBestLiveSignalPrice(tick);
+        if (!detailSignal || !isReasonableLivePriceForSignal(detailSignal, price)) return;
         setLiveTick(tick);
       } catch {}
     };
@@ -870,19 +896,106 @@ function SignalsPageContent() {
       } catch {}
       socket.close();
     };
-  }, [detailSubscribeSymbols, isDetailVisible]);
+  }, [detailSignal, detailSubscribeSymbols, isDetailVisible]);
+
+  useEffect(() => {
+    const subscribeSymbols = listSubscribeSymbols;
+    const token = getAuthToken();
+
+    if (subscribeSymbols.length === 0 || !token) {
+      const existing = listLiveSocketRef.current;
+      listLiveSocketRef.current = null;
+      if (existing) {
+        try {
+          if (existing.readyState === WebSocket.OPEN) {
+            subscribeSymbols.forEach((item) => {
+              existing.send(JSON.stringify({ type: "unsubscribe", payload: item }));
+            });
+          }
+        } catch {}
+        existing.close();
+      }
+      return;
+    }
+
+    let closedByEffect = false;
+    let socketUrl = "";
+
+    try {
+      socketUrl = getMarketSocketUrl(token);
+    } catch {
+      return;
+    }
+
+    const socket = new WebSocket(socketUrl);
+    listLiveSocketRef.current = socket;
+
+    socket.onopen = () => {
+      if (closedByEffect || listLiveSocketRef.current !== socket) return;
+      subscribeSymbols.forEach((item) => {
+        socket.send(JSON.stringify({ type: "subscribe", payload: item }));
+      });
+    };
+
+    socket.onmessage = (event: MessageEvent<string>) => {
+      if (closedByEffect || listLiveSocketRef.current !== socket) return;
+      try {
+        const message = JSON.parse(event.data) as { type?: string; payload?: unknown };
+        if (message.type !== "tick" || !message.payload || typeof message.payload !== "object") return;
+        const tick = mapSignalSocketTick(message.payload as Record<string, unknown>);
+        if (!tick) return;
+        const matchesAnySubscribedSymbol = subscribeSymbols.some((item) =>
+          areEquivalentSignalSymbols(tick.symbol, item)
+        );
+        if (!matchesAnySubscribedSymbol) return;
+        setListLiveTickMap((prev) => ({ ...prev, [tick.symbol]: tick }));
+      } catch {}
+    };
+
+    return () => {
+      closedByEffect = true;
+      if (listLiveSocketRef.current === socket) {
+        listLiveSocketRef.current = null;
+      }
+      try {
+        if (socket.readyState === WebSocket.OPEN) {
+          subscribeSymbols.forEach((item) => {
+            socket.send(JSON.stringify({ type: "unsubscribe", payload: item }));
+          });
+        }
+      } catch {}
+      socket.close();
+    };
+  }, [listSubscribeSymbols]);
+
+  const listLiveTicks = useMemo(() => Object.values(listLiveTickMap), [listLiveTickMap]);
 
   const livePriceForSignal = (signal: SignalItem) => {
-    if (!liveTick) return undefined;
     const signalWire = getSignalWireSymbol(signal);
     const signalDisplay = normalizeSignalSymbol(signal.symbol);
-    if (
-      !areEquivalentSignalSymbols(liveTick.symbol, signalWire) &&
-      !areEquivalentSignalSymbols(liveTick.symbol, signalDisplay)
-    ) {
-      return undefined;
+    const exactCandidates: number[] = [];
+    const aliasCandidates: number[] = [];
+    for (const tick of listLiveTicks) {
+      const price = getBestLiveSignalPrice(tick);
+      if (!isReasonableLivePriceForSignal(signal, price)) continue;
+      const normalizedTickSymbol = normalizeSignalSymbol(tick.symbol);
+      if (
+        normalizedTickSymbol === normalizeSignalSymbol(signalWire) ||
+        normalizedTickSymbol === signalDisplay
+      ) {
+        if (typeof price === "number") exactCandidates.push(price);
+        continue;
+      }
+      if (
+        areEquivalentSignalSymbols(tick.symbol, signalWire) ||
+        areEquivalentSignalSymbols(tick.symbol, signalDisplay)
+      ) {
+        if (typeof price === "number") aliasCandidates.push(price);
+      }
     }
-    return getBestLiveSignalPrice(liveTick);
+    if (exactCandidates.length > 0) return exactCandidates[0];
+    if (aliasCandidates.length > 0) return aliasCandidates[0];
+    return undefined;
   };
 
   const stats = useMemo(() => {
@@ -1241,7 +1354,9 @@ function SignalsPageContent() {
                 const isBuy = isBuySignal(signal);
                 const targets = getTargets(signal);
                 const achievedTargetLevels = getAchievedTargetLevels(signal);
-                const points = getResolvedPoints(signal, livePriceForSignal(signal));
+                const points =
+                  getResolvedPoints(signal, livePriceForSignal(signal)) ??
+                  (isSignalClosed(signal) ? undefined : 0);
                 const status = getDisplayStatus(signal);
                 const isSelected = activeSignalKey === rowKey;
                 const rowSlideLabel = isBuy ? "BUY" : "SELL";
